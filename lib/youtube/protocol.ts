@@ -43,7 +43,17 @@ export type UploadState = { state: "new" | "partial"; received: number } | { sta
 
 export type CompleteResult = { recording: LocalRecording; duplicateOf: LocalRecording | null };
 
-export type WorkerHealth = { ok: true; version: string; ffmpeg: string | null; queue: "supabase" | "local"; dataDir: string; analysis?: string | null; voice?: boolean; youtube?: boolean };
+/** Inbox folder (fase 2): what the worker sees in KIVOXEL/inbox. */
+export type InboxStatus = {
+  dir: string;
+  /** Files seen but not yet stable (still being copied). */
+  waiting: number;
+  imported: number;
+  last: { label: string; at: string; duplicate: boolean } | null;
+  errors: { file: string; message: string; at: string }[];
+};
+
+export type WorkerHealth = { ok: true; version: string; ffmpeg: string | null; queue: "supabase" | "local"; dataDir: string; analysis?: string | null; voice?: boolean; youtube?: boolean; inbox?: InboxStatus | null };
 
 export const isFingerprint = (value: string) => /^[0-9a-f]{64}$/.test(value);
 
