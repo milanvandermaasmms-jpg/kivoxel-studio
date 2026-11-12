@@ -1,0 +1,384 @@
+// Pakket 52: from analysed moments to formats, edit plans and scripts. Pure functions (only the hook rules imported), so both the
+// dashboard and the worker (plain Node with type stripping) can use them. Formats and timings: docs/youtube-onderzoek.md, chapter 5.
+import { HOOK_TYPES, parseHooks, type Hook } from "./hooks.ts";
+
+export type Format = "A" | "B" | "C";
+export const MOMENT_KINDS = ["near_death", "rescue", "mistake", "rare_find", "discovery", "escape", "surprise", "build_result"] as const;
+export type MomentKind = (typeof MOMENT_KINDS)[number];
+export const PRIVACY_FLAGS = ["gamertag", "chat", "voice", "notification", "face", "real_name"] as const;
+export type PrivacyFlag = (typeof PRIVACY_FLAGS)[number];
+
+export const KIND_LABEL: Record<MomentKind, string> = {
+  near_death: "Bijna dood",
+  rescue: "Redding",
+  mistake: "Fout",
+  rare_find: "Zeldzame vondst",
+  discovery: "Ontdekking",
+  escape: "Ontsnapping",
+  surprise: "Verrassende afloop",
+  build_result: "Bouwresultaat",
+};
+export const PRIVACY_LABEL: Record<PrivacyFlag, string> = {
+  gamertag: "gamertag",
+  chat: "chat in beeld",
+  voice: "stem te horen",
+  notification: "melding in beeld",
+  face: "gezicht",
+  real_name: "echte naam",
+};
+
+/** Which Short format a kind of moment suits. A build result only works inside a long video (format C). */
+export const FORMAT_FOR_KIND: Record<MomentKind, Format> = {
+  near_death: "A",
+  escape: "A",
+  rescue: "A",
+  mistake: "A",
+  surprise: "A",
+  rare_find: "B",
+  discovery: "B",
+  build_result: "C",
+};
+
+export type Moment = {
+  id?: string;
+  kind: MomentKind;
+  startMs: number;
+  endMs: number;
+  peakMs: number;
+  reason: string;
+  score: number;
+  hasContext: boolean;
+  contextNote: string | null;
+  hasPayoff: boolean;
+  payoffNote: string | null;
+  privacyFlags: PrivacyFlag[];
+  suggestedFormat: Format;
+};
+
+/** A moment needs at least this much lead-in before the peak (context) and this much after it (payoff). */
+export const MIN_CONTEXT_MS = 3000;
+export const MIN_PAYOFF_MS = 1500;
+/** Format A and B are built from one continuous piece of raw footage of at most about 60 s. */
+export const MAX_SHORT_SOURCE_MS = 60_000;
+/** Format C needs a recording of at least 8 minutes and at least three usable story moments. */
+export const MIN_LONG_RECORDING_MS = 8 * 60_000;
+export const MIN_LONG_MOMENTS = 3;
+
+const isKind = (v: unknown): v is MomentKind => typeof v === "string" && (MOMENT_KINDS as readonly string[]).includes(v);
+const isFlag = (v: unknown): v is PrivacyFlag => typeof v === "string" && (PRIVACY_FLAGS as readonly string[]).includes(v);
+const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+const int = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null);
+
+/**
+ * Checks one moment as the analysis service reported it. The service's own yes/no on context and payoff only counts
+ * when the timecodes back it up: enough lead-in before the peak and a visible outcome after it.
+ */
+export function checkMoment(raw: unknown, durationMs: number): { moment: Moment } | { error: string } {
+  if (!raw || typeof raw !== "object") return { error: "geen object" };
+  const r = raw as Record<string, unknown>;
+  if (!isKind(r.kind)) return { error: `onbekend soort moment: ${String(r.kind)}` };
+  const startMs = int(r.start_ms);
+  const endMs = int(r.end_ms);
+  if (startMs === null || endMs === null) return { error: "tijdcode ontbreekt" };
+  if (startMs < 0 || endMs <= startMs) return { error: "tijdcodes kloppen niet" };
+  if (endMs > durationMs + 1000) return { error: "tijdcode ligt na het einde van de opname" };
+  const end = Math.min(endMs, durationMs);
+  const peak = int(r.peak_ms);
+  const peakMs = peak !== null && peak >= startMs && peak <= end ? peak : Math.round((startMs + end) / 2);
+  const reason = text(r.reason, 500);
+  if (!reason) return { error: "reden ontbreekt" };
+  const score = Math.max(0, Math.min(100, int(r.score) ?? 0));
+
+  let contextNote = text(r.context_note, 300);
+  let hasContext = r.has_context === true;
+  if (hasContext && peakMs - startMs < MIN_CONTEXT_MS) {
+    hasContext = false;
+    contextNote = `Te weinig aanloop: ${formatTimecode(peakMs - startMs)} vóór het hoogtepunt (minimaal ${MIN_CONTEXT_MS / 1000} s).`;
+  }
+  let payoffNote = text(r.payoff_note, 300);
+  let hasPayoff = r.has_payoff === true;
+  if (hasPayoff && end - peakMs < MIN_PAYOFF_MS) {
+    hasPayoff = false;
+    payoffNote = `De afloop is niet te zien: de opname stopt ${formatTimecode(end - peakMs)} na het hoogtepunt.`;
+  }
+  const privacyFlags = Array.isArray(r.privacy_flags) ? [...new Set(r.privacy_flags.filter(isFlag))] : [];
+  const suggested = r.suggested_format === "A" || r.suggested_format === "B" || r.suggested_format === "C" ? r.suggested_format : FORMAT_FOR_KIND[r.kind];
+  return { moment: { kind: r.kind, startMs, endMs: end, peakMs, reason, score, hasContext, contextNote, hasPayoff, payoffNote, privacyFlags, suggestedFormat: suggested } };
+}
+
+/** Parses the JSON the analysis service returns ({ "moments": [...] }); keeps what is valid and says what was dropped. */
+export function parseAnalysis(raw: unknown, durationMs: number): { moments: Moment[]; rejected: string[] } {
+  const list = raw && typeof raw === "object" && Array.isArray((raw as { moments?: unknown }).moments) ? (raw as { moments: unknown[] }).moments : null;
+  if (!list) return { moments: [], rejected: ["antwoord bevat geen lijst met momenten"] };
+  const moments: Moment[] = [];
+  const rejected: string[] = [];
+  list.forEach((item, i) => {
+    const checked = checkMoment(item, durationMs);
+    if ("error" in checked) rejected.push(`moment ${i + 1}: ${checked.error}`);
+    else moments.push(checked.moment);
+  });
+  moments.sort((a, b) => a.startMs - b.startMs);
+  return { moments, rejected };
+}
+
+export const isUsable = (m: Pick<Moment, "hasContext" | "hasPayoff">) => m.hasContext && m.hasPayoff;
+
+const overlap = (a: Moment, b: Moment) => Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
+
+export type PlannedVideo = { planKey: string; format: Format; moments: Moment[]; promise: string };
+
+const PROMISE: Record<Format, string> = {
+  A: "Je ziet in 20 seconden of hij het overleeft.",
+  B: "Kijk wat hij vond, en waar.",
+  C: "Eén survival-avontuur van begin tot eind, verteld als een verhaal.",
+};
+
+/**
+ * Turns the usable moments of one recording into videos. Every Short gets its own moment (its own promise and payoff);
+ * a moment that overlaps more than half with a better one of the same format is skipped. A long video (format C) is
+ * only planned when the recording is long enough and has at least three usable moments.
+ * `key` makes the plan stable: analysing the same recording again yields the same plan keys.
+ */
+export function planVideos(moments: Moment[], durationMs: number, key: (m: Moment) => string): PlannedVideo[] {
+  const usable = moments.filter(isUsable);
+  const plans: PlannedVideo[] = [];
+  const taken: Moment[] = [];
+  for (const m of [...usable].sort((a, b) => b.score - a.score || a.startMs - b.startMs)) {
+    if (m.suggestedFormat === "C" || m.endMs - m.startMs > MAX_SHORT_SOURCE_MS) continue;
+    const clash = taken.some((t) => t.suggestedFormat === m.suggestedFormat && overlap(t, m) > 0.5 * Math.min(t.endMs - t.startMs, m.endMs - m.startMs));
+    if (clash) continue;
+    taken.push(m);
+    plans.push({ planKey: `${m.suggestedFormat}:${key(m)}`, format: m.suggestedFormat, moments: [m], promise: PROMISE[m.suggestedFormat] });
+  }
+  if (durationMs >= MIN_LONG_RECORDING_MS && usable.length >= MIN_LONG_MOMENTS) {
+    const story = [...usable].sort((a, b) => b.score - a.score).slice(0, 5).sort((a, b) => a.startMs - b.startMs);
+    plans.push({ planKey: "C", format: "C", moments: story, promise: PROMISE.C });
+  }
+  return plans;
+}
+
+export type Segment = {
+  part: "hook" | "build" | "payoff" | "teaser" | "search" | "discovery" | "aftermath" | "cold_open" | "goals" | "chapter";
+  src_start_ms: number;
+  src_end_ms: number;
+  out_start_ms: number;
+  speed: number;
+  effects: string[];
+  note: string;
+  /** Text shown in the picture during this segment (editor, fase C3). */
+  text?: string;
+};
+export type EditPlan = { segments: Segment[]; targetMs: number; warnings: string[] };
+
+/** Target lengths from the research (start values to test, not a proven optimum). */
+export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
+  A: { minMs: 15_000, maxMs: 25_000 },
+  B: { minMs: 20_000, maxMs: 30_000 },
+  C: { minMs: 8 * 60_000, maxMs: 12 * 60_000 },
+};
+
+/** Builds the segment list; speeds up a piece when it does not fit its slot (at most 2x, so it stays readable). */
+function assemble(parts: Array<Omit<Segment, "out_start_ms" | "speed"> & { slotMs?: number }>): Segment[] {
+  let out = 0;
+  const segments: Segment[] = [];
+  for (const p of parts) {
+    const len = p.src_end_ms - p.src_start_ms;
+    if (len <= 0) continue;
+    const speed = p.slotMs && len > p.slotMs ? Math.min(2, Math.round((len / p.slotMs) * 100) / 100) : 1;
+    const { slotMs: _slot, ...rest } = p;
+    segments.push({ ...rest, out_start_ms: out, speed });
+    out += Math.round(len / speed);
+  }
+  return segments;
+}
+const outLength = (s: Segment[]) => (s.length ? s[s.length - 1].out_start_ms + Math.round((s[s.length - 1].src_end_ms - s[s.length - 1].src_start_ms) / s[s.length - 1].speed) : 0);
+
+/** A chapter of a long video takes this much footage around its moment: 1:45 in total, within the 1.5-3 minutes of the research. */
+export const CHAPTER_BEFORE_MS = 60_000;
+export const CHAPTER_AFTER_MS = 45_000;
+/** A Short takes up to this much build-up before the peak, also when the analysis cut the moment tighter. */
+export const SHORT_LEAD_IN_MS = 12_000;
+
+/**
+ * Builds the edit plan. `durationMs` (length of the recording) lets the plan take build-up and outcome from just outside
+ * the moment the analysis reported, so a Short reaches its target length; without it the plan stays inside the moment.
+ */
+export function buildEditPlan(format: Format, moments: Moment[], durationMs = Number.POSITIVE_INFINITY): EditPlan {
+  const warnings: string[] = [];
+  let segments: Segment[];
+  if (format === "A" || format === "B") {
+    const m = moments[0];
+    if (!m) return { segments: [], targetMs: 0, warnings: ["Geen moment gekozen."] };
+    // How far the plan may run after the peak: the end of the recording when known, otherwise the end of the moment.
+    const limit = Number.isFinite(durationMs) ? durationMs : m.endMs;
+    if (format === "A") {
+      // 0-1 s dreiging plus hook; 1-12 s opbouw (versneld); 12-18 s afloop; abrupt einde zodat de Short opnieuw begint.
+      const hookStart = Math.max(m.startMs, m.peakMs - 1000);
+      segments = assemble([
+        { part: "hook", src_start_ms: hookStart, src_end_ms: m.peakMs, effects: ["top_line", "zoom"], note: "Dreiging in beeld, eerste woorden van de hook" },
+        { part: "build", src_start_ms: Math.max(0, Math.min(m.startMs, m.peakMs - SHORT_LEAD_IN_MS)), src_end_ms: m.peakMs, slotMs: 11_000, effects: ["captions", "zoom_hearts"], note: "Opbouw; saaie stukken versneld" },
+        { part: "payoff", src_start_ms: m.peakMs, src_end_ms: Math.min(limit, m.peakMs + 6000), effects: ["sfx", "captions"], note: "Afloop; abrupt eindigen voor een naadloze herhaling" },
+      ]);
+    } else {
+      // 0-1 s teaser van de vondst; 1-10 s zoeken (versneld); 10-18 s ontdekking met zoom en tekst; 18-25 s wat hij ermee doet.
+      const findEnd = Math.min(limit, m.peakMs + 8000);
+      segments = assemble([
+        { part: "teaser", src_start_ms: m.peakMs, src_end_ms: Math.min(limit, m.peakMs + 1000), effects: ["blur", "top_line"], note: "Flits van de vondst, half verborgen" },
+        { part: "search", src_start_ms: Math.max(0, Math.min(m.startMs, m.peakMs - 14_000)), src_end_ms: m.peakMs, slotMs: 9000, effects: ["captions"], note: "Het zoeken in sneltreinvaart" },
+        { part: "discovery", src_start_ms: m.peakMs, src_end_ms: findEnd, effects: ["zoom", "text", "sfx"], note: "De ontdekking met zoom en tekst" },
+        { part: "aftermath", src_start_ms: findEnd, src_end_ms: Math.min(limit, findEnd + 7000), effects: ["captions"], note: "Wat hij ermee doet" },
+      ]);
+    }
+  } else {
+    if (moments.length < MIN_LONG_MOMENTS) warnings.push(`Een lange video vraagt minstens ${MIN_LONG_MOMENTS} bruikbare momenten.`);
+    const best = [...moments].sort((a, b) => b.score - a.score)[0];
+    const ordered = [...moments].sort((a, b) => a.startMs - b.startMs);
+    // Chapters of 1.5-3 minutes (research chapter 5): a window around each moment, without overlapping the previous one.
+    let previousEnd = 0;
+    const chapters = ordered.map((m, i) => {
+      const start = Math.max(previousEnd, m.peakMs - CHAPTER_BEFORE_MS, 0);
+      const end = Math.max(start, Math.min(durationMs, m.peakMs + CHAPTER_AFTER_MS));
+      previousEnd = end;
+      return { part: "chapter" as const, src_start_ms: start, src_end_ms: end, effects: ["captions", "day_label"], note: `Hoofdstuk ${i + 1}: ${KIND_LABEL[m.kind]}` };
+    });
+    segments = best
+      ? assemble([
+          { part: "cold_open", src_start_ms: Math.max(0, best.peakMs - 7500), src_end_ms: Math.min(durationMs, best.peakMs + 7500), effects: ["captions"], note: "Het spannendste moment, daarna: \"But let's start at the beginning.\"" },
+          { part: "goals", src_start_ms: 0, src_end_ms: Math.min(15_000, chapters[0].src_start_ms || 15_000), effects: ["text"], note: "Regel en twee of drie doelen benoemen vóór 30 s" },
+          ...chapters,
+        ])
+      : [];
+  }
+  const targetMs = outLength(segments);
+  const t = TARGET[format];
+  if (segments.length && targetMs < t.minMs) warnings.push(`Korter dan de richtlengte (${formatTimecode(targetMs)}, richtlengte ${formatTimecode(t.minMs)}-${formatTimecode(t.maxMs)}).`);
+  if (targetMs > t.maxMs) warnings.push(`Langer dan de richtlengte (${formatTimecode(targetMs)}); de montage moet meer wegknippen.`);
+  return { segments, targetMs, warnings };
+}
+
+export type ScriptLine = { at_ms: number; text: string };
+/** hooks and loopLine: hook-first production (fase C2); empty for scripts written before. */
+export type ScriptDraft = { topLine: string; hook: string; lines: ScriptLine[]; hooks: Hook[]; loopLine: string | null };
+
+/**
+ * Placeholder script for recordings labelled as test data, so the chain can be tested without a paid service.
+ * Real scripts come from the AI and must be built on what happens in the footage (research 6.5: no template text).
+ */
+export function testScript(plan: EditPlan, moments: Moment[]): ScriptDraft {
+  const main = moments[0];
+  const kind = main ? KIND_LABEL[main.kind].toUpperCase() : "MOMENT";
+  return {
+    topLine: `[TEST] ${kind}`.slice(0, 60),
+    hook: `[TESTDATA] Hook for ${kind.toLowerCase()} — the real hook comes from the analysis service.`,
+    lines: plan.segments.map((s) => ({ at_ms: s.out_start_ms, text: `[TESTDATA] ${s.part}: ${s.note}` })),
+    // Three placeholder variants so the hook choice can be tested for free; clearly marked as test data.
+    hooks: [
+      { type: "challenge", first_line: "[TESTDATA] Hook 1: uitdaging", overlay: "[TEST] HOOK 1", cold_open: false },
+      { type: "cold_open", first_line: "[TESTDATA] Hook 2: hoogtepunt eerst", overlay: "[TEST] HOOK 2", cold_open: true },
+      { type: "curiosity_gap", first_line: "[TESTDATA] Hook 3: nieuwsgierigheid", overlay: "[TEST] HOOK 3", cold_open: false },
+    ],
+    loopLine: "[TESTDATA] Slotzin die aansluit op het begin",
+  };
+}
+
+/** Instructions for the analysis service (Gemini, after approval). The answer must be JSON that parseAnalysis accepts. */
+export function analysisPrompt(durationMs: number): string {
+  return [
+    "You analyse raw Minecraft (PS5, Bedrock) survival gameplay for a faceless YouTube channel.",
+    `The recording is ${formatTimecode(durationMs)} long. Report every usable moment with exact timecodes in milliseconds.`,
+    `Kinds: ${MOMENT_KINDS.join(", ")}. Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.`,
+    "Only report moments a viewer would find exciting or surprising. Routine actions (sleeping, walking, crafting, building) are not moments unless something unexpected happens.",
+    "start_ms is where the build-up starts (usually 10-20 seconds before the peak), end_ms is where the outcome is clearly visible.",
+    "For each moment give: kind, start_ms, end_ms, peak_ms, reason (what happens on screen, one sentence), score 0-100,",
+    "has_context (is it clear what is going on before the peak?) with context_note, has_payoff (is the outcome visible?) with payoff_note,",
+    `privacy_flags (any of ${PRIVACY_FLAGS.join(", ")} that is visible or audible), suggested_format (A near-death Short, B rare-find Short, C long story).`,
+    "Only describe what is visible or audible. Do not invent story elements. Answer with JSON only: {\"moments\": [...]}",
+  ].join("\n");
+}
+
+/** Estimated cost of analysing a recording, in whole euro cents, rounded up. Default: 35 cents per hour (research chapter 9, high resolution). */
+export function estimateAnalysisCents(durationMs: number, centsPerHour = 35): number {
+  return Math.max(1, Math.ceil((durationMs / 3_600_000) * centsPerHour));
+}
+
+/** Moments for a recording labelled as test data: fixed positions, no AI, no costs. Clearly marked TESTDATA. */
+export function testMoments(durationMs: number): Moment[] {
+  const at = (f: number) => Math.round(durationMs * f);
+  const raw = [
+    { kind: "near_death", start_ms: at(0.1), end_ms: at(0.6), peak_ms: at(0.45), reason: "TESTDATA: vaste positie, geen echte analyse", score: 70, has_context: true, has_payoff: true },
+    { kind: "rare_find", start_ms: at(0.55), end_ms: at(0.95), peak_ms: at(0.75), reason: "TESTDATA: vaste positie, geen echte analyse", score: 60, has_context: true, has_payoff: true },
+  ];
+  return parseAnalysis({ moments: raw }, durationMs).moments;
+}
+
+/** What a recording must show before a format is possible (research chapter 5, "benodigde beeldmomenten"). */
+export const FOOTAGE_NEEDED: Record<Format, string> = {
+  A: "Bijna-dood-moment: zichtbaar lage gezondheid of een dreiging (mob, lava, val), de actie en een duidelijke afloop, binnen ongeveer een minuut doorlopend beeld.",
+  B: "Zeldzame vondst: het zoeken (mijnen, verkennen), het moment van de vondst en wat hij ermee doet.",
+  C: "Survival-verhaal: minstens 8 minuten beeld met 3 bruikbare momenten, liefst met een duidelijk begin en een eindresultaat.",
+};
+
+/** Formats the planned videos of a recording do not cover yet, so the dashboard can say which gameplay is needed. */
+export function missingFormats(plannedFormats: Format[]): Format[] {
+  return (["A", "B", "C"] as const).filter((f) => !plannedFormats.includes(f));
+}
+
+/** Recordings longer than this are refused for analysis (context limit of Flash-Lite at low resolution, with margin). */
+export const MAX_ANALYSIS_MS = 2 * 3_600_000;
+
+const FORMAT_RULES: Record<Format, string> = {
+  A: "Format A, near-death Short (vertical, 15-25 s). No intro: the first words are the threat. Build tension, show the outcome, end abruptly so the Short loops.",
+  B: "Format B, rare-find Short (vertical, 20-30 s). Open with a teaser of the find, race through the search, reveal the find, then what he does with it.",
+  C: "Format C, long survival story (horizontal). Cold open with the most exciting moment, then name the goal(s) before 30 s, then tell it from the beginning (\"It all started...\"), one short chapter per moment.",
+};
+
+/** Instructions for the script writer. Every story element must come from the moments (research 6.5: no template text). */
+export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl"): string {
+  return [
+    `You write narration for a faceless Minecraft (PS5, Bedrock) YouTube channel, in ${language === "en" ? "English" : "Dutch"}.`,
+    FORMAT_RULES[format],
+    promise ? `Viewer promise: ${promise}` : "",
+    "What happens on screen (from the analysis; use only this, invent nothing, never mention real names, gamertags or the player's age):",
+    ...moments.map((m) => `- ${formatTimecode(m.startMs)}-${formatTimecode(m.endMs)} ${m.kind}: ${m.reason}${m.payoffNote ? ` Outcome: ${m.payoffNote}` : ""}`),
+    `Edit plan of the final video (${formatTimecode(plan.targetMs)} long):`,
+    ...plan.segments.map((s) => `- at ${s.out_start_ms} ms: ${s.part} (${s.note})`),
+    "Work hook-first: first decide the payoff (the strongest moment that is really visible), then the opening. No intro, no greeting, no calm establishing line: the first second shows action or the promise of the payoff, and the payoff must really come.",
+    "Write: top_line (fixed text at the top of a Short, at most 6 words, capitals). It must name the concrete threat or find of THIS moment (for example how many mobs, how many hearts, which item);",
+    "never a generic phrase such as 'survives or dies' that would fit any video. Then hook (the first sentence, at most 15 words, also specific to this moment).",
+    `Then hooks: exactly 3 alternative openings of DIFFERENT types from: ${HOOK_TYPES.join(", ")}. Each: {"type", "first_line" (at most 10 words, about what is on screen in the first second), "overlay" (at most 6 words, capitals, specific), "cold_open" (true when the video should open with a 1.5 s glimpse of the payoff)}.`,
+    "Then loop_line: one short last sentence that leads straight back into the first second, so viewers watch again. For videos longer than 30 s, put a second small hook or open question halfway in the lines.",
+    `And lines: narration as [{"at_ms": number, "text": string}] on the timeline of the final video, between 0 and ${plan.targetMs} ms, about 2.5 words per second, short sentences.`,
+    'Answer with JSON only: {"top_line": "...", "hook": "...", "hooks": [...], "loop_line": "...", "lines": [...]}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Checks the script the service returns; lines outside the video are dropped, the rest is sorted. */
+export function parseScript(raw: unknown, targetMs: number): { draft: ScriptDraft; dropped: number } | { error: string } {
+  if (!raw || typeof raw !== "object") return { error: "geen object" };
+  const r = raw as Record<string, unknown>;
+  const hook = text(r.hook, 300);
+  if (!hook) return { error: "hook ontbreekt" };
+  const topLine = text(r.top_line, 60) ?? "";
+  if (!Array.isArray(r.lines)) return { error: "scriptregels ontbreken" };
+  const lines: ScriptLine[] = [];
+  for (const l of r.lines as unknown[]) {
+    const item = l && typeof l === "object" ? (l as Record<string, unknown>) : null;
+    const at = item ? int(item.at_ms) : null;
+    const t = item ? text(item.text, 400) : null;
+    if (at !== null && t && at >= 0 && at <= targetMs) lines.push({ at_ms: at, text: t });
+  }
+  if (!lines.length) return { error: "geen bruikbare scriptregels" };
+  lines.sort((a, b) => a.at_ms - b.at_ms);
+  return { draft: { topLine, hook, lines, hooks: parseHooks(r.hooks), loopLine: text(r.loop_line, 200) }, dropped: (r.lines as unknown[]).length - lines.length };
+}
+
+/** 83_400 -> "1:23"; 3_725_000 -> "1:02:05". */
+export function formatTimecode(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.env*
+!.env.example
+.DS_Store
+.claude/settings.local.json
+
+# Nooit gezinsgegevens of bankbestanden in Git
+*.csv

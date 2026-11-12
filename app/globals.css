@@ -1,0 +1,205 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Familie M&K — design system
+   - Licht en donker thema via de klasse .dark op <html>
+   - Donker thema herdefinieert de kleurschalen, zodat bestaande
+     klassen (bg-slate-50, text-emerald-700, …) automatisch meekleuren.
+   - Eigen tokens: surface (kaarten), ink (donkere knoppen), brand.
+   ============================================================ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-ink: #0f172a;
+  --color-ink-fg: #ffffff;
+  --color-brand: #059669;
+  --color-brand-fg: #ffffff;
+
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-pop: 0 10px 30px -10px rgb(15 23 42 / 0.25), 0 4px 10px -6px rgb(15 23 42 / 0.15);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --color-surface: #111827;
+  --color-surface-raised: #172033;
+  --color-ink: #e2e8f0;
+  --color-ink-fg: #0b1120;
+
+  /* Neutrale schaal omgedraaid */
+  --color-slate-50: #0b1120;
+  --color-slate-100: #172033;
+  --color-slate-200: #243044;
+  --color-slate-300: #334155;
+  --color-slate-400: #64748b;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #b6c2d2;
+  --color-slate-700: #d5dde8;
+  --color-slate-800: #e8edf3;
+  --color-slate-900: #f1f5f9;
+
+  /* Lichte tinten → donkere tinten; donkere tekstkleuren → lichte tekstkleuren */
+  --color-emerald-50: #052e22;
+  --color-emerald-100: #064e3b;
+  --color-emerald-200: #065f46;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-800: #a7f3d0;
+
+  --color-red-50: #3b0d0d;
+  --color-red-100: #4c1414;
+  --color-red-200: #7f1d1d;
+  --color-red-700: #fca5a5;
+  --color-red-800: #fecaca;
+
+  --color-amber-50: #2e1f05;
+  --color-amber-100: #3d2a06;
+  --color-amber-200: #78500c;
+  --color-amber-300: #92600f;
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+
+  --color-sky-50: #082436;
+  --color-sky-100: #0c3049;
+  --color-sky-700: #7dd3fc;
+  --color-sky-800: #bae6fd;
+
+  --color-violet-50: #1e1338;
+  --color-violet-100: #2a1a4d;
+  --color-violet-200: #4c2f8a;
+  --color-violet-700: #c4b5fd;
+  --color-violet-800: #ddd6fe;
+  --color-violet-900: #ede9fe;
+
+  --color-orange-100: #3d1d06;
+  --color-orange-800: #fdba74;
+
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.02);
+  --shadow-pop: 0 10px 30px -10px rgb(0 0 0 / 0.7);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  body {
+    @apply bg-slate-50 text-slate-900;
+  }
+  input,
+  select,
+  textarea {
+    background-color: var(--color-surface);
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Dichtheid: compacte weergave */
+[data-density="compact"] .widget-body {
+  padding: 0.5rem 0.75rem;
+}
+[data-density="compact"] .dashboard-grid {
+  gap: 0.75rem;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-pop-in {
+  animation: pop-in 120ms ease-out;
+}
+
+/* Dashboard: vaste rijen zoals een widgetraster, kleine widgets vullen gaten op */
+.dashboard-grid {
+  --widget-row: 21rem;
+  grid-auto-flow: dense;
+}
+[data-density="compact"] .dashboard-grid {
+  --widget-row: 16rem;
+}
+.dashboard-grid .widget-body {
+  max-height: none;
+}
+@media (min-width: 768px) {
+  .dashboard-grid {
+    grid-auto-rows: var(--widget-row);
+  }
+}
+/* Breed scherm: elke widget op zijn eigen plek, gaten mogen blijven bestaan */
+@media (min-width: 1280px) {
+  .widget-cell {
+    grid-column: calc(var(--x) * 4 + 1) / span var(--w);
+    grid-row: calc(var(--y) + 1) / span var(--h);
+  }
+}
+
+@keyframes widget-jiggle {
+  0%, 100% { transform: rotate(-0.3deg); }
+  50% { transform: rotate(0.3deg); }
+}
+.widget-jiggle {
+  animation: widget-jiggle 0.32s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .widget-jiggle {
+    animation: none;
+  }
+}
+
+/* ============================================================
+   YouTube Studio (Kivoxel, fase G): eigen stijl binnen /youtube.
+   - Turquoise als accent (knoppen, actieve navigatie), subtiel paars.
+   - Donker thema: donkerblauw en antraciet in plaats van grijs.
+   - Alleen binnen .studio; de rest van de gezinsapp blijft gelijk.
+   ============================================================ */
+.studio {
+  --color-brand: #0891b2;
+  /* Primary buttons are emerald in the family app; turquoise in the studio. */
+  --color-emerald-600: #0891b2;
+  --color-emerald-700: #0e7490;
+}
+.studio-header {
+  background-image: linear-gradient(120deg, rgb(8 145 178 / 0.08), rgb(124 58 237 / 0.06) 60%, transparent);
+}
+.dark .studio {
+  --color-brand: #22d3ee;
+  --color-surface: #0f1b2d;
+  --color-surface-raised: #13223a;
+  --color-slate-50: #0a1322;
+  --color-slate-100: #14213a;
+  --color-slate-200: #1f2f4a;
+  --color-slate-300: #2c3d5c;
+  --color-emerald-600: #0e7490;
+  --color-emerald-700: #67e8f9;
+  --color-cyan-50: #082f3a;
+  --color-cyan-500: #22d3ee;
+  --color-cyan-600: #22d3ee;
+  --color-cyan-700: #67e8f9;
+  --color-cyan-800: #a5f3fc;
+  --color-cyan-900: #cffafe;
+  --color-cyan-200: #155e75;
+}
+.dark .studio-header {
+  background-image: linear-gradient(120deg, rgb(34 211 238 / 0.1), rgb(167 139 250 / 0.08) 60%, transparent);
+}
