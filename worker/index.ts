@@ -9,6 +9,7 @@ import { WORKER_PORT, type WorkerHealth } from "../lib/youtube/protocol.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
 import { boostLoudness, cutArgs, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
 import { createGemini } from "./gemini.ts";
+import { createResearch } from "./research.ts";
 import { createTts, createUsageCounter } from "./tts.ts";
 import { createQueue, type Ai, type Montage, type Publisher } from "./queue.ts";
 import { createWorkerServer } from "./server.ts";
@@ -22,7 +23,7 @@ import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
 
-const VERSION = "62.3";
+const VERSION = "63.1";
 
 function loadEnv(file: string) {
   if (!existsSync(file)) return;
@@ -125,7 +126,9 @@ const youtubeLink = createYouTubeLink(youtube, supabaseUrl && serviceKey ? { url
 const publisher: Publisher | null = youtube.configured && montage ? { uploader: createUploader({ yt: youtube, sessionDir: join(dataDir, "youtube-uploads") }), rendersDir: montage.rendersDir, tmpDir: montage.tmpDir, frame: (input, atMs, output) => extractFrame(ffmpeg, input, atMs, output) } : null;
 // Statistics (fase E): hourly counts and every 6 hours the delayed analytics, only while YouTube is linked.
 const statsSync = youtube.configured && supabaseUrl && serviceKey ? createStatsSync({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), stats: createStats({ yt: youtube }), log }) : null;
-const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, workerName, store, log, ai, montage, undefined, publisher) : null;
+// Fase 3.1: reference videos in the niche through the linked YouTube account (only quota, no money).
+const research = youtube.configured ? createResearch({ yt: youtube }) : null;
+const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, workerName, store, log, ai, montage, undefined, publisher, research) : null;
 
 // Inbox folder (fase 2): KIVOXEL/inbox in the user's home folder unless KIVOXEL_INBOX_DIR says otherwise. KIVOXEL_INBOX=0 switches it off.
 const inboxDir = env.KIVOXEL_INBOX_DIR || join(homedir(), "KIVOXEL", "inbox");

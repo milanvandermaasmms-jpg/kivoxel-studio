@@ -3,18 +3,24 @@
 import { Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Dialog";
-import { addTag, removeTag } from "@/lib/youtube/suggest";
+import { addTag, removeTag, splitTagInput } from "@/lib/youtube/suggest";
 import { loadSuggestState, requestSuggestions, type SuggestState } from "@/lib/youtube/suggestData";
+import { track } from "@/lib/youtube/learningData";
 
 /** Tags as chips: click the cross to remove, type and press Enter (or a comma) to add. */
-export function TagChips({ tags, onChange, disabled }: { tags: string[]; onChange: (tags: string[]) => void; disabled?: boolean }) {
+export function TagChips({ tags, onChange, disabled, log }: { tags: string[]; onChange: (tags: string[]) => void; disabled?: boolean; log?: (action: string, metadata: Record<string, unknown>) => void }) {
   const [text, setText] = useState("");
   const commit = (value: string) => {
     let next = tags;
     // "minecraft #gaming #shorts" are three tags, not one (that went wrong in the old tag field).
-    for (const part of value.split(/,|s+(?=#)/)) next = addTag(next, part);
+    for (const part of splitTagInput(value)) next = addTag(next, part);
+    for (const t of next.slice(tags.length)) log?.("tag_added", { tag: t });
     onChange(next);
     setText("");
+  };
+  const remove = (t: string) => {
+    log?.("tag_removed", { tag: t });
+    onChange(removeTag(tags, t));
   };
   return (
     <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1">
@@ -22,7 +28,7 @@ export function TagChips({ tags, onChange, disabled }: { tags: string[]; onChang
         <span key={t.toLowerCase()} className="inline-flex items-center gap-1 rounded-full bg-cyan-50 py-0.5 pl-2 pr-1 text-cyan-900">
           {t}
           {!disabled && (
-            <button type="button" onClick={() => onChange(removeTag(tags, t))} aria-label={`Tag ${t} verwijderen`} className="rounded-full p-0.5 hover:bg-cyan-200">
+            <button type="button" onClick={() => remove(t)} aria-label={`Tag ${t} verwijderen`} className="rounded-full p-0.5 hover:bg-cyan-200">
               <X className="h-3 w-3" aria-hidden />
             </button>
           )}
@@ -36,7 +42,7 @@ export function TagChips({ tags, onChange, disabled }: { tags: string[]; onChang
             if (e.key === "Enter") {
               e.preventDefault();
               if (text.trim()) commit(text);
-            } else if (e.key === "Backspace" && !text && tags.length) onChange(tags.slice(0, -1));
+            } else if (e.key === "Backspace" && !text && tags.length) remove(tags[tags.length - 1]);
           }}
           onBlur={() => text.trim() && commit(text)}
           placeholder={tags.length ? "Nog een tag…" : "Typ een tag en druk op Enter"}
@@ -52,8 +58,9 @@ export function TagChips({ tags, onChange, disabled }: { tags: string[]; onChang
  * AI suggestions for tags, titles and description (fase 1.6). Always shows what is happening: waiting for the worker,
  * busy, done, or the error with "Opnieuw proberen". Nothing is taken over without Milan's click.
  */
-export function SuggestBox({ studioId, videoId, title, description, tags, disabled, onTags, onTitle, onDescription }: {
+export function SuggestBox({ studioId, videoId, channelId = null, title, description, tags, disabled, onTags, onTitle, onDescription }: {
   studioId: string;
+  channelId?: string | null;
   videoId: string;
   title: string;
   description: string;
@@ -67,6 +74,7 @@ export function SuggestBox({ studioId, videoId, title, description, tags, disabl
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const last = useRef("");
+  const log = (action: string, metadata: Record<string, unknown> = {}) => track(studioId, action, "klaar", { video: videoId, ...metadata }, channelId);
 
   const load = useCallback(async () => {
     try {
@@ -96,6 +104,7 @@ export function SuggestBox({ studioId, videoId, title, description, tags, disabl
     setError(null);
     try {
       await requestSuggestions(studioId, videoId, { title, description });
+      log("ai_suggest_requested");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Vragen lukte niet.");
@@ -147,7 +156,10 @@ export function SuggestBox({ studioId, videoId, title, description, tags, disabl
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-slate-600">Tags (klik om toe te voegen):</span>
               {missing.length > 0 && (
-                <button type="button" disabled={disabled} onClick={() => onTags(missing.reduce(addTag, tags))} className="text-violet-800 underline underline-offset-2">
+                <button type="button" disabled={disabled} onClick={() => {
+                  log("ai_tag_accepted", { tags: missing });
+                  onTags(missing.reduce(addTag, tags));
+                }} className="text-violet-800 underline underline-offset-2">
                   Alle {missing.length} toevoegen
                 </button>
               )}
@@ -156,7 +168,10 @@ export function SuggestBox({ studioId, videoId, title, description, tags, disabl
               {s.tags.map((t) => {
                 const added = tags.some((x) => x.toLowerCase() === t.toLowerCase());
                 return (
-                  <button key={t} type="button" disabled={disabled} aria-pressed={added} onClick={() => onTags(added ? removeTag(tags, t) : addTag(tags, t))} className={`rounded-full border px-2 py-0.5 ${added ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-violet-300 bg-surface text-violet-900 hover:bg-violet-50"}`}>
+                  <button key={t} type="button" disabled={disabled} aria-pressed={added} onClick={() => {
+                      log(added ? "ai_tag_removed" : "ai_tag_accepted", { tag: t });
+                      onTags(added ? removeTag(tags, t) : addTag(tags, t));
+                    }} className={`rounded-full border px-2 py-0.5 ${added ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-violet-300 bg-surface text-violet-900 hover:bg-violet-50"}`}>
                     {added ? "✓ " : "+ "}
                     {t}
                   </button>
@@ -169,7 +184,10 @@ export function SuggestBox({ studioId, videoId, title, description, tags, disabl
               <span className="text-slate-600">Titels (klik om te gebruiken):</span>
               <div className="flex flex-wrap gap-1.5">
                 {s.titles.map((t) => (
-                  <button key={t} type="button" disabled={disabled} onClick={() => onTitle(t)} className={`rounded-full border px-2 py-0.5 text-left ${title === t ? "border-cyan-500 bg-cyan-50" : "border-violet-300 bg-surface hover:bg-violet-50"}`}>
+                  <button key={t} type="button" disabled={disabled} onClick={() => {
+                      log("ai_title_used", { title: t, index: s.titles.indexOf(t) });
+                      onTitle(t);
+                    }} className={`rounded-full border px-2 py-0.5 text-left ${title === t ? "border-cyan-500 bg-cyan-50" : "border-violet-300 bg-surface hover:bg-violet-50"}`}>
                     {t}
                   </button>
                 ))}
@@ -180,7 +198,10 @@ export function SuggestBox({ studioId, videoId, title, description, tags, disabl
             <div className="space-y-1">
               <span className="text-slate-600">Beschrijving:</span>
               <p className="whitespace-pre-line rounded bg-surface p-2 text-slate-700">{s.description}</p>
-              <button type="button" disabled={disabled || description === s.description} onClick={() => onDescription(s.description)} className="text-violet-800 underline underline-offset-2 disabled:text-slate-400 disabled:no-underline">
+              <button type="button" disabled={disabled || description === s.description} onClick={() => {
+                  log("ai_description_used");
+                  onDescription(s.description);
+                }} className="text-violet-800 underline underline-offset-2 disabled:text-slate-400 disabled:no-underline">
                 {description === s.description ? "In gebruik" : description ? "Vervang mijn beschrijving" : "Gebruik deze beschrijving"}
               </button>
             </div>

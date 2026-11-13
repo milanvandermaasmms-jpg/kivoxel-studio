@@ -20,6 +20,9 @@ export type SuggestInput = {
   usedTags: string[];
   /** Words that may never appear (private words, banned words of the channel). */
   forbidden: string[];
+  /** Fase 2: tags Milan keeps leaving out or removing, and titles he picked before (his style). */
+  dislikedTags?: string[];
+  likedTitles?: string[];
 };
 
 export type Suggestions = { tags: string[]; titles: string[]; description: string; source: "ai" | "test" };
@@ -37,6 +40,8 @@ export function suggestPrompt(i: SuggestInput): string {
     i.hook ? `Hook (first seconds): ${i.hook}` : "",
     i.narration.length ? `Voice-over transcript:\n${i.narration.join("\n").slice(0, 3000)}` : "",
     i.usedTags.length ? `Tags the creator used on earlier videos (reuse the ones that fit): ${i.usedTags.slice(0, 30).join(", ")}` : "",
+    i.dislikedTags?.length ? `The creator keeps removing these tags, so do not suggest them: ${i.dislikedTags.slice(0, 30).join(", ")}` : "",
+    i.likedTitles?.length ? `Titles the creator picked before (match this style, do not copy them): ${i.likedTitles.map((t) => `"${t}"`).join("; ")}` : "",
     `Give ${TAG_MIN} to ${TAG_MAX} YouTube tags: specific first (what happens in this video), then broader (minecraft, game mode), lowercase, no hashtags, no duplicates, together under 450 characters.`,
     "Give exactly 3 titles of at most 70 characters, each a different kind: 1) keyword first (starts with \"Minecraft\"), 2) curiosity, 3) challenge or number. Only promise what the video really shows; no clickbait.",
     `Give a description of 2 to 4 short sentences that matches the video, then a blank line and 3 to 5 hashtags${i.kind === "short" ? " including #shorts" : ""}.`,
@@ -51,7 +56,8 @@ export function suggestPrompt(i: SuggestInput): string {
 const hasForbidden = (text: string, forbidden: string[]) => forbidden.some((w) => w.trim() && text.toLowerCase().includes(w.trim().toLowerCase()));
 
 /** Checks the answer of Gemini: cleans, removes doubles and forbidden words, and keeps YouTube's limits. */
-export function parseSuggestions(raw: unknown, forbidden: string[] = []): Suggestions | { error: string } {
+export function parseSuggestions(raw: unknown, forbidden: string[] = [], disliked: string[] = []): Suggestions | { error: string } {
+  const avoid = new Set(disliked.map((t) => t.toLowerCase()));
   if (!raw || typeof raw !== "object") return { error: "geen JSON-object" };
   const r = raw as Record<string, unknown>;
   const seen = new Set<string>();
@@ -60,7 +66,7 @@ export function parseSuggestions(raw: unknown, forbidden: string[] = []): Sugges
   for (const t of Array.isArray(r.tags) ? r.tags : []) {
     if (typeof t !== "string") continue;
     const tag = clean(t).replace(/^#/, "").toLowerCase().slice(0, 60);
-    if (!tag || seen.has(tag) || hasForbidden(tag, forbidden)) continue;
+    if (!tag || seen.has(tag) || avoid.has(tag) || hasForbidden(tag, forbidden)) continue;
     const cost = tag.length + (/\s/.test(tag) ? 2 : 0) + (tags.length ? 1 : 0);
     if (length + cost > 450 || tags.length >= TAG_MAX) break;
     seen.add(tag);
@@ -108,3 +114,6 @@ export function addTag(tags: string[], tag: string): string[] {
 }
 
 export const removeTag = (tags: string[], tag: string) => tags.filter((x) => x.toLowerCase() !== tag.toLowerCase());
+
+/** What Milan types in the tag field: commas separate tags, and so does a space before a # ("minecraft #gaming" is two tags). */
+export const splitTagInput = (value: string) => value.split(/,|\s+(?=#)/);

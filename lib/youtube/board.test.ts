@@ -100,3 +100,21 @@ describe("review queue", () => {
     expect(reviewQueue(videos, scripts, D)).toEqual([{ kind: "final", videoId: "dddd" }]);
   });
 });
+
+describe("helper steps", () => {
+  it("a failed AI suggestion or Viral-check never blocks a project", async () => {
+    const { buildProjects } = await import("./board");
+    const p = buildProjects({
+      recordings: [{ id: "r", label: "Opname", status: "ready", is_test: false, channel_id: "c", created_at: "2026-11-13T00:00:00Z" }],
+      videos: [{ id: "v", recording_id: "r", format: "A", status: "review", is_test: false, channel_id: "c", created_at: "2026-11-13T00:00:00Z" }],
+      scripts: [],
+      jobs: [
+        { id: "j1", recording_id: null, video_id: "v", step: "viral", status: "failed", error: "x", created_at: "2026-11-13T01:00:00Z" },
+        { id: "j2", recording_id: null, video_id: "v", step: "suggest", status: "failed", error: "y", created_at: "2026-11-13T01:00:00Z" },
+      ],
+      costs: [],
+      moments: [],
+    });
+    expect(p[0].blocked).toEqual([]);
+  });
+});

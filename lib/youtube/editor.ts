@@ -1,6 +1,6 @@
 // Fase C3: the editor. The montage plan (segments with timecodes) and the narration are data; every edit makes a new
 // state, and saving makes a new script version (source "manual"). Nothing is overwritten (2.2, chapter 5 and 16).
-import type { ScriptLine, Segment } from "./analysis";
+import type { ScriptLine, Segment } from "./analysis.ts";
 
 export type EditorState = { topLine: string; lines: ScriptLine[]; segments: Segment[] };
 

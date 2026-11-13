@@ -828,6 +828,51 @@ if (hasMigration("046")) {
     await rejects("the app cannot write thumbnails itself", MILAN, `update public.yt_renders set thumbnails='[]' where id=$1`, [render]);
     await as(MILAN, "update public.yt_channels set concept_auto_approve=false where id=$1", [def]);
   }
+  // ---------- Self-learning Studio (migration 049) ----------
+  if (hasMigration("049")) {
+    await as(MILAN, "insert into public.studio_events(studio_id,channel_id,action,screen,metadata) values($1,$2,'tag_added','klaar','{\"tag\":\"minecraft\"}')", [hh, def]);
+    ok("admin logs an event, stamped with his own id", (await one(MILAN, "select user_id::text from public.studio_events where studio_id=$1 and action='tag_added'", [hh])) === MILAN);
+    ok("another admin of the studio sees it", (await one(NATASJA, "select count(*)::int from public.studio_events where studio_id=$1", [hh])) === 1);
+    await rejects("an event cannot be logged in someone else's name", MILAN, "insert into public.studio_events(studio_id,user_id,action) values($1,$2,'x_y')", [hh, NATASJA]);
+    await rejects("an event cannot be backdated", MILAN, "insert into public.studio_events(studio_id,action,at) values($1,'old_one',now()-interval '1 day')", [hh]);
+    await rejects("a strange action name is refused", MILAN, "insert into public.studio_events(studio_id,action) values($1,'Drop Table')", [hh]);
+    await rejects("a stranger cannot log events in this studio", STRANGER, "insert into public.studio_events(studio_id,action) values($1,'tag_added')", [hh]);
+    await rejects("a child cannot log events", CHILD, "insert into public.studio_events(studio_id,action) values($1,'tag_added')", [hh]);
+    ok("a stranger sees no events", (await one(STRANGER, "select count(*)::int from public.studio_events")) === 0);
+    ok("a child sees no events", (await one(CHILD, "select count(*)::int from public.studio_events")) === 0);
+    await noneAffected("events cannot be changed afterwards", MILAN, "update public.studio_events set action='tag_removed'");
+    await noneAffected("events cannot be deleted by the app", MILAN, "delete from public.studio_events");
+    await rejects("the app cannot prune events", MILAN, "select public.prune_studio_events(30)");
+
+    await as(MILAN, "insert into public.studio_preferences(studio_id,channel_id,key,value) values($1,$2,'default_tags','[\"minecraft\"]')", [hh, def]);
+    await as(MILAN, "insert into public.studio_preferences(studio_id,key,value) values($1,'default_tags','[\"gaming\"]')", [hh]);
+    ok("a preference per channel and one for all channels", (await one(NATASJA, "select count(*)::int from public.studio_preferences where studio_id=$1", [hh])) === 2);
+    await rejects("one value per key per channel", MILAN, "insert into public.studio_preferences(studio_id,channel_id,key,value) values($1,$2,'default_tags','[]')", [hh, def]);
+    await rejects("one value per key for all channels", MILAN, "insert into public.studio_preferences(studio_id,key,value) values($1,'default_tags','[]')", [hh]);
+    await as(MILAN, "update public.studio_preferences set value='[\"minecraft\",\"creeper\"]' where studio_id=$1 and channel_id=$2", [hh, def]);
+    ok("admin changes a preference", (await one(MILAN, "select jsonb_array_length(value) from public.studio_preferences where studio_id=$1 and channel_id=$2", [hh, def])) === 2);
+    await rejects("the key of a preference cannot be changed", MILAN, "update public.studio_preferences set key='other' where studio_id=$1", [hh]);
+    ok("a stranger sees no preferences", (await one(STRANGER, "select count(*)::int from public.studio_preferences")) === 0);
+    await noneAffected("a stranger cannot change preferences", STRANGER, "update public.studio_preferences set value='[]'");
+    await noneAffected("a child cannot delete preferences", CHILD, "delete from public.studio_preferences");
+    await as(MILAN, "delete from public.studio_preferences where studio_id=$1 and channel_id is null", [hh]);
+    ok("admin deletes a preference", (await one(MILAN, "select count(*)::int from public.studio_preferences where studio_id=$1", [hh])) === 1);
+  }
+  // ---------- Viral-check (migration 050) ----------
+  if (hasMigration("050")) {
+    await sys("insert into public.yt_viral_checks(studio_id,video_id,overall,result,source) values($1,$2,7.5,'{\"version\":1}','rules') returning id", [hh, vid]);
+    await sys("insert into public.yt_reference_videos(studio_id,channel_id,query,youtube_video_id,title,views) values($1,$2,'minecraft shorts','abc123def45','Test',10) returning id", [hh, def]);
+    ok("admin reads the Viral-score", Number(await one(MILAN, "select overall from public.yt_viral_checks where video_id=$1", [vid])) === 7.5);
+    ok("admin reads reference videos", (await one(NATASJA, "select count(*)::int from public.yt_reference_videos where studio_id=$1", [hh])) === 1);
+    await rejects("the app cannot write a score itself", MILAN, "insert into public.yt_viral_checks(studio_id,video_id,overall,result,source) values($1,$2,10,'{}','ai')", [hh, vid]);
+    await noneAffected("the app cannot change a score", MILAN, "update public.yt_viral_checks set overall=10");
+    await rejects("the app cannot add reference videos", MILAN, "insert into public.yt_reference_videos(studio_id,query,youtube_video_id) values($1,'x','abc123def45')", [hh]);
+    ok("a stranger sees no scores", (await one(STRANGER, "select count(*)::int from public.yt_viral_checks")) === 0);
+    ok("a child sees no reference videos", (await one(CHILD, "select count(*)::int from public.yt_reference_videos")) === 0);
+    ok("a score outside 1-10 is refused", await sys("insert into public.yt_viral_checks(studio_id,video_id,overall,result,source) values($1,$2,11,'{}','rules') returning id", [hh, vid]).then(() => false, () => true));
+    await as(MILAN, "insert into public.yt_jobs(studio_id,video_id,step,idempotency_key) values($1,$2,'viral','viral-test')", [hh, vid]);
+    ok("admin can ask for a Viral-check", (await one(MILAN, "select count(*)::int from public.yt_jobs where idempotency_key='viral-test'")) === 1);
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 

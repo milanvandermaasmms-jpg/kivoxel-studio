@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addTag, parseSuggestions, readSuggestions, removeTag, suggestPrompt, testSuggestions } from "./suggest";
+import { addTag, splitTagInput, parseSuggestions, readSuggestions, removeTag, suggestPrompt, testSuggestions } from "./suggest";
 
 describe("parseSuggestions", () => {
   it("cleans tags, removes doubles, hashtags and forbidden words", () => {
@@ -44,5 +44,12 @@ describe("prompt and helpers", () => {
     expect(addTag(["Minecraft"], "#minecraft")).toEqual(["Minecraft"]);
     expect(addTag(["a"], " b ")).toEqual(["a", "b"]);
     expect(removeTag(["A", "b"], "a")).toEqual(["b"]);
+  });
+});
+
+describe("splitTagInput", () => {
+  it("splits on commas and on a space before a hashtag, never inside a word", () => {
+    const tags = splitTagInput("minecraft #gaming #shorts, survival tips").reduce(addTag, [] as string[]);
+    expect(tags).toEqual(["minecraft", "gaming", "shorts", "survival tips"]);
   });
 });

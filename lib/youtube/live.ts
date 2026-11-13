@@ -14,6 +14,8 @@ function formatDuration(ms: number): string {
 export const STEP_PHASE: Record<string, string> = {
   intake: "Opname uitlezen met FFmpeg",
   suggest: "AI-suggesties maken",
+  viral: "Viral-check: video toetsen",
+  reference: "Referentievideo's ophalen bij YouTube",
   analyse: "Gameplay analyseren",
   script: "Script schrijven",
   render: "Montage voorbereiden",
@@ -25,6 +27,8 @@ export const STEP_PHASE: Record<string, string> = {
 export const STEP_MILESTONE: Record<string, string> = {
   intake: "Gameplay ingelezen",
   suggest: "Suggesties voor tags, titels en beschrijving klaar",
+  viral: "Viral-score klaar",
+  reference: "Referentievideo's bijgewerkt",
   analyse: "Momenten geselecteerd",
   script: "Script geschreven",
   render: "Montage klaar, preview beschikbaar",
@@ -53,6 +57,12 @@ export function stepNotes(step: string, result: Record<string, unknown> | null |
     if (result.source === "test") notes.push("Testanalyse met vaste posities (geen AI)");
     if (moments !== null) notes.push(`${moments} ${moments === 1 ? "moment" : "momenten"} gevonden${usable !== null ? `, ${usable} met context en afloop` : ""}`);
     if (videos !== null) notes.push(`${videos} ${videos === 1 ? "video" : "video's"} voorgesteld`);
+  } else if (step === "viral") {
+    const o = n(result.overall);
+    if (o !== null) notes.push(`Viral-score ${o.toLocaleString("nl-NL")} van 10 (stem ${n(result.voice) ?? "–"}, script ${n(result.script) ?? "–"}, gameplay ${n(result.gameplay) ?? "–"}); een voorspelling, geen garantie`);
+  } else if (step === "reference") {
+    const saved = n(result.saved);
+    if (saved !== null) notes.push(`${saved} referentievideo's opgeslagen`);
   } else if (step === "script") {
     const version = n(result.version);
     const ms = n(result.targetMs);

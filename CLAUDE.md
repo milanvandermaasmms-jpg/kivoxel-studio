@@ -3,6 +3,7 @@
 # KIVOXEL Studio
 
 Productiestudio voor het faceless Minecraft-kanaal Kivoxel (@Kivoxel, UC6zZPLDaBan9Jr8WpEhbdwA). Afgesplitst uit het familie-dashboard (`familie-m-en-k`), fase 1 van `docs/kivoxel-studio-app-plan.md`. Opdracht: `docs/masterprompt-kivoxel-superprompt.md`. Migratieplan: `docs/kivoxel-migratieplan.md`. Inrichten: `docs/inrichten.md`.
+Hoe de Studio werkt voor Milan: `docs/handleiding.md` (1 pagina).
 
 ## Werkwijze
 - Milan is geen programmeur: leg keuzes kort uit in gewoon Nederlands. Hij werkt op Windows.
@@ -28,4 +29,6 @@ Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest, Supabase (eig
 - `007`-`043`: de YouTube-tabellen (`yt_*`), gekopieerd uit het familieproject met `studio_id` in plaats van `household_id`.
 - `044_review_tile.sql`: alleen het aantal video's in review voor de tegel in het familie-dashboard, met een token.
 - `048_suggest_step.sql`: stap `suggest` in `yt_jobs` voor AI-suggesties (tags, titels, beschrijving); het antwoord staat in `yt_jobs.result`.
+- `049_studio_learning.sql`: `studio_events` (wat Milan doet, alleen eigen gebeurtenissen toevoegen, na 180 dagen opgeruimd) en `studio_preferences` (voorkeuren per kanaal uit de Studio-tips, en wat hij met elke tip deed).
+- `050_viral_check.sql`: stappen `viral` en `reference`, tabellen `yt_viral_checks` (scorekaart per montage, alleen de werker schrijft) en `yt_reference_videos` (wekelijkse referentievideo's per kanaal via de YouTube Data API).
 - Privacycontrole: `supabase/tests/rls-check.mjs` (draait in `npm test`, nooit tegen Supabase).
