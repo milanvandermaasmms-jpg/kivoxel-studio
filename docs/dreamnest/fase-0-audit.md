@@ -65,4 +65,4 @@ Uitkomst van de basismeting staat in §7.
 - Rooktest + `tsc` + `build` opnieuw; werker pas herstarten na jouw akkoord.
 
 ## 7. Basismeting (main + rooktest)
-Zie het eindbericht van de sessie; wordt hier ingevuld bij de commit.
+13-11-2026 op `feature/dreamnest`: `npx tsc --noEmit` ✅ · `npm test` ✅ 51 bestanden, 352 tests (incl. 4 rooktests) · `npm run build` ✅. Geen browsercontrole nodig: er is niets aan de app veranderd. Kosten tot nu toe: € 0.
