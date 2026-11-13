@@ -47,7 +47,13 @@ export function LiveCenter({ studioId, analysis, workerOnline, act, onOpenPipeli
     const f = FORMATS.find((x) => x.key === v?.format);
     return `${top ?? f?.name ?? "Video"}${v ? ` · format ${v.format}` : ""}${v?.is_test ? " · testdata" : ""}`;
   };
-  const selectedId = chosen ?? (jobs ? pickProduction(jobs) : null) ?? videos[videos.length - 1]?.id ?? null;
+  // Fase 1.4: the first pick follows the worker, after that the view stays on that production until Milan picks another
+  // one. Before, a new step elsewhere switched the whole view to another video while he was looking.
+  const autoId = (jobs ? pickProduction(jobs) : null) ?? videos[videos.length - 1]?.id ?? null;
+  useEffect(() => {
+    if (!chosen && autoId && jobs) setChosen(autoId);
+  }, [chosen, autoId, jobs]);
+  const selectedId = chosen ?? autoId;
   const video = videos.find((v) => v.id === selectedId) ?? null;
   const steps = video && jobs ? productionSteps(video, jobs) : [];
   const overall = overallProgress(steps.length ? steps : [{ key: "analyse", label: "", status: "WAITING", job: null, progress: null }]);
@@ -106,13 +112,14 @@ function SystemBar({ connection, workerOnline, queued, running, beat, liveColumn
   const dot = (ok: boolean | undefined) => <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${ok === undefined ? "bg-slate-300" : ok ? "bg-emerald-500" : "bg-amber-500"}`} />;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600">
-      <span className="flex items-center gap-1.5">
+      {/* Fixed widths: a changed word ("Verbinden…" -> "Live verbonden") does not push the rest aside. */}
+      <span className="flex items-center gap-1.5 sm:min-w-[19rem]">
         {dot(workerOnline)} Werker {workerOnline === undefined ? "controleren…" : workerOnline ? "bereikbaar" : "niet bereikbaar (pc uit of werker gestopt)"}
       </span>
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 sm:min-w-[19rem]">
         {dot(connection === "live")} {connection === "live" ? "Live verbonden" : connection === "connecting" ? "Verbinden…" : "Geen live verbinding: elke 5 s opnieuw geladen"}
       </span>
-      <span>Wachtrij: {queued} wachtend{running ? ", 1 bezig" : ""}</span>
+      <span className="sm:min-w-[9rem] tabular-nums">Wachtrij: {queued} wachtend{running ? ", 1 bezig" : ""}</span>
       {running && beat !== null && <span className={beat > 30_000 ? "text-amber-700" : ""}>Hartslag werker: {shortDuration(beat)} geleden</span>}
       {!liveColumns && <span className="text-amber-700">Voortgang in procenten komt er met migratie 033</span>}
     </div>
@@ -150,7 +157,8 @@ function PreviewZone({ analysis, videoId, workerOnline, renderStep }: { analysis
           preload="metadata"
           playsInline
           onError={() => setBroken(render.id)}
-          className={`mx-auto rounded-md bg-black ${render.height > render.width ? "max-h-[60vh] w-auto max-w-full" : "w-full"}`}
+          style={{ aspectRatio: `${render.width} / ${render.height}` }}
+          className={`mx-auto rounded-md bg-black ${render.height > render.width ? "h-[min(60vh,36rem)] w-auto max-w-full" : "w-full"}`}
         />
       )}
       {render && (
@@ -363,21 +371,20 @@ function NotesZone({ steps, liveColumns }: { steps: Activity[]; liveColumns: boo
 }
 
 function RenderQueue({ jobs, titleOf, onPick, now }: { jobs: LiveJob[]; titleOf: (id: string) => string; onPick: (id: string) => void; now: number }) {
-  // One line per video: its newest montage step (jobs come newest first).
-  const renders = jobs.filter((j, i) => j.step === "render" && j.video_id && jobs.findIndex((x) => x.step === "render" && x.video_id === j.video_id) === i).slice(0, 10);
-  const order: Record<string, number> = { running: 0, queued: 1, failed: 2, cancelled: 3, done: 4 };
-  const sorted = [...renders].sort((a, b) => order[a.status] - order[b.status] || b.created_at.localeCompare(a.created_at));
+  // One line per video: its newest montage step (jobs come newest first). Fase 1.4: the order is the time the step was
+  // made and never the status, so a line does not jump to another place when its montage starts or finishes.
+  const sorted = jobs.filter((j, i) => j.step === "render" && j.video_id && jobs.findIndex((x) => x.step === "render" && x.video_id === j.video_id) === i).slice(0, 10);
   const label: Record<string, string> = { running: "Bezig", queued: "Wacht", done: "Klaar", failed: "Mislukt", cancelled: "Geannuleerd" };
   return (
-    <Section title="Renderwachtrij" intro="Montages in volgorde: eerst wat nu draait, dan wat wacht, dan de laatste afgeronde. De werker maakt één montage tegelijk.">
+    <Section title="Renderwachtrij" intro="De laatste montages, nieuwste bovenaan. De werker maakt één montage tegelijk.">
       {sorted.length === 0 ? (
         <p className="text-sm text-slate-500">Nog geen montages.</p>
       ) : (
         <ol className="divide-y divide-slate-100">
-          {sorted.map((j, i) => (
-            <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+          {sorted.map((j) => (
+            <li key={j.video_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
               <button type="button" onClick={() => onPick(j.video_id!)} className="min-w-0 flex-1 truncate text-left hover:underline">
-                {i + 1}. {titleOf(j.video_id!)}
+                {titleOf(j.video_id!)}
               </button>
               <span className={`text-xs ${j.status === "failed" ? "text-red-700" : j.status === "running" ? "text-cyan-700" : "text-slate-600"}`}>
                 {label[j.status]}

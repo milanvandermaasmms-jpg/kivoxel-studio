@@ -15,6 +15,7 @@ export function useLiveJobs(studioId: string, enabled: boolean) {
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<LiveConnection>("connecting");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastJobs = useRef("");
 
   const reload = useCallback(async () => {
     // "*": the live columns only exist after migration 033.
@@ -22,7 +23,13 @@ export function useLiveJobs(studioId: string, enabled: boolean) {
     if (e) setError(friendlyError(e.message));
     else {
       setError(null);
-      setJobs(data ?? []);
+      // Fase 1.4: the same rows again (heartbeat polling) do not re-render the Live view.
+      const next = data ?? [];
+      const key = JSON.stringify(next);
+      if (key !== lastJobs.current) {
+        lastJobs.current = key;
+        setJobs(next);
+      }
     }
   }, [studioId]);
 

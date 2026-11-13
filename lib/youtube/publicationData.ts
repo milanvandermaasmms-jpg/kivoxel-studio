@@ -115,3 +115,13 @@ export function byDay<T>(items: T[], moment: (t: T) => string | null): { day: st
   }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, list]) => ({ day, items: list.sort((x, y) => (moment(x) ?? "").localeCompare(moment(y) ?? "")) }));
 }
+
+export type UploadProgress = { status: string; progress: number | null; phase: string | null; sentBytes: number | null; totalBytes: number | null };
+
+/** Newest upload or visibility step of a video, for the progress bar while the worker talks to YouTube (migration 033). */
+export async function loadUploadProgress(videoId: string): Promise<UploadProgress | null> {
+  const { data, error } = await supabase.from("yt_jobs").select("*").eq("video_id", videoId).in("step", ["upload", "publish"]).order("created_at", { ascending: false }).limit(1).maybeSingle<{ status: string; progress?: number | string | null; phase?: string | null; metrics?: Record<string, number | null> | null }>();
+  if (error || !data) return null;
+  const p = data.progress == null ? null : Number(data.progress);
+  return { status: data.status, progress: Number.isFinite(p) ? p : null, phase: data.phase ?? null, sentBytes: data.metrics?.sent_bytes ?? null, totalBytes: data.metrics?.total_bytes ?? null };
+}

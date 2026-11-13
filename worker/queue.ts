@@ -28,6 +28,7 @@ import {
 import type { LocalRecording } from "../lib/youtube/protocol.ts";
 import { applyHook, parseHooks } from "../lib/youtube/hooks.ts";
 import { STEP_MILESTONE, STEP_PHASE, stepNotes } from "../lib/youtube/live.ts";
+import { parseSuggestions, suggestPrompt, testSuggestions, type SuggestInput } from "../lib/youtube/suggest.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName, renderSize, segmentOverlays, srtFileName, type VoiceClip } from "../lib/youtube/render.ts";
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
@@ -802,7 +803,51 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { youtube_video_id: pub.youtube_video_id, status, publish_at: pub.publish_at };
   }
 
+  /**
+   * Fase 1.6: 10-15 tags, 3 titles and a description for the publication screen. The answer goes to yt_jobs.result;
+   * nothing is put in the draft automatically. Test videos get fixed suggestions without Gemini (free).
+   */
+  async function suggest(job: Job) {
+    if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
+    type VideoRow = { id: string; format: Format; language: "en" | "nl"; is_test: boolean; channel_id: string | null };
+    const video = await db.from("yt_videos").select("id, format, language, is_test, channel_id").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    if (video.error) throw new Error(video.error.message);
+    const kind = video.data.format === "C" ? "long" : "short";
+    if (video.data.is_test) return testSuggestions({ kind });
+    if (!ai) throw new Error(NO_KEY);
+    type ScriptRow = { hook: string; lines: ScriptLine[]; hooks?: { first_line: string }[] | null; chosen_hook?: number | null };
+    const [scriptRow, channel, settings, used] = await Promise.all([
+      db.from("yt_scripts").select("*").eq("video_id", video.data.id).eq("status", "approved").order("version", { ascending: false }).limit(1).maybeSingle<ScriptRow>(),
+      video.data.channel_id ? db.from("yt_channels").select("name, audience, banned_words").eq("id", video.data.channel_id).maybeSingle<{ name: string; audience: string | null; banned_words: string[] | null }>() : Promise.resolve({ data: null }),
+      db.from("yt_settings").select("private_terms").eq("studio_id", job.studio_id).maybeSingle<{ private_terms: string[] | null }>(),
+      db.from("yt_publications").select("tags").eq("studio_id", job.studio_id).limit(50).returns<{ tags: string[] }[]>(),
+    ]);
+    const counts = new Map<string, number>();
+    for (const p of used.data ?? []) for (const t of p.tags ?? []) counts.set(t.toLowerCase(), (counts.get(t.toLowerCase()) ?? 0) + 1);
+    const forbidden = [...(settings.data?.private_terms ?? []), ...(channel.data?.banned_words ?? [])];
+    const s = scriptRow.data;
+    const p = job.payload ?? {};
+    const input: SuggestInput = {
+      language: video.data.language,
+      kind,
+      channel: channel.data ? { name: channel.data.name, audience: channel.data.audience } : null,
+      title: typeof p.title === "string" ? p.title.slice(0, 100) : "",
+      description: typeof p.description === "string" ? p.description.slice(0, 2000) : "",
+      narration: (s?.lines ?? []).map((l) => l.text),
+      hook: s ? (s.hooks?.[s.chosen_hook ?? -1]?.first_line ?? s.hook) : null,
+      usedTags: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t),
+      forbidden,
+    };
+    await reserve(job, 1);
+    const { json } = await paid(job, () => ai.gemini.generateText(suggestPrompt(input)));
+    const parsed = parseSuggestions(json, forbidden);
+    if ("error" in parsed) throw new Error(`Suggesties van de analysedienst onbruikbaar: ${parsed.error}`);
+    return parsed;
+  }
+
   const handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { intake, analyse, script, ...(montage ? { render } : {}), ...(publisher ? { upload, publish } : {}) };
+  /** Short steps that must not wait behind a montage of many minutes: they run in their own lane, next to the main one. */
+  const fastHandlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { suggest };
 
   async function finish(job: Job, outcome: { result: unknown } | { error: string }) {
     const failed = "error" in outcome;
@@ -852,9 +897,14 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return data?.length ?? 0;
   }
 
-  async function tick() {
-    if (busy) return;
-    busy = true;
+  const tick = () => runLane(handlers, "main");
+  const tickFast = () => runLane(fastHandlers, "fast");
+  let fastBusy = false;
+
+  async function runLane(handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>>, lane: "main" | "fast") {
+    if (lane === "main" ? busy : fastBusy) return;
+    if (lane === "main") busy = true;
+    else fastBusy = true;
     try {
       for (;;) {
         const { data, error } = await db.rpc("claim_yt_job", { p_worker: workerName, p_steps: Object.keys(handlers) });
@@ -890,20 +940,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         }
       }
     } finally {
-      busy = false;
+      if (lane === "main") busy = false;
+      else fastBusy = false;
     }
   }
 
   return {
     start(intervalMs = 5000) {
-      void recover().then(() => tick());
-      timer = setInterval(() => void tick(), intervalMs);
+      void recover().then(() => Promise.all([tick(), tickFast()]));
+      timer = setInterval(() => void Promise.all([tick(), tickFast()]), intervalMs);
     },
     recover,
     tick,
+    tickFast,
     stop() {
       if (timer) clearInterval(timer);
     },
-    poke: () => void tick(),
+    poke: () => void Promise.all([tick(), tickFast()]),
   };
 }

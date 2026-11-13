@@ -66,6 +66,7 @@ export const STEP_LABEL: Record<string, string> = {
   render: "Montage",
   upload: "Upload naar YouTube",
   publish: "Publiceren",
+  suggest: "AI-suggesties",
 };
 
 export const JOB_STATUS_LABEL: Record<DbJob["status"], string> = { queued: "Wacht op de pc", running: "Bezig", done: "Klaar", failed: "Mislukt", cancelled: "Geannuleerd" };

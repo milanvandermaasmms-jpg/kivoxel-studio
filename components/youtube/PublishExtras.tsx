@@ -33,7 +33,7 @@ export function ThumbnailPicker({ file, durationMs, valueMs, onChange, workerOnl
       ) : (
         <div className="flex flex-wrap items-start gap-3">
           {workerOnline && !broken ? (
-            <video ref={video} src={`${WORKER_URL}/renders/${encodeURIComponent(file)}#t=${at / 1000}`} crossOrigin="anonymous" muted playsInline preload="auto" onError={() => setBroken(true)} className="h-36 w-auto rounded bg-black" aria-label="Gekozen beeld voor de thumbnail" />
+            <video ref={video} src={`${WORKER_URL}/renders/${encodeURIComponent(file)}#t=${at / 1000}`} crossOrigin="anonymous" muted playsInline preload="auto" onError={() => setBroken(true)} className="h-36 w-64 max-w-full rounded bg-black object-contain" aria-label="Gekozen beeld voor de thumbnail" />
           ) : (
             <span className="text-slate-500">{broken ? "Deze montage staat niet (meer) op de pc." : "Start de werker om het beeld te zien."}</span>
           )}
