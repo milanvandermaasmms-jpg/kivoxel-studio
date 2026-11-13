@@ -2,10 +2,10 @@
 // Run: node worker/dreamnest/fase2.ts [--only <clip-id>] [--res 720p|1080p] [--dry]
 // Output on this pc: <WORKER_DATA_DIR>/dreamnest/fase2/<res>/index.html. Ceiling: DREAMNEST_BUDGET_CENTS (all phases together).
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { clipCents, judgeClip, planClips, type Clip, type SafetyResult } from "../../lib/dreamnest/motion.ts";
+import { clipCents, judgeClip, planClips, seamlessLoopArgs, type Clip, type SafetyResult } from "../../lib/dreamnest/motion.ts";
 import { findTool } from "../ffmpeg.ts";
 import { CreditError, createOmniVideo } from "../providers/video/omni.ts";
 import { BudgetError, cacheKey, createCache, createLedger } from "./ledger.ts";
@@ -73,9 +73,22 @@ for (const clip of clips) {
       }
       const raw = cache.path(key, "mp4");
       const name = `${clip.id}.mp4`;
-      await runTool(ffmpeg, silentArgs(raw, join(out, name)));
+      if (clip.kind === "loop") {
+        // Loops: silent, then the free cross-fade seam repair (1 s, then 2 s) before any paid retry.
+        const silent = join(out, `${clip.id}.ruw.mp4`);
+        await runTool(ffmpeg, silentArgs(raw, silent));
+        for (const fade of [1, 2]) {
+          await runTool(ffmpeg, seamlessLoopArgs(silent, join(out, name), clip.durationS, fade));
+          row.safety = judgeClip(await measureClip(ffmpeg, ffprobe, join(out, name), true), clip.kind);
+          if (row.safety.ok) break;
+        }
+        await rm(silent, { force: true });
+      } else {
+        await runTool(ffmpeg, silentArgs(raw, join(out, name)));
+        row.safety = judgeClip(await measureClip(ffmpeg, ffprobe, join(out, name), false), clip.kind);
+      }
       row.file = name;
-      row.safety = judgeClip(await measureClip(ffmpeg, ffprobe, join(out, name), clip.kind === "loop"), clip.kind);
+      if (!row.safety) throw new Error("Niet gemeten");
       log(`${clip.id}: ${row.safety.ok ? "veilig ✅" : `❌ ${row.safety.problems.join("; ")}`}`);
       if (row.safety.ok) break;
     }

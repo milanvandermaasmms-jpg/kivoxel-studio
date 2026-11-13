@@ -22,6 +22,10 @@ export async function measureClip(ffmpeg: string, ffprobe: string, file: string,
   const [n, d] = info.streams[0].r_frame_rate.split("/").map(Number);
   const luma = parseLuma(await run(ffmpeg, ["-hide_banner", "-i", file, "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"]));
   let seamSsim: number | null = null;
+  // Every frame against the next one (at 480 px, fast enough): the median is a normal step, the minimum shows a hard cut.
+  const steps = parseAllSsim(await run(ffmpeg, ["-hide_banner", "-i", file, "-i", file, "-filter_complex", "[0:v]scale=480:-2[a];[1:v]scale=480:-2,trim=start_frame=1,setpts=PTS-STARTPTS[b];[a][b]ssim=stats_file=-", "-f", "null", "-"]));
+  const stepSsim = median(steps);
+  const minStepSsim = steps.length ? Math.min(...steps) : null;
   if (loop) {
     const dir = await mkdtemp(join(tmpdir(), "dn-seam-"));
     try {
@@ -32,7 +36,17 @@ export async function measureClip(ffmpeg: string, ffprobe: string, file: string,
       await rm(dir, { recursive: true, force: true });
     }
   }
-  return { durationS: Number(info.format.duration), fps: d ? n / d : n, luma, seamSsim };
+  return { durationS: Number(info.format.duration), fps: d ? n / d : n, luma, seamSsim, stepSsim, minStepSsim };
+}
+
+/** Per-frame lines of the ssim stats file ("n:1 Y:.. All:0.98 (..)"), without the summary line. */
+export function parseAllSsim(text: string): number[] {
+  return [...text.matchAll(/^n:\d+.*?All:([\d.]+)/gm)].map((m) => Number(m[1]));
+}
+export function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 }
 
 /** Omni always makes sound; Dreamnest uses its own music and ambience, so the clip is kept silent. */

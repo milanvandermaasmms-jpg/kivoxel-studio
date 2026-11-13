@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { clipCents, FRAME_MODE_MAX_S, judgeClip, planClips } from "./motion";
+import { clipCents, FRAME_MODE_MAX_S, judgeClip, planClips, seamlessLoopArgs } from "./motion";
 
 const motion = JSON.parse(readFileSync("content/dreamnest/shots/fase2-motion.json", "utf8")) as { shot: string; motion: string; loop?: string }[];
 
@@ -24,6 +24,19 @@ describe("clip plan", () => {
   });
 });
 
+describe("seam repair", () => {
+  it("cross-fades the last second into the first, so an 8 s clip becomes a 7 s seamless loop", () => {
+    const args = seamlessLoopArgs("in.mp4", "out.mp4", 8);
+    const filter = args[args.indexOf("-filter_complex") + 1];
+    expect(filter).toContain("trim=start=1:end=8");
+    expect(filter).toContain("xfade=transition=fade:duration=1:offset=6");
+    expect(args).toContain("-an");
+  });
+  it("refuses a clip that is too short", () => {
+    expect(() => seamlessLoopArgs("a", "b", 1.5)).toThrow();
+  });
+});
+
 describe("baby-safe check", () => {
   const calm = { durationS: 8, fps: 24, luma: Array.from({ length: 192 }, (_, i) => 80 + Math.sin(i / 30) * 3), seamSsim: 0.98 };
   it("passes a calm loop with an invisible seam", () => {
@@ -35,6 +48,14 @@ describe("baby-safe check", () => {
     expect(judgeClip({ ...calm, luma }, "story").problems.join()).toMatch(/flits/);
     expect(judgeClip({ ...calm, luma: [...calm.luma, 230] }, "story").problems.join()).toMatch(/te fel/);
     expect(judgeClip({ ...calm, seamSsim: 0.8 }, "loop").problems.join()).toMatch(/naad/);
+  });
+  it("accepts a seam that is no bigger than a normal step between two frames", () => {
+    expect(judgeClip({ ...calm, seamSsim: 0.94, stepSsim: 0.95 }, "loop").ok).toBe(true);
+    expect(judgeClip({ ...calm, seamSsim: 0.85, stepSsim: 0.95 }, "loop").ok).toBe(false);
+  });
+  it("blocks a hard cut but allows a soft cross-fade", () => {
+    expect(judgeClip({ ...calm, minStepSsim: 0.41 }, "story").problems.join()).toMatch(/harde knip/);
+    expect(judgeClip({ ...calm, minStepSsim: 0.83 }, "story").ok).toBe(true);
   });
   it("a story clip needs no seam", () => {
     expect(judgeClip({ ...calm, seamSsim: null }, "story").ok).toBe(true);
