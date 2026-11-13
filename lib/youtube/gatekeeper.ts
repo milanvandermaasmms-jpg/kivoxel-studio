@@ -11,8 +11,8 @@ export type GateScript = { top_line: string | null; hook: string; lines: { text:
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The first word of the list that appears as a whole word (any case), like yt_term_hit in the database. */
-export function termHit(text: string, terms: string[]): string | null {
-  for (const raw of terms) {
+export function termHit(text: string, terms: string[] | null | undefined): string | null {
+  for (const raw of terms ?? []) {
     const t = raw.trim();
     if (t.length < 2) continue;
     if (new RegExp(`(^|[^\\p{L}\\p{N}])${escape(t)}($|[^\\p{L}\\p{N}])`, "iu").test(text)) return raw;
@@ -38,11 +38,11 @@ export function scriptText(s: GateScript | null | undefined): string {
 const item = (key: string, label: string, level: GateLevel, note = ""): GateItem => ({ key, label, level, note });
 
 /** Checks on what the video says and shows: for the concept (Keur 1) and the final version (Keur 2). */
-export function videoGate({ script, channel, privateTerms, flags }: { script: GateScript | null | undefined; channel: GateChannel | null; privateTerms: string[]; flags: PrivacyFlag[] }): GateItem[] {
+export function videoGate({ script, channel, privateTerms, flags }: { script: GateScript | null | undefined; channel: GateChannel | null; privateTerms: string[] | null | undefined; flags: PrivacyFlag[] }): GateItem[] {
   const text = scriptText(script);
   const out: GateItem[] = [];
   const priv = termHit(text, privateTerms);
-  out.push(priv ? item("script-private", "Privé-woorden in het script", "red", `Het script noemt "${priv}". Pas het script aan.`) : item("script-private", "Privé-woorden in het script", "green", privateTerms.length ? "" : "Er staan nog geen privé-woorden in de lijst (Instellingen)."));
+  out.push(priv ? item("script-private", "Privé-woorden in het script", "red", `Het script noemt "${priv}". Pas het script aan.`) : item("script-private", "Privé-woorden in het script", "green", privateTerms?.length ? "" : "Er staan nog geen privé-woorden in de lijst (Instellingen)."));
   const banned = termHit(text, channel?.banned_words ?? []);
   out.push(banned ? item("script-banned", "Verboden woorden in het script", "red", `"${banned}" mag niet op ${channel?.name ?? "dit kanaal"}.`) : item("script-banned", "Verboden woorden in het script", "green"));
   const data = personalData(text);

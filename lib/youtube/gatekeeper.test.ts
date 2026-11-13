@@ -12,6 +12,7 @@ describe("words and personal data (same rules as migration 046)", () => {
     expect(termHit("Hallo TESTKIND!", ["testkind"])).toBe("testkind");
     expect(termHit("testkinderen", ["testkind"])).toBeNull();
     expect(termHit("x", ["", " a "])).toBeNull();
+    expect(termHit("x", undefined)).toBeNull();
   });
 
   it("finds e-mail addresses and Dutch phone numbers, not ordinary numbers", () => {
