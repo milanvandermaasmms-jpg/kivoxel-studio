@@ -14,6 +14,7 @@ import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
 import { PrivateTermsSettings } from "@/components/youtube/GateList";
+import { archiveVideo } from "@/lib/youtube/analysisData";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
@@ -399,7 +400,7 @@ export default function YouTubeStudioPage() {
                 ) : (
                   <>
                     <h2 className="text-sm font-semibold">🚀 Klaar voor YouTube ({flowReady.items.filter((i) => (i.flow === "ready" || i.flow === "uploading") && (!channel || i.channelId === channel)).length})</h2>
-                    <VideoQueue state={flowReady} flows={["ready", "uploading"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} empty="Niets klaar om te versturen. Een video komt hier zodra je de eindversie hebt goedgekeurd." />
+                    <VideoQueue state={flowReady} flows={["ready", "uploading"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} onArchive={(id) => void act(() => archiveVideo(id))} empty="Niets klaar om te versturen. Een video komt hier zodra je de eindversie hebt goedgekeurd." />
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3">
                       <div>
                         <p className="font-semibold text-violet-900">👀 Te keuren ({queue.length})</p>

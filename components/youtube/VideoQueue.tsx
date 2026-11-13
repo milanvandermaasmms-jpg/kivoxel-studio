@@ -17,20 +17,20 @@ const when = (iso: string) => new Date(iso).toLocaleString("nl-NL", { timeZone: 
  * and the big "Naar YouTube sturen" button. The details (the publication form) open only after a click.
  * Cards keep their place: the order is the creation time of the video, never its status.
  */
-export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction, startOpen = false }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void; startOpen?: boolean }) {
+export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction, startOpen = false, onArchive }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void; startOpen?: boolean; onArchive?: (videoId: string) => void }) {
   const [open, setOpen] = useState<string | null>(startOpen ? (state.items[0]?.videoId ?? null) : null);
   const items = state.items.filter((i) => flows.includes(i.flow) && (!channel || i.channelId === channel));
   if (items.length === 0) return <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">{empty}</p>;
   return (
     <ul className="space-y-3">
       {items.map((item) => (
-        <VideoCard key={item.videoId} item={item} state={state} open={open === item.videoId} onToggle={() => setOpen(open === item.videoId ? null : item.videoId)} workerOnline={workerOnline} studioId={studioId} onOpenProduction={onOpenProduction} />
+        <VideoCard key={item.videoId} onArchive={onArchive} item={item} state={state} open={open === item.videoId} onToggle={() => setOpen(open === item.videoId ? null : item.videoId)} workerOnline={workerOnline} studioId={studioId} onOpenProduction={onOpenProduction} />
       ))}
     </ul>
   );
 }
 
-function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpenProduction }: { item: FlowItem; state: Ready; open: boolean; onToggle: () => void; workerOnline: boolean; studioId: string; onOpenProduction: () => void }) {
+function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpenProduction, onArchive }: { onArchive?: (videoId: string) => void; item: FlowItem; state: Ready; open: boolean; onToggle: () => void; workerOnline: boolean; studioId: string; onOpenProduction: () => void }) {
   const board = state.board;
   const channel = board.channels.find((c) => c.id === item.channelId);
   const video = board.input.videos.find((v) => v.id === item.videoId) as (typeof board.input.videos)[number] & { language?: "en" | "nl" };
@@ -72,6 +72,11 @@ function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpen
             ) : (
               <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
                 {item.flow === "uploading" ? "Voortgang" : "Zichtbaarheid en details"} <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+              </button>
+            )}
+            {item.flow === "ready" && onArchive && (
+              <button type="button" onClick={() => onArchive(item.videoId)} className="text-sm text-slate-500 underline underline-offset-2 hover:text-slate-700">
+                Archiveren
               </button>
             )}
             {item.youtubeId && (
