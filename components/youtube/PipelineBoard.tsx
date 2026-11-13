@@ -113,7 +113,7 @@ function posterFor(board: Extract<BoardState, { ready: true }>, p: Project, work
 
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button type="button" aria-pressed={active} onClick={onClick} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${active ? "border-slate-700 bg-slate-800 text-white" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
+    <button type="button" aria-pressed={active} onClick={onClick} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${active ? "border-cyan-500 bg-cyan-50 font-medium text-cyan-900" :"border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
       {children}
     </button>
   );
