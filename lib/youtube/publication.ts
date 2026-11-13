@@ -11,7 +11,7 @@ export const HASHTAGS_ADVICE = 5;
 export const GAMING_CATEGORY = "20";
 
 export type Visibility = "private" | "unlisted" | "public";
-export const VISIBILITY_LABEL: Record<Visibility, string> = { private: "Privé", unlisted: "Verborgen (alleen met link)", public: "Openbaar" };
+export const VISIBILITY_LABEL: Record<Visibility, string> = { private: "Privé", unlisted: "Niet vermeld (alleen met link)", public: "Openbaar" };
 
 export type PublicationDraft = {
   title: string;

@@ -27,4 +27,5 @@ Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest, Supabase (eig
 - `001_studio.sql`: één studio, leden met rol `eigenaar` of `beheerder`. `is_studio_admin(studio_id)` is de RLS-helper.
 - `007`-`043`: de YouTube-tabellen (`yt_*`), gekopieerd uit het familieproject met `studio_id` in plaats van `household_id`.
 - `044_review_tile.sql`: alleen het aantal video's in review voor de tegel in het familie-dashboard, met een token.
+- `048_suggest_step.sql`: stap `suggest` in `yt_jobs` voor AI-suggesties (tags, titels, beschrijving); het antwoord staat in `yt_jobs.result`.
 - Privacycontrole: `supabase/tests/rls-check.mjs` (draait in `npm test`, nooit tegen Supabase).

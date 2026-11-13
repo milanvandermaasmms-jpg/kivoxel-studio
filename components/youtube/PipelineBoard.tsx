@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Section } from "@/components/settings/Section";
 import { Button } from "@/components/ui/Dialog";
 import { ReviewMode } from "@/components/youtube/ReviewMode";
@@ -20,14 +20,22 @@ export function PipelineBoard({ studioId, workerOnline, onOpenStudio }: { studio
   const [channel, setChannel] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
 
-  const refresh = useCallback(async () => setBoard(await loadBoard(studioId)), [studioId]);
+  const last = useRef("");
+  const refresh = useCallback(async () => {
+    const next = await loadBoard(studioId);
+    const key = JSON.stringify(next);
+    if (key === last.current) return;
+    last.current = key;
+    setBoard(next);
+  }, [studioId]);
   useEffect(() => {
     void refresh();
     const timer = setInterval(() => void refresh(), 10000);
     return () => clearInterval(timer);
   }, [refresh]);
 
-  if (!board) return <p className="text-sm text-slate-500">Laden…</p>;
+  // Skeleton with the height of the board, so the parts below do not jump down when it arrives.
+  if (!board) return <div aria-busy className="min-h-[22rem] animate-pulse rounded-lg bg-slate-50" />;
   if (!board.ready)
     return (
       <Section title="Pijplijnbord">
@@ -42,7 +50,7 @@ export function PipelineBoard({ studioId, workerOnline, onOpenStudio }: { studio
   const channelOf = (id: string) => board.channels.find((c) => c.id === id);
 
   return (
-    <div className="space-y-3">
+    <div className="min-h-[22rem] space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div role="group" aria-label="Filter per kanaal" className="flex flex-wrap gap-1">
           <FilterButton active={channel === null} onClick={() => setChannel(null)}>
@@ -139,7 +147,7 @@ function ProjectCard({ project: p, color, channelName, poster, onOpen }: { proje
   return (
     <li>
       <button type="button" onClick={onOpen} className="block w-full overflow-hidden rounded-md border border-slate-200 bg-surface text-left text-sm shadow-sm hover:border-slate-400" style={{ borderLeft: `4px solid ${color ?? "#cbd5e1"}` }}>
-        {poster && <video src={poster} crossOrigin="anonymous" muted playsInline preload="metadata" aria-hidden className="h-24 w-full bg-black object-cover" />}
+        {poster ? <video src={poster} crossOrigin="anonymous" muted playsInline preload="metadata" aria-hidden className="h-24 w-full bg-black object-cover" /> : <div aria-hidden className="h-24 w-full bg-slate-100" />}
         <div className="space-y-1 p-2">
           <p className="line-clamp-2 font-medium">{p.title}</p>
           <p className="text-xs text-slate-500">

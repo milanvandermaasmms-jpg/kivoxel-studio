@@ -146,7 +146,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
 
             {item.kind === "final" &&
               (render && workerOnline ? (
-                <video key={render.id} src={`${WORKER_URL}/renders/${encodeURIComponent(render.file_name)}`} crossOrigin="anonymous" controls playsInline preload="metadata" className={`mx-auto rounded-md bg-black ${render.height > render.width ? "max-h-[60vh] w-auto" : "w-full"}`} />
+                <video key={render.id} src={`${WORKER_URL}/renders/${encodeURIComponent(render.file_name)}`} crossOrigin="anonymous" controls playsInline preload="metadata" style={{ aspectRatio: `${render.width} / ${render.height}` }} className={`mx-auto rounded-md bg-black ${render.height > render.width ? "h-[min(60vh,36rem)] w-auto max-w-full" : "w-full"}`} />
               ) : (
                 <p className="rounded-md border border-slate-200 px-3 py-2 text-slate-600">{render ? "De video staat op de pc. Start de werker om hem hier te bekijken." : "Er is nog geen montage."}</p>
               ))}

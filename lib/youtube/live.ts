@@ -13,6 +13,7 @@ function formatDuration(ms: number): string {
 /** What the worker is doing at the start of a step (shown as the phase). */
 export const STEP_PHASE: Record<string, string> = {
   intake: "Opname uitlezen met FFmpeg",
+  suggest: "AI-suggesties maken",
   analyse: "Gameplay analyseren",
   script: "Script schrijven",
   render: "Montage voorbereiden",
@@ -23,6 +24,7 @@ export const STEP_PHASE: Record<string, string> = {
 /** Shown when a step completes. */
 export const STEP_MILESTONE: Record<string, string> = {
   intake: "Gameplay ingelezen",
+  suggest: "Suggesties voor tags, titels en beschrijving klaar",
   analyse: "Momenten geselecteerd",
   script: "Script geschreven",
   render: "Montage klaar, preview beschikbaar",

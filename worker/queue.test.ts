@@ -217,3 +217,35 @@ describe("captions and thumbnail after the upload (fase D4b)", () => {
     expect(calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values && "status" in c.values)!.values).toMatchObject({ status: "done" });
   });
 });
+
+describe("AI suggestions (fase 1.6)", () => {
+  const job = { id: "s1", studio_id: "h", recording_id: null, video_id: "v1", step: "suggest", attempts: 1, max_attempts: 2, payload: { title: "", description: "" } };
+
+  it("runs in the fast lane, so it never waits behind a montage", async () => {
+    const { db, calls } = fakeDb({ claim: [[job]], rows: { yt_videos: { id: "v1", format: "A", language: "nl", is_test: true, channel_id: null } } });
+    await make(db).tickFast();
+    const done = calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values && "status" in c.values)!;
+    expect(done.values).toMatchObject({ status: "done" });
+    expect((done.values!.result as { source: string; tags: string[] }).source).toBe("test");
+    expect((done.values!.result as { tags: string[] }).tags.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("is never claimed by the main lane", async () => {
+    let asked: string[] = [];
+    const { db } = fakeDb();
+    (db as unknown as { rpc: (n: string, a: { p_steps: string[] }) => Promise<unknown> }).rpc = async (_n, a) => {
+      asked = a.p_steps;
+      return { data: [], error: null };
+    };
+    await make(db).tick();
+    expect(asked).not.toContain("suggest");
+  });
+
+  it("fails with a clear reason for real footage without an analysis key", async () => {
+    const { db, calls } = fakeDb({ claim: [[{ ...job, attempts: 2 }]], rows: { yt_videos: { id: "v1", format: "A", language: "nl", is_test: false, channel_id: null } } });
+    await make(db).tickFast();
+    const done = calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values && "status" in c.values)!;
+    expect(done.values).toMatchObject({ status: "failed" });
+    expect(String(done.values!.error)).toContain("GEMINI_API_KEY");
+  });
+});

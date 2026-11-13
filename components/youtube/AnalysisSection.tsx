@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
 import { createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { Editor } from "@/components/youtube/Editor";
-import { PublishPanel } from "@/components/youtube/PublishPanel";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { DEFAULT_BLUR_REGIONS, type Region } from "@/lib/youtube/render";
 import { HOOK_TYPE_LABEL } from "@/lib/youtube/hooks";
@@ -34,9 +33,14 @@ type Act = (action: () => Promise<unknown>) => Promise<void>;
 export function useAnalysis(studioId: string, enabled: boolean) {
   const [state, setState] = useState<AnalysisState | null>(null);
   const missing = useRef(false);
+  const last = useRef("");
   const refresh = useCallback(async () => {
     const s = await loadAnalysis(studioId);
     missing.current = !s.ready && s.reason === "migration";
+    // Fase 1.4: only a real change re-renders the long list; a poll that brought nothing new changes nothing.
+    const key = JSON.stringify(s);
+    if (key === last.current) return;
+    last.current = key;
     setState(s);
   }, [studioId]);
 
@@ -145,7 +149,12 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                     {r.is_test && (
                       <RealGameplayFix canAnalyse={!!(state.settings?.paid_processing_enabled && analysisService)} onConfirm={(label) => act(() => markAsRealGameplay(studioId, r.id, label))} />
                     )}
-                    {moments.length > 0 && <MomentList moments={moments} />}
+                    {moments.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs text-slate-600">Gevonden momenten ({moments.length})</summary>
+                        <MomentList moments={moments} />
+                      </details>
+                    )}
                     {moments.length > 0 && !r.is_test && <ManualMaker moments={moments.filter((m) => m.usable)} onMake={(chosen, long) => act(() => createManualVideos(studioId, r.id, chosen, long))} />}
                     {job === "done" && <MissingFootage hasMoments={moments.length > 0} formats={missingFormats(videos.map((v) => v.format))} />}
                     {videos.map((v) => (
@@ -302,15 +311,20 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
   const target = TARGET[video.format];
   const used = [...video.yt_video_moments].sort((a, b) => a.position - b.position).map((l) => moments.find((m) => m.id === l.moment_id)).filter((m): m is DbMoment => !!m);
   const nextVersion = (scripts[0]?.version ?? 0) + 1;
+  const waits = video.status === "review" || script?.status === "draft";
   return (
-    <div className="mt-3 rounded-md border border-slate-200 p-3 text-sm">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+    <details open={waits} className="group mt-3 rounded-md border border-slate-200 p-3 text-sm">
+      <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-2 [&::-webkit-details-marker]:hidden">
         <p className="font-medium">
+          <span aria-hidden className="mr-1 inline-block text-slate-400 transition-transform group-open:rotate-90">▸</span>
           Format {video.format}: {format?.name} <span className="text-xs font-normal text-slate-500">· {format?.kind} · {VIDEO_STATUS[video.status] ?? video.status}</span>
           {video.is_test && <TestBadge />}
         </p>
-        <p className="text-xs text-slate-500">Momenten: {used.map((m) => `${KIND_LABEL[m.kind]} ${formatTimecode(m.start_ms)}`).join(", ")}</p>
-      </div>
+        <p className="text-xs text-slate-500">
+          {waits && <span className="mr-2 rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-800">👀 Wacht op jou</span>}
+          Momenten: {used.map((m) => `${KIND_LABEL[m.kind]} ${formatTimecode(m.start_ms)}`).join(", ")}
+        </p>
+      </summary>
       {video.promise && <p className="text-xs text-slate-600">Kijkersbelofte: {video.promise}</p>}
       {!script ? (
         <p className="mt-2 text-xs text-slate-500">Het script wordt gemaakt…</p>
@@ -405,7 +419,7 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
         </div>
       )}
       <MontageBlock video={video} approved={approved ?? null} montage={montage} act={act} studioId={studioId} workerOnline={workerOnline} privacyFlags={[...new Set(used.flatMap((m) => m.privacy_flags))]} onWatch={onWatch} repeats={repeats} />
-    </div>
+    </details>
   );
 }
 
@@ -532,7 +546,8 @@ function MontageBlock({ video, approved, montage, act, studioId, workerOnline, p
             preload="metadata"
             playsInline
             onError={() => setBroken(shown.id)}
-            className={`rounded-md bg-black ${shown.height > shown.width ? "max-h-[70vh] w-auto max-w-full" : "w-full"}`}
+            style={{ aspectRatio: `${shown.width} / ${shown.height}` }}
+            className={`rounded-md bg-black ${shown.height > shown.width ? "h-[min(70vh,40rem)] w-auto max-w-full" : "w-full"}`}
           />
         ))}
       {renders.length > 0 && (
@@ -549,19 +564,13 @@ function MontageBlock({ video, approved, montage, act, studioId, workerOnline, p
       )}
       <ReviewBlock video={video} blockers={reviewBlockers({ approvedScriptId: approved?.id ?? null, latestRender: renders[0] ?? null, renderBusy: !!busy, privacyFlags })} checks={reviewChecks(privacyFlags)} act={act} qc={renders[0]?.qc?.items ?? null} repeats={repeats ?? []} firstFrame={renders[0] && workerOnline ? { file: renders[0].file_name, firstLine: approved?.hooks?.[approved.chosen_hook ?? -1]?.first_line ?? approved?.hook ?? "" } : null} />
       {["approved", "scheduled", "published"].includes(video.status) && (
-        <PublishPanel
-          studioId={studioId}
-          videoId={video.id}
-          kind={video.format === "C" ? "long" : "short"}
-          language={video.language}
-          hook={approved?.hooks?.[approved.chosen_hook ?? -1] ?? null}
-          renderId={renders[0]?.id ?? null}
-          onWatch={onWatch ? () => onWatch(video.id) : undefined}
-          renderFile={renders[0]?.file_name ?? null}
-          renderMs={renders[0]?.duration_ms ?? null}
-          workerOnline={workerOnline}
-          renderLabel={renders[0] ? `${new Date(renders[0].created_at).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Amsterdam" })}, ${formatTimecode(renders[0].duration_ms)}, ${renders[0].width}×${renders[0].height}` : null}
-        />
+        <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Goedgekeurd. Publiceren gaat via{" "}
+          <a href="#klaar" className="font-semibold underline underline-offset-2">
+            🚀 Klaar voor YouTube
+          </a>
+          .
+        </p>
       )}
     </div>
   );
@@ -764,7 +773,7 @@ function HookChoice({ script, act }: { script: DbScript; act: Act }) {
 function FirstFrame({ file, firstLine }: { file: string; firstLine: string }) {
   return (
     <div className="flex items-start gap-3 rounded-md bg-slate-50 p-2">
-      <video src={`${WORKER_URL}/renders/${encodeURIComponent(file)}#t=0.05`} crossOrigin="anonymous" muted playsInline preload="auto" className="h-28 w-auto rounded bg-black" aria-label="Eerste beeld van de montage" />
+      <video src={`${WORKER_URL}/renders/${encodeURIComponent(file)}#t=0.05`} crossOrigin="anonymous" muted playsInline preload="auto" className="h-28 w-28 shrink-0 rounded bg-black object-contain" aria-label="Eerste beeld van de montage" />
       <div className="min-w-0 text-xs">
         <p className="font-medium text-slate-700">Eerste-frametest (zonder geluid)</p>
         <p className="mt-0.5 text-slate-600">Eerste zin: {firstLine || "–"}</p>
