@@ -6,7 +6,9 @@ export type VideoRequest = { first: { mime: string; data: Buffer }; last: { mime
 export type VideoResult = { data: Buffer; mime: string; model: string; costCents: number; id: string | null };
 export type VideoProvider = { name: string; model: string; estimateCents: (durationS: number, res: VideoRequest["resolution"]) => number; generate: (req: VideoRequest) => Promise<VideoResult> };
 
-type Content = { type: string; mime_type?: string; data?: string };
+export class CreditError extends Error {}
+
+type Content ={ type: string; mime_type?: string; data?: string };
 type Interaction = { id?: string; status?: string; steps?: { type: string; content?: Content[] }[]; error?: { message?: string } };
 
 export function createOmniVideo(key: string, model = "gemini-omni-1.2-flash", fetchImpl: typeof fetch = fetch): VideoProvider {
@@ -27,8 +29,17 @@ export function createOmniVideo(key: string, model = "gemini-omni-1.2-flash", fe
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15 * 60_000),
       });
-      const json = (await res.json().catch(() => ({}))) as Interaction;
-      if (!res.ok) throw new Error(`Omni ${res.status}: ${json.error?.message ?? "onbekende fout"}`.slice(0, 300));
+      const text = await res.text();
+      const json = (() => {
+        try {
+          return JSON.parse(text) as Interaction;
+        } catch {
+          return {} as Interaction;
+        }
+      })();
+      // 402: the prepaid Google credit is used up. Stop everything (this also affects KIVOXEL); never retry.
+      if (res.status === 402) throw new CreditError("Het Google AI Studio-tegoed is op (402). Milan moet het aanvullen op ai.studio/projects.");
+      if (!res.ok) throw new Error(`Omni ${res.status}: ${json.error?.message ?? text.slice(0, 200) ?? "onbekende fout"}`.slice(0, 300));
       const video = json.steps?.flatMap((s) => s.content ?? []).find((c) => c.type === "video" && c.data);
       if (!video?.data) throw new Error(`Geen video terug (status ${json.status ?? "onbekend"})`);
       return { data: Buffer.from(video.data, "base64"), mime: video.mime_type ?? "video/mp4", model, costCents: clipCents(req.durationS, req.resolution), id: json.id ?? null };

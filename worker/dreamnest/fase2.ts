@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { clipCents, judgeClip, planClips, type Clip, type SafetyResult } from "../../lib/dreamnest/motion.ts";
 import { findTool } from "../ffmpeg.ts";
-import { createOmniVideo } from "../providers/video/omni.ts";
+import { CreditError, createOmniVideo } from "../providers/video/omni.ts";
 import { BudgetError, cacheKey, createCache, createLedger } from "./ledger.ts";
 import { measureClip, runTool, silentArgs } from "./measure.ts";
 
@@ -82,7 +82,7 @@ for (const clip of clips) {
   } catch (e) {
     row.error = e instanceof Error ? e.message : String(e);
     log(`${clip.id}: ${row.error}`);
-    if (e instanceof BudgetError) break;
+    if (e instanceof BudgetError || e instanceof CreditError) break;
   }
 }
 
