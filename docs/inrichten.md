@@ -64,7 +64,7 @@ c. Het token voor de tegel in het familie-dashboard: Claude maakt een willekeuri
 1. Kijk in de oude studio of er geen analyse of montage bezig is.
 2. Stop de oude werker (Ctrl+C in zijn venster). Claude doet dit nooit zelf.
 3. Start de nieuwe: dubbelklik `C:\Users\famdj\Documents\kivoxel-studio\worker\start-werker.cmd`. Hij meldt "Werker 59.0" en "Wachtrij: Supabase".
-4. De opnames staan nog in dezelfde map (`FamilieMK-YouTube`); de studio meldt ze opnieuw aan (zonder dubbelen).
+4. De opnames staan nog in dezelfde map (`FamilieMK-YouTube`). In **Gameplaybibliotheek** staat bij elke opname die de nieuwe database nog niet kent een knop **Aanmelden**: één klik en hij staat erin (zonder dubbelen).
 5. Koppel het kanaal Kivoxel in de nieuwe studio opnieuw aan YouTube (Instellingen → kanaal).
 
 Terug naar de oude werker kan altijd: nieuwe stoppen, oude starten.
