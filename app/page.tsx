@@ -279,7 +279,7 @@ export default function YouTubeStudioPage() {
                   >
                     {t.key === "settings" ? <Settings className="h-4 w-4 shrink-0 text-slate-400" aria-hidden /> : <span aria-hidden>{t.icon}</span>}
                     <span className="flex-1">{t.label}</span>
-                    {count !== null && count > 0 && <span title={t.key === "insights" ? `${count} Studio-tips` : undefined} className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs font-semibold tabular-nums ${t.key === "action" ? "bg-amber-500 text-slate-950" : t.key === "insights" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{count}</span>}
+                    {count !== null && count > 0 && <span title={t.key === "insights" ? `${count} Studio-tips` : undefined} className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs font-semibold tabular-nums ${t.key === "action" ? "bg-[#7c3aed] text-white" : t.key === "insights" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{count}</span>}
                   </button>
                 </li>
               );

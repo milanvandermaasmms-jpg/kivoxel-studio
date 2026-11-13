@@ -432,11 +432,11 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
 
       {/* Fase 1.2: the primary action sits at the top of the card, never between the other buttons. */}
       {!locked && !onYouTube && (
-        <div className="space-y-1.5 rounded-lg border-2 border-amber-300 bg-amber-50 p-3">
-          <button type="button" disabled={!primary || busy} onClick={() => primary && setConfirming(primary)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-6 text-base font-semibold text-slate-950 shadow-sm hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto">
+        <div className="space-y-1.5 rounded-lg border-2 border-violet-200 bg-violet-50 p-3">
+          <button type="button" disabled={!primary || busy} onClick={() => primary && setConfirming(primary)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#7c3aed] px-6 text-base font-semibold text-white shadow-sm hover:bg-[#6d28d9] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto">
             <Rocket className="h-5 w-5" aria-hidden /> Naar YouTube sturen
           </button>
-          <p className="text-amber-900">
+          <p className="text-violet-900">
             {primary
               ? primary.action === "private"
                 ? "Gaat privé naar YouTube: alleen jij kunt hem zien."

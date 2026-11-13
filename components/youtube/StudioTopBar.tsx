@@ -50,7 +50,7 @@ export function StudioTopBar({ items, channels, channel, onChannel, onOpen }: { 
         <button
           type="button"
           onClick={() => onOpen("ready")}
-          className={`relative inline-flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm ${ready > 0 ? "bg-amber-500 text-slate-950 hover:bg-amber-400" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+          className={`relative inline-flex min-h-11 items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm ${ready > 0 ? "bg-[#7c3aed] text-white hover:bg-[#6d28d9]" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
         >
           <Rocket className="h-4 w-4" aria-hidden />
           {counts === null ? "Laden…" : `${ready} klaar voor YouTube`}

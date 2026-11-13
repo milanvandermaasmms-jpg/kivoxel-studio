@@ -66,7 +66,7 @@ function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpen
           {item.error && <p className="text-xs text-red-700 [overflow-wrap:anywhere]">Laatste fout: {item.error}</p>}
           <div className="flex flex-wrap items-center gap-2">
             {item.flow === "ready" ? (
-              <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm hover:bg-amber-400">
+              <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#7c3aed] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#6d28d9]">
                 <Rocket className="h-4 w-4" aria-hidden /> {open ? "Sluiten" : "Naar YouTube sturen"}
               </button>
             ) : (
