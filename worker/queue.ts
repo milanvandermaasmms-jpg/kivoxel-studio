@@ -673,9 +673,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   async function settlePublication(pub: PublicationRow, videoId: string, setPub: (f: Record<string, unknown>) => Promise<void>) {
     const status = pub.publish_at ? "scheduled" : pub.visibility === "private" ? "uploaded" : "published";
     await setPub({ status, error: null });
-    const videoStatus = status === "published" ? { status: "published", published_at: new Date().toISOString() } : status === "scheduled" ? { status: "scheduled" } : { status: "approved" };
+    // Opschonen 13-11-2026: on YouTube = live (or planned). A private upload is live too (privacy_status says who can see it).
+    const videoStatus = status === "scheduled" ? { status: "scheduled" } : { status: "published", published_at: new Date().toISOString() };
     const video = await db.from("yt_videos").update({ youtube_video_id: videoId, privacy_status: pub.visibility, scheduled_at: pub.publish_at, ...videoStatus }).eq("id", pub.video_id);
     if (video.error) log(`Videostatus niet bijgewerkt: ${video.error.message}`);
+    // Nothing of this video waits any more: open steps (a new script, montage, check) are closed.
+    const closed = await db.from("yt_jobs").update({ status: "cancelled", error: "Niet meer nodig: de video staat op YouTube" }).eq("video_id", pub.video_id).eq("status", "queued").in("step", ["script", "render", "suggest", "viral"]);
+    if (closed.error) log(`Open stappen niet gesloten: ${closed.error.message}`);
     return status;
   }
 
@@ -1012,6 +1016,26 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { queries, saved };
   }
 
+  /**
+   * Every hour: a step that has been running for 2 hours without a sign of life is stuck; it becomes "mislukt" with the
+   * reason, so it shows up under Actie nodig with "Opnieuw proberen" instead of hanging around.
+   */
+  async function failStuck(now = Date.now()) {
+    const limit = new Date(now - 2 * 3_600_000).toISOString();
+    const { data, error } = await db.from("yt_jobs").select("id, step, video_id, heartbeat_at, locked_at").eq("status", "running").returns<{ id: string; step: string; video_id: string | null; heartbeat_at?: string | null; locked_at: string | null }[]>();
+    if (error) return log(`Vastgelopen stappen niet nagekeken: ${error.message}`);
+    for (const j of data ?? []) {
+      const last = j.heartbeat_at ?? j.locked_at;
+      if (!last || last > limit) continue;
+      const upd = await db.from("yt_jobs").update({ status: "failed", error: "Vastgelopen: 2 uur geen voortgang", locked_by: null, locked_at: null, finished_at: new Date(now).toISOString() }).eq("id", j.id).eq("status", "running");
+      if (upd.error) log(`Stap ${j.id} niet op mislukt gezet: ${upd.error.message}`);
+      else {
+        log(`Stap ${j.step} (${j.id}) vastgelopen: op mislukt gezet`);
+        await afterFinalFailure(j);
+      }
+    }
+  }
+
   /** Once a week per active channel: queue a reference step (only while YouTube is linked on this pc). */
   async function scheduleReference() {
     if (!research) return;
@@ -1134,11 +1158,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // Fase 3.1: reference videos once a week (checked at start and every 6 hours).
       void scheduleReference().catch(() => undefined);
       setInterval(() => void scheduleReference().catch(() => undefined), 6 * 60 * 60_000);
+      setInterval(() => void failStuck().catch(() => undefined), 60 * 60_000);
     },
     recover,
     tick,
     tickFast,
     scheduleReference,
+    failStuck,
     stop() {
       if (timer) clearInterval(timer);
     },

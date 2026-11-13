@@ -214,7 +214,7 @@ describe("captions and thumbnail after the upload (fase D4b)", () => {
     expect(String(updates[0].captions_status)).toMatch(/^Klaar op .* \(spoor cap1\)$/);
     expect(String(updates[1].thumbnail_status)).toMatch(/^Mislukt: YouTube staat eigen thumbnails/);
     expect(updates.at(-1)).toEqual({ status: "uploaded", error: null });
-    expect(calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values && "status" in c.values)!.values).toMatchObject({ status: "done" });
+    expect(calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values && "status" in c.values && c.values.status !== "cancelled")!.values).toMatchObject({ status: "done" });
   });
 });
 
@@ -247,5 +247,38 @@ describe("AI suggestions (fase 1.6)", () => {
     const done = calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values && "status" in c.values)!;
     expect(done.values).toMatchObject({ status: "failed" });
     expect(String(done.values!.error)).toContain("GEMINI_API_KEY");
+  });
+});
+
+describe("opschonen: one video, one place (13-11-2026)", () => {
+  const job = { id: "u1", studio_id: "h", recording_id: null, video_id: "v1", step: "upload", attempts: 1, max_attempts: 5, payload: { publication_id: "p1" } };
+  const pub = { id: "p1", video_id: "v1", render_id: "r1", title: "[TEST] Minecraft", description: "", tags: [], category_id: "20", language: "en", made_for_kids: false, contains_synthetic_media: false, visibility: "private", publish_at: null, status: "queued", youtube_video_id: null, is_test: true };
+  const publisher = {
+    rendersDir: "C:/renders",
+    pollMs: 0,
+    uploader: {
+      upload: async () => ({ videoId: "vid12345678", bytes: 10, adopted: false }),
+      setStatus: async () => undefined,
+      processing: async () => ({ uploadStatus: "processed", processingStatus: null, privacyStatus: "private", reason: null }),
+    } as unknown as Publisher["uploader"],
+  } as Publisher;
+
+  it("after a successful upload the video is live and its open steps are closed", async () => {
+    const { db, calls } = fakeDb({ claim: [[job]], rows: { yt_publications: pub, yt_renders: { file_name: "m.mp4", video_id: "v1" } } });
+    await createQueue("http://x", "k", "pc-test", store, () => {}, null, null, db, publisher).tick();
+    const video = calls.find((c) => c.op === "update" && c.table === "yt_videos")!;
+    expect(video.values).toMatchObject({ youtube_video_id: "vid12345678", status: "published" });
+    const closed = calls.find((c) => c.op === "update" && c.table === "yt_jobs" && c.values?.status === "cancelled")!;
+    expect(filter(closed, "video_id")).toBe("v1");
+    expect(filter(closed, "status")).toBe("queued");
+  });
+
+  it("a step without a sign of life for 2 hours becomes failed with the reason", async () => {
+    const now = Date.parse("2026-11-13T12:00:00Z");
+    const { db, calls } = fakeDb({ running: [{ id: "old", step: "render", video_id: "v1", heartbeat_at: "2026-11-13T09:00:00Z", locked_at: "2026-11-13T08:00:00Z" }, { id: "fresh", step: "render", video_id: "v2", heartbeat_at: "2026-11-13T11:59:00Z", locked_at: "2026-11-13T11:00:00Z" }] });
+    await make(db).failStuck(now);
+    const failed = calls.filter((c) => c.op === "update" && c.table === "yt_jobs" && c.values?.status === "failed");
+    expect(failed.map((c) => filter(c, "id"))).toEqual(["old"]);
+    expect(failed[0].values).toMatchObject({ error: "Vastgelopen: 2 uur geen voortgang" });
   });
 });
