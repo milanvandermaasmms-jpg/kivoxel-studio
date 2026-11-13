@@ -69,6 +69,7 @@ Uitkomst van de basismeting staat in §7.
 - `worker/dreamnest/lane.ts`: eigen rij via `claim_dn_job`, pakt alleen werk als de KIVOXEL-hoofdrij stil is, ook tussen stappen. Alleen de teststap `dn_ping`. Blijft stil zolang migratie 052 er niet is.
 - **Gedeelde code (vooraf gemeld, §3):** `worker/queue.ts` geeft één extra alleen-lezen-functie `mainBusy()`; `worker/index.ts` start de Dreamnest-rij alleen met de flag aan. Flag uit = exact als voorheen.
 - `supabase/migrations/052_dreamnest_core.sql`: `dn_episodes`, `dn_render_jobs`, `claim_dn_job`. Alleen nieuw, niets aan `yt_*`. Privacycontrole uitgebreid (14 checks).
+- Migratie 052 is op 13-11-2026 door Milan uitgevoerd in Supabase.
 - `app/dreamnest/page.tsx`: fase-overzicht achter inloggen; zonder flag een 404. Geen link in het KIVOXEL-scherm.
 - Browser (poort 3201/3202, los van jouw 3200): flag aan → pagina bestaat; flag uit → 404.
 - Controle: `tsc` ✅ · `npm test` ✅ 53 bestanden, 363 tests · `build` ✅. Kosten: € 0.
