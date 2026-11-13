@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, CalendarDays, Clapperboard, Film, FlaskConical, LayoutDashboard, Radio, RefreshCw, Settings, Upload, Wallet, Wand2, MonitorPlay } from "lucide-react";
+import { BarChart3, CalendarDays, Clapperboard, Columns3, Film, FlaskConical, LayoutDashboard, Radio, RefreshCw, Settings, Upload, Wallet, Wand2, MonitorPlay } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
@@ -13,6 +13,7 @@ import { Notices } from "@/components/youtube/Notices";
 import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
+import { PipelineBoard } from "@/components/youtube/PipelineBoard";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
 import { useStudio } from "@/lib/studio";
@@ -36,6 +37,7 @@ import { listLocalRecordings, workerHealth, type UploadOutcome } from "@/lib/you
 // Navigation of the studio (2.2 chapter 2): the 11 parts, in this order. Parts not built yet are shown as "later"
 // (not clickable, so no dead buttons). Old addresses (#pijplijn, #cijfers) keep working.
 const TABS = [
+  { key: "board", label: "Pijplijnbord" },
   { key: "overview", label: "Dashboard" },
   { key: "pipeline", label: "Productiestudio" },
   { key: "library", label: "Gameplaybibliotheek" },
@@ -47,10 +49,11 @@ const TABS = [
   { key: "settings", label: "Instellingen" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
-const HASH: Record<Tab, string> = { overview: "overzicht", pipeline: "pijplijn", library: "gameplay", maker: "maker", live: "live", calendar: "kalender", youtube: "youtube", stats: "cijfers", settings: "instellingen" };
-const ICON: Record<Tab, typeof LayoutDashboard> = { overview: LayoutDashboard, pipeline: Clapperboard, library: Film, maker: Wand2, live: Radio, calendar: CalendarDays, youtube: MonitorPlay, stats: BarChart3, settings: Settings };
+const HASH: Record<Tab, string> = { board: "bord", overview: "overzicht", pipeline: "pijplijn", library: "gameplay", maker: "maker", live: "live", calendar: "kalender", youtube: "youtube", stats: "cijfers", settings: "instellingen" };
+const ICON: Record<Tab, typeof LayoutDashboard> = { board: Columns3, overview: LayoutDashboard, pipeline: Clapperboard, library: Film, maker: Wand2, live: Radio, calendar: CalendarDays, youtube: MonitorPlay, stats: BarChart3, settings: Settings };
 /** Where each of the 11 parts sits in the order, with the parts that come later. */
 const NAV: ({ tab: Tab } | { later: string; note: string; icon: typeof LayoutDashboard })[] = [
+  { tab: "board" },
   { tab: "overview" },
   { tab: "pipeline" },
   { tab: "library" },
@@ -79,7 +82,7 @@ export default function YouTubeStudioPage() {
   const [local, setLocal] = useState<LocalRecording[] | null>(null);
   const [db, setDb] = useState<DbState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("board");
   const analysis = useAnalysis(studio.id, isAdmin);
 
   // The chosen tab is kept in the address (#pijplijn), so a refresh or a link opens the same tab.
@@ -224,6 +227,7 @@ export default function YouTubeStudioPage() {
       </nav>
       <div className="min-w-0 space-y-4">
 
+      {tab === "board" && <PipelineBoard studioId={studio.id} workerOnline={!!health} onOpenStudio={() => chooseTab("pipeline")} />}
       {tab === "overview" && (
         <>
           <TodayOverview overview={overviewFrom(db, analysis.state, health === undefined ? undefined : !!health)} onOpen={chooseTab} />

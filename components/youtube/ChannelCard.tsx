@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Section } from "@/components/settings/Section";
 import { Button } from "@/components/ui/Dialog";
 import { YouTubeConnection } from "@/components/youtube/YouTubeConnection";
-import { CHANNEL_STATUS, channelProblem, loadChannels, saveChannel, type Channel, type ChannelEdit } from "@/lib/youtube/channels";
+import { CHANNEL_MODE, CHANNEL_STATUS, channelProblem, loadChannels, parseSlots, parseWords, profileProblem, providersText, SAFETY_PROFILE, saveChannel, saveProfile, type Channel, type ChannelEdit, type ProfileEdit } from "@/lib/youtube/channels";
 
-/** Channel administration (migration 032). Today one channel; more channels come once this one runs well. */
+/** Channel administration (migration 032) with a profile per channel (migration 045). */
 export function ChannelCard({ studioId, onError }: { studioId: string; onError: (message: string | null) => void }) {
   const [channels, setChannels] = useState<Channel[] | null | undefined>(undefined);
   const refresh = useCallback(async () => {
@@ -39,12 +39,29 @@ export function ChannelCard({ studioId, onError }: { studioId: string; onError: 
       </Section>
     );
   return (
-    <Section title={channels.length === 1 ? "Kanaal" : "Kanalen"} intro="Alle opnames, video's, scripts en kosten horen bij een kanaal. Een opname en alles wat eruit komt blijft bij één kanaal, zodat dezelfde video nooit op twee kanalen verschijnt. Meer kanalen volgen later.">
+    <Section title={channels.length === 1 ? "Kanaal" : "Kanalen"} intro="Alle opnames, video's, scripts en kosten horen bij een kanaal. Een opname en alles wat eruit komt blijft bij één kanaal, zodat dezelfde video nooit op twee kanalen verschijnt. Elk kanaal heeft een profiel; de stijlgids staat in de map channels/(korte naam).">
       <ul className="space-y-3">
         {channels.map((c) => (
           <ChannelRow
             key={`${c.id}:${c.name}:${c.status}:${c.language}:${c.audience}:${c.brand_color}`}
             channel={c}
+            profile={
+              c.mode !== undefined ? (
+                <ProfileForm
+                  key={JSON.stringify([c.slug, c.mode, c.safety_profile, c.made_for_kids, c.synthetic_media, c.banned_words, c.publish_slots])}
+                  channel={c}
+                  onSave={async (p) => {
+                    try {
+                      onError(null);
+                      await saveProfile(c.id, p);
+                      await refresh();
+                    } catch (e) {
+                      onError(e instanceof Error ? e.message : "Opslaan lukte niet.");
+                    }
+                  }}
+                />
+              ) : null
+            }
             connection={<YouTubeConnection channel={c} anotherLinked={channels.some((o) => o.id !== c.id && !!o.youtube_connected_at)} onChanged={refresh} />}
             onSave={async (edit) => {
               try {
@@ -62,7 +79,7 @@ export function ChannelCard({ studioId, onError }: { studioId: string; onError: 
   );
 }
 
-function ChannelRow({ channel, connection, onSave }: { channel: Channel; connection: ReactNode; onSave: (edit: ChannelEdit) => Promise<void> }) {
+function ChannelRow({ channel, connection, profile, onSave }: { channel: Channel; connection: ReactNode; profile: ReactNode; onSave: (edit: ChannelEdit) => Promise<void> }) {
   const initial: ChannelEdit = { name: channel.name, status: channel.status, language: channel.language, audience: channel.audience, brand_color: channel.brand_color };
   const [draft, setDraft] = useState(initial);
   const changed = JSON.stringify(draft) !== JSON.stringify(initial);
@@ -117,6 +134,7 @@ function ChannelRow({ channel, connection, onSave }: { channel: Channel; connect
         </label>
       </div>
       {connection}
+      {profile}
       {draft.language !== "en" && <p className="text-xs text-amber-800">Let op: de scripts zijn nu nog Engels. Nederlandse scripts volgen later.</p>}
       {changed && problem && <p className="text-xs text-amber-800">{problem}</p>}
       <div className="flex gap-2">
@@ -130,5 +148,95 @@ function ChannelRow({ channel, connection, onSave }: { channel: Channel; connect
         )}
       </div>
     </li>
+  );
+}
+
+/** The profile of one channel (migration 045). Which paid services a channel uses is not chosen here: that needs Milan's go-ahead and a budget. */
+function ProfileForm({ channel, onSave }: { channel: Channel; onSave: (p: ProfileEdit) => Promise<void> }) {
+  const initial: ProfileEdit = {
+    slug: channel.slug ?? "",
+    mode: channel.mode ?? "upload",
+    safety_profile: channel.safety_profile ?? "kids_gaming",
+    made_for_kids: channel.made_for_kids ?? null,
+    synthetic_media: channel.synthetic_media ?? false,
+    banned_words: channel.banned_words ?? [],
+    publish_slots: channel.publish_slots ?? [],
+  };
+  const [draft, setDraft] = useState(initial);
+  const [words, setWords] = useState(initial.banned_words.join(", "));
+  const [slots, setSlots] = useState(initial.publish_slots.join(", "));
+  const next: ProfileEdit = { ...draft, banned_words: parseWords(words), publish_slots: parseSlots(slots) };
+  const changed = JSON.stringify(next) !== JSON.stringify(initial);
+  const problem = profileProblem(next);
+  const field = "rounded-md border border-slate-300 bg-transparent px-2 py-1";
+  return (
+    <details className="rounded-md border border-slate-200 px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium">Kanaalprofiel</summary>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1">
+          <span className="text-xs text-slate-500">Korte naam (map channels/…)</span>
+          <input value={draft.slug} maxLength={40} onChange={(e) => setDraft({ ...draft, slug: e.target.value.trim().toLowerCase() })} placeholder="bijv. kivoxel" className={field} />
+        </label>
+        <label className="grid gap-1">
+          <span className="text-xs text-slate-500">Werkwijze</span>
+          <select value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value as ProfileEdit["mode"] })} className={field}>
+            {Object.entries(CHANNEL_MODE).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1">
+          <span className="text-xs text-slate-500">Veiligheidsprofiel</span>
+          <select value={draft.safety_profile} onChange={(e) => setDraft({ ...draft, safety_profile: e.target.value as ProfileEdit["safety_profile"] })} className={field}>
+            {Object.entries(SAFETY_PROFILE).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1">
+          <span className="text-xs text-slate-500">Made for Kids (standaard, per video aan te passen)</span>
+          <select value={draft.made_for_kids === null ? "" : String(draft.made_for_kids)} onChange={(e) => setDraft({ ...draft, made_for_kids: e.target.value === "" ? null : e.target.value === "true" })} className={field}>
+            <option value="">Nog niet gekozen</option>
+            <option value="true">Ja, gemaakt voor kinderen</option>
+            <option value="false">Nee</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 sm:col-span-2">
+          <input type="checkbox" checked={draft.synthetic_media} onChange={(e) => setDraft({ ...draft, synthetic_media: e.target.checked })} />
+          <span>AI-label aan bij uploaden (verplicht bij AI-beeld of AI-muziek)</span>
+        </label>
+        <label className="grid gap-1 sm:col-span-2">
+          <span className="text-xs text-slate-500">Verboden woorden in titels, beschrijvingen en thumbnails (komma tussen elk woord)</span>
+          <textarea value={words} rows={2} onChange={(e) => setWords(e.target.value)} placeholder="bijv. geneest, gegarandeerd" className={field} />
+        </label>
+        <label className="grid gap-1 sm:col-span-2">
+          <span className="text-xs text-slate-500">Vaste publicatietijden (Nederlandse tijd)</span>
+          <input value={slots} onChange={(e) => setSlots(e.target.value)} placeholder="bijv. 19:00, 20:00" className={field} />
+        </label>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">Diensten: {providersText(channel.providers)}. Een betaalde dienst komt er pas na jouw akkoord en een budget.</p>
+      {changed && problem && <p className="mt-2 text-xs text-amber-800">{problem}</p>}
+      <div className="mt-3 flex gap-2">
+        <Button disabled={!changed || !!problem} onClick={() => void onSave(next)}>
+          Profiel opslaan
+        </Button>
+        {changed && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setDraft(initial);
+              setWords(initial.banned_words.join(", "));
+              setSlots(initial.publish_slots.join(", "));
+            }}
+          >
+            Terugzetten
+          </Button>
+        )}
+      </div>
+    </details>
   );
 }

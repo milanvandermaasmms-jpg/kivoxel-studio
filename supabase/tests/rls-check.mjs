@@ -68,7 +68,9 @@ if (seededBeforeChannels) {
   const channels = (await db.query("select id::text, name, is_default from public.yt_channels where studio_id=$1", [OLD_HH])).rows;
   const perTable = {};
   for (const t of tables) perTable[t] = (await db.query(`select array_agg(distinct channel_id::text) a, count(*) filter (where channel_id is null)::int n from public.${t} where studio_id=$1`, [OLD_HH])).rows[0];
-  backfill = { channels, perTable };
+  // Migration 045 marks the default channel as KIVOXEL and adds Dreamnest NL as a planned channel.
+  const profiles = hasMigration("045") ? (await db.query("select name, slug, status, mode, safety_profile, made_for_kids, synthetic_media, banned_words, providers from public.yt_channels where studio_id=$1 order by is_default desc", [OLD_HH])).rows : [];
+  backfill = { channels, perTable, profiles };
   await db.query("delete from public.studios where id=$1", [OLD_HH]);
 }
 
@@ -369,7 +371,7 @@ if (hasMigration("009")) {
   if (hasMigration("032")) {
     // Channels (migration 032): one channel per family today, ready for more later.
     const channelOf = async (table, where = "") => (await db.query(`select array_agg(distinct channel_id::text) a, count(*) filter (where channel_id is null)::int n from public.${table} ${where}`)).rows[0];
-    const pixel = backfill?.channels ?? [];
+    const pixel = (backfill?.channels ?? []).filter((c) => c.name !== "Dreamnest NL");
     ok("existing data gets one default channel PixelRush", pixel.length === 1 && pixel[0].name === "PixelRush" && pixel[0].is_default);
     for (const [t, c] of Object.entries(backfill?.perTable ?? {})) ok(`existing ${t} moved to PixelRush`, c.n === 0 && c.a?.length === 1 && c.a[0] === pixel[0].id);
 
@@ -728,6 +730,28 @@ if (hasMigration("044")) {
   ok("the right token gets a number", typeof before === "number");
   await db.query("insert into public.yt_videos(studio_id,format,status,is_test) values($1,'A','review',false),($1,'A','review',true)", [hh]);
   ok("only real videos in review are counted", (await count(null, token)) === before + 1);
+}
+
+// ---------- Channel profiles (migration 045) ----------
+if (hasMigration("045")) {
+  const [kivoxel, dreamnest] = backfill?.profiles ?? [];
+  ok("the existing default channel becomes kivoxel with the free providers", kivoxel?.slug === "kivoxel" && kivoxel.mode === "upload" && kivoxel.safety_profile === "kids_gaming" && kivoxel.providers?.llm === "gemini" && kivoxel.providers?.video === "none");
+  ok("Dreamnest NL is added as a planned generate channel", dreamnest?.slug === "dreamnest-nl" && dreamnest.status === "planned" && dreamnest.mode === "generate" && dreamnest.safety_profile === "infant_sleep" && dreamnest.made_for_kids === true && dreamnest.synthetic_media === true);
+  ok("Dreamnest NL blocks medical promises", ["geneest", "IQ", "therapie"].every((w) => dreamnest?.banned_words?.includes(w)));
+
+  const ch = await one(MILAN, "insert into public.yt_channels(studio_id,name,slug,mode,safety_profile,banned_words,publish_slots) values($1,'Profieltest','profiel-test','hybrid','general',array['x'],array['19:00']) returning id", [hh]);
+  ok("admin adds a channel with a profile", (await one(MILAN, "select mode from public.yt_channels where id=$1", [ch])) === "hybrid");
+  await as(MILAN, "update public.yt_channels set concept_auto_approve=true, publish_slots=array['08:30','20:00'], synthetic_media=true where id=$1", [ch]);
+  ok("admin changes the profile", (await one(NATASJA, "select concept_auto_approve from public.yt_channels where id=$1", [ch])) === true);
+  await rejects("a wrong publish time is refused", MILAN, "update public.yt_channels set publish_slots=array['25:00'] where id=$1", [ch]);
+  await rejects("a wrong slug is refused", MILAN, "update public.yt_channels set slug='Met Spatie' where id=$1", [ch]);
+  await rejects("a slug is unique within the studio", MILAN, "insert into public.yt_channels(studio_id,name,slug) values($1,'Dubbel','profiel-test')", [hh]);
+  await rejects("an unknown safety profile is refused", MILAN, "update public.yt_channels set safety_profile='alles' where id=$1", [ch]);
+  await rejects("the app cannot switch on a paid provider", MILAN, `update public.yt_channels set providers='{"llm":"claude"}' where id=$1`, [ch]);
+  await rejects("the app cannot set providers on a new channel", MILAN, `insert into public.yt_channels(studio_id,name,providers) values($1,'Duur','{"video":"veo"}')`, [hh]);
+  await noneAffected("child cannot change a profile", CHILD, "update public.yt_channels set concept_auto_approve=true");
+  await noneAffected("stranger cannot change a profile", STRANGER, "update public.yt_channels set banned_words='{}'");
+  await rejects("dashboard still cannot link a YouTube channel", MILAN, "update public.yt_channels set youtube_channel_id='UCzzzzzzzzzzzzzzzzzzzzzz' where id=$1", [ch]);
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nALL PASSED");
