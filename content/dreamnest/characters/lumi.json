@@ -1,0 +1,39 @@
+{
+  "id": "lumi",
+  "name": "Lumi van Dreamnest",
+  "pronouns": "she/her",
+  "prompt_dna": "a small chubby round bunny made of soft lilac felt with a fine fuzzy texture; two upright rounded ears with peach-pink inner ears; three tiny mint-green dots in a little arc on her forehead; rosy peach cheeks; tiny dark nose and a small gentle smile; a big round fluffy pale blue-grey belly patch and a round pale blue-grey tail; short stubby paws; eyes usually sleepy or closed with soft curved lashes, when open they are round glossy dark-brown eyes with a white highlight; she wears a soft blue nightcap with small white stars and a white pompom; she always hugs Twinkle, a small plush star toy that glows softly warm yellow.",
+  "palette": {
+    "body": "#B79AD6",
+    "body_shadow": "#8E74B5",
+    "belly_tail": "#AAB8D2",
+    "inner_ears_cheeks": "#F2A98F",
+    "forehead_dots": "#9ED9C8",
+    "eyes": "#3A2A2A",
+    "nightcap": "#5C7BC4",
+    "nightcap_stars": "#FFFFFF",
+    "twinkle_glow": "#FFD97A"
+  },
+  "proportions": "Head about as big as the body (1:1), very round; ears about 0.8x head height, upright with slightly rounded tips; body a soft pear shape, lying or sitting low; paws short and stubby; total height about 2 head heights including ears.",
+  "expressions": [
+    "sleepy: eyes half closed, soft smile",
+    "asleep: eyes closed, slow breathing, peaceful",
+    "yawning: small open mouth, eyes squeezed shut gently",
+    "happy: eyes open, small smile, cheeks a little rosier",
+    "curious: eyes open, head slightly tilted, one ear tilting",
+    "cosy: eyes closed, hugging Twinkle tight, content smile"
+  ],
+  "never": [
+    "no fast or jerky movement",
+    "never scared, sad, crying or angry",
+    "no teeth showing",
+    "no clothes other than the nightcap and a blanket",
+    "never drawn floppy or hanging ears",
+    "never another body colour than lilac",
+    "never realistic fur, always soft felt",
+    "never text, logos or letters on her or near her"
+  ],
+  "turnaround": ["front", "three-quarter", "side", "back"],
+  "reference_images": ["lumi/ref-thumbnail.jpg", "lumi/ref-awake.jpg"],
+  "notes": "Canoniek ontwerp gekozen door Milan op 13-11-2026: de thumbnail-versie (lumiv2.png) met blauwe slaapmuts en sterknuffel Twinkle erbij. Altijd 'Lumi van Dreamnest', nooit 'Lumi' los."
+}

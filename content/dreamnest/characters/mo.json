@@ -1,0 +1,19 @@
+{
+  "id": "mo",
+  "name": "Mo",
+  "pronouns": "he/him",
+  "prompt_dna": "a small round fox cub made of soft warm orange felt with a cream chest and cream tip on his big fluffy tail, small rounded ears with dark tips, sleepy half-closed eyes, a tiny dark nose; he loves curling up into a round ball by the fire with his tail wrapped around him like a blanket.",
+  "palette": {
+    "body": "#E8935A",
+    "chest_tail_tip": "#F7E6CF",
+    "ear_tips": "#6B4A3A",
+    "eyes": "#3A2A2A",
+    "nose": "#3A2A2A"
+  },
+  "proportions": "About Lumi's size; round body; tail as big as his body; short legs.",
+  "expressions": ["sleepy", "asleep", "yawning", "happy", "curious", "cosy"],
+  "never": ["no sharp teeth", "never sly or mischievous", "no running or jumping", "never realistic fur, always soft felt"],
+  "turnaround": ["front", "three-quarter", "side", "back"],
+  "reference_images": [],
+  "notes": "Ontwerp volgt uit fase 1 stap A; na Milans keuze komt het gekozen beeld hier als referentie."
+}

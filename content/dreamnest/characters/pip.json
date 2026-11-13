@@ -1,0 +1,21 @@
+{
+  "id": "pip",
+  "name": "Pip",
+  "pronouns": "he/him",
+  "prompt_dna": "a tiny round baby owl made of soft cream and caramel felt, big round amber eyes that are mostly sleepy, a tiny orange beak, small soft wing-paws, wearing a far too big hand-knitted mint-green scarf that trails on the floor; he carries a small lit candle in a little brass holder with a calm steady flame.",
+  "palette": {
+    "body": "#E9D3B0",
+    "face": "#F6EBD8",
+    "wings": "#C79A6B",
+    "eyes": "#E0A040",
+    "beak": "#E8904A",
+    "scarf": "#8FD1B5",
+    "candle_flame": "#FFC864"
+  },
+  "proportions": "Almost a ball: head and body one round shape, about 0.7x Lumi's height; eyes very large; scarf twice his body length.",
+  "expressions": ["sleepy", "asleep", "yawning", "happy", "curious", "cosy"],
+  "never": ["no flapping or fast flying", "never a flickering or big flame", "never scary owl eyes or glowing eyes", "no sharp talons or beak"],
+  "turnaround": ["front", "three-quarter", "side", "back"],
+  "reference_images": [],
+  "notes": "Ontwerp volgt uit fase 1 stap A; na Milans keuze komt het gekozen beeld hier als referentie."
+}
