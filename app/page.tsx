@@ -4,7 +4,7 @@ import { CheckCircle2, Loader2, RefreshCw, Settings, Upload } from "lucide-react
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Fold, Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
-import { Button } from "@/components/ui/Dialog";
+import { Button, Dialog } from "@/components/ui/Dialog";
 import { AnalysisSection, AnalysisSettings, useAnalysis } from "@/components/youtube/AnalysisSection";
 import { LiveCenter } from "@/components/youtube/LiveCenter";
 import { ChannelCard } from "@/components/youtube/ChannelCard";
@@ -16,6 +16,7 @@ import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview"
 import { PrivateTermsSettings } from "@/components/youtube/GateList";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
+import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
 import { ReviewMode } from "@/components/youtube/ReviewMode";
@@ -84,6 +85,8 @@ export default function YouTubeStudioPage() {
   const [tab, setTab] = useState<Tab>("action");
   const [channel, setChannel] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [reviewStart, setReviewStart] = useState<string | null>(null);
+  const [details, setDetails] = useState<string | null>(null);
   const analysis = useAnalysis(studio.id, isAdmin);
   const flow = useFlow(studio.id, isAdmin);
   const channelsNow = flow.state && "board" in flow.state ? flow.state.board.channels : [];
@@ -402,22 +405,29 @@ export default function YouTubeStudioPage() {
                         <p className="font-semibold text-violet-900">👀 Te keuren ({queue.length})</p>
                         <p className="text-sm text-violet-800">{queue.length ? "Eén voor één, met grote knoppen. Swipen of pijltjestoetsen gaat ook." : "Er wacht niets op je keuring."}</p>
                       </div>
-                      <Button disabled={queue.length === 0} onClick={() => setReviewing(true)} className="min-h-11">
+                      <Button disabled={queue.length === 0} onClick={() => (setReviewStart(null), setReviewing(true))} className="min-h-11">
                         <CheckCircle2 className="h-4 w-4" aria-hidden /> Start met keuren
                       </Button>
                     </div>
-                    {queue.length > 0 && <AnalysisSection mode="review" showVideo={(id) => flowReady.items.some((i) => i.videoId === id && i.flow === "review" && (!channel || i.channelId === channel))} state={analysis.state} studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />}
+                    <ReviewTiles state={flowReady} channel={channel} workerOnline={!!health} onReview={(id) => (setReviewStart(id), setReviewing(true))} onDetails={setDetails} />
                     {flowReady.items.some((i) => i.flow === "failed") && <h2 className="text-sm font-semibold">❌ Mislukt ({flowReady.items.filter((i) => i.flow === "failed" && (!channel || i.channelId === channel)).length})</h2>}
                     <FailedList state={flowReady} channel={channel} act={act} />
                   </>
                 ))}
+              {/* Details of one tile: preview, Viral-score, script and montage, in a window over the tiles. */}
+              <Dialog open={!!details} onClose={() => setDetails(null)} title="Details" width="max-w-4xl">
+                <div className="max-h-[80vh] overflow-y-auto p-3">
+                  {details && <AnalysisSection mode="review" expand showVideo={(id) => id === details} state={analysis.state} studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />}
+                </div>
+              </Dialog>
               {reviewing && flowReady && (
                 <ReviewMode
                   studioId={studio.id}
                   board={flowReady.board}
                   items={queue}
+                  startAt={reviewStart}
                   workerOnline={!!health}
-                  onClose={() => setReviewing(false)}
+                  onClose={() => (setReviewing(false), setReviewStart(null))}
                   onEdit={() => setReviewing(false)}
                   onChanged={async () => {
                     await Promise.all([flow.refresh(), analysis.refresh()]);

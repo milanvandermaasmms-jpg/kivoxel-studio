@@ -20,8 +20,9 @@ type Ready = Extract<BoardState, { ready: true }>;
  * the next item. "Aanpassen" sends a concept back with a comment (a new version follows); for a final version it opens
  * the Productiestudio, where the script and montage can be changed.
  */
-export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEdit, onChanged }: { studioId: string; board: Ready; items: ReviewItem[]; workerOnline: boolean; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void> }) {
-  const [index, setIndex] = useState(0);
+export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEdit, onChanged, startAt }: { studioId: string; board: Ready; items: ReviewItem[]; workerOnline: boolean; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; startAt?: string | null }) {
+  // "Keuren" on a tile opens the review mode at that video; the arrows still go through all of them.
+  const [index, setIndex] = useState(() => Math.max(0, startAt ? items.findIndex((i) => i.videoId === startAt) : 0));
   const [rejecting, setRejecting] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
   const [note, setNote] = useState("");

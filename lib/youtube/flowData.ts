@@ -11,17 +11,19 @@ import { supabase } from "../supabase";
 import { pageVisible } from "../visible";
 
 type Ready = Extract<BoardState, { ready: true }>;
-export type FlowState = { board: Ready; items: FlowItem[]; publications: FlowPublication[]; views: Record<string, number> } | { error: string } | null;
+export type FlowState = { board: Ready; items: FlowItem[]; publications: FlowPublication[]; views: Record<string, number>; scores: Record<string, number> } | { error: string } | null;
 
 export function useFlow(studioId: string, enabled: boolean) {
   const [state, setState] = useState<FlowState>(null);
   const last = useRef("");
   const refresh = useCallback(async () => {
     try {
-      const [board, pubs, snaps] = await Promise.all([
+      const [board, pubs, checks, snaps] = await Promise.all([
         loadBoard(studioId),
         loadPublications(studioId).catch(() => "migration" as const),
         // Newest views per YouTube video for the live list (snapshots come every hour from the worker).
+        // Newest Viral-score per video for the review tiles (migration 050; empty before it).
+        Promise.resolve(supabase.from("yt_viral_checks").select("video_id, overall, created_at").eq("studio_id", studioId).order("created_at", { ascending: false }).limit(500)).then((r) => r.data ?? []).catch(() => [] as { video_id: string; overall: number }[]),
         Promise.resolve(supabase.from("yt_video_snapshots").select("youtube_video_id, views, taken_at").eq("studio_id", studioId).order("taken_at", { ascending: false }).limit(500)).then((r) => r.data ?? []).catch(() => [] as { youtube_video_id: string; views: number }[]),
       ]);
       if (!board.ready) {
@@ -38,10 +40,12 @@ export function useFlow(studioId: string, enabled: boolean) {
       const items = buildFlow(board.input.videos, board.input.scripts, publications, titleOf, board.jobs);
       const views: Record<string, number> = {};
       for (const s of snaps as { youtube_video_id: string; views: number }[]) if (!(s.youtube_video_id in views)) views[s.youtube_video_id] = s.views;
-      const key = JSON.stringify([items, board, publications, views]);
+      const scores: Record<string, number> = {};
+      for (const c of checks as { video_id: string; overall: number }[]) if (!(c.video_id in scores)) scores[c.video_id] = Number(c.overall);
+      const key = JSON.stringify([items, board, publications, views, scores]);
       if (key === last.current) return;
       last.current = key;
-      setState({ board, items, publications, views });
+      setState({ board, items, publications, views, scores });
     } catch (e) {
       setState({ error: e instanceof Error ? e.message : "Laden lukte niet." });
     }

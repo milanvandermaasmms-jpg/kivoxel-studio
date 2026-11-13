@@ -98,7 +98,7 @@ export function AnalysisSettings({ state, studioId, act, analysisService, voiceC
  *   one place elsewhere).
  * - "review": only the videos that wait for Milan (the filter), compact: closed cards, no recording tools.
  */
-export function AnalysisSection({ state, studioId, act, analysisService, onWatch, mode = "recordings", showVideo }: { state: AnalysisState | null; studioId: string; act: Act; analysisService: string | null | undefined; onWatch?: (videoId: string) => void; mode?: "recordings" | "review"; showVideo?: (videoId: string) => boolean }) {
+export function AnalysisSection({ state, studioId, act, analysisService, onWatch, mode = "recordings", showVideo, expand = false }: { state: AnalysisState | null; studioId: string; act: Act; analysisService: string | null | undefined; onWatch?: (videoId: string) => void; mode?: "recordings" | "review"; showVideo?: (videoId: string) => boolean; expand?: boolean }) {
   if (!state?.ready) return <NotReady state={state} title={mode === "review" ? "Te keuren" : "Opnames en momenten"} />;
   const review = mode === "review";
   // Repetition check (fase C4): every real video against the other real videos, newest first.
@@ -169,7 +169,7 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                     {!review && moments.length > 0 && !r.is_test && <ManualMaker moments={moments.filter((m) => m.usable)} onMake={(chosen, long) => act(() => createManualVideos(studioId, r.id, chosen, long))} />}
 
                     {videos.map((v) => (
-                      <VideoCard key={v.id} compact={review} video={v} moments={moments} scripts={state.scripts.filter((s) => s.video_id === v.id)} montage={state.montage} act={act} studioId={studioId} workerOnline={analysisService !== undefined} onWatch={onWatch} repeats={repeatsFor(v.id)} recordingMs={r.duration_ms} />
+                      <VideoCard key={v.id} compact={review && !expand} video={v} moments={moments} scripts={state.scripts.filter((s) => s.video_id === v.id)} montage={state.montage} act={act} studioId={studioId} workerOnline={analysisService !== undefined} onWatch={onWatch} repeats={repeatsFor(v.id)} recordingMs={r.duration_ms} />
                     ))}
                   </li>
                 );
