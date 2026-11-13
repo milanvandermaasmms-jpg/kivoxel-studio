@@ -23,7 +23,7 @@ import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
 
-const VERSION = "63.1";
+const VERSION = "63.2";
 
 function loadEnv(file: string) {
   if (!existsSync(file)) return;
