@@ -141,14 +141,18 @@ export const FOLDS: Record<string, { title: string; screen: string }> = {
   "insights.formats": { title: "Formats om te testen", screen: "insights" },
 };
 
-/** "Je slaat stap Y altijd over": a part on a tab Milan opened at least 8 times in 30 days, but never unfolded. */
+/** "Je slaat stap Y altijd over": a part on a tab Milan opened at least 8 times on 3+ days in 30 days, but never unfolded. */
 function foldTips(events: StudioEvent[], prefs: Preference[], now: number): Tip[] {
   const recent = events.filter((e) => now - Date.parse(e.at) < 30 * DAY);
   const hidden = new Set(hiddenFolds(prefs));
   const out: Tip[] = [];
   for (const [id, fold] of Object.entries(FOLDS)) {
     if (hidden.has(id)) continue;
-    const visits = recent.filter((e) => e.action === "tab_opened" && e.screen === fold.screen).length;
+    const visitEvents = recent.filter((e) => e.action === "tab_opened" && e.screen === fold.screen);
+    const visits = visitEvents.length;
+    // Real habits only: spread over at least 3 days (a burst of clicks in one session says nothing).
+    const days = new Set(visitEvents.map((e) => e.at.slice(0, 10))).size;
+    if (days < 3) continue;
     const opened = events.some((e) => e.action === "fold_opened" && e.metadata.fold === id);
     if (visits < 8 || opened) continue;
     out.push({

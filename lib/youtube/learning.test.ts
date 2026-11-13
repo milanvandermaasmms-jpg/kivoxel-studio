@@ -50,11 +50,18 @@ describe("slot tips", () => {
 
 describe("fold tips", () => {
   it("a part that is never opened on a tab Milan visits often may be hidden", () => {
-    const visits = Array.from({ length: 8 }, () => ev("tab_opened", { screen: "insights", channel_id: null }));
+    const visits = Array.from({ length: 8 }, (_, k) => ev("tab_opened", { screen: "insights", channel_id: null, at: `2026-11-0${(k % 3) + 1}T10:00:00Z` }));
     const opened = [ev("fold_opened", { metadata: { fold: "insights.today" } }), ev("fold_opened", { metadata: { fold: "insights.steps" } })];
     const tips = computeTips({ events: [...visits, ...opened], prefs: [], publications: [], channelName: name, now: NOW });
     expect(tips.map((t) => t.id)).toEqual(["hide_fold:insights.formats"]);
     expect(tips[0].apply.value).toEqual(["insights.formats"]);
+  });
+});
+
+describe("fold tips need a habit", () => {
+  it("many visits on one day are not a habit", () => {
+    const burst = Array.from({ length: 12 }, () => ev("tab_opened", { screen: "insights", channel_id: null }));
+    expect(computeTips({ events: burst, prefs: [], publications: [], channelName: name, now: NOW })).toEqual([]);
   });
 });
 

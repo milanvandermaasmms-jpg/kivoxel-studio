@@ -163,10 +163,11 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                       <details className="mt-2">
                         <summary className="cursor-pointer text-xs text-slate-600">Gevonden momenten ({moments.length})</summary>
                         <MomentList moments={moments} />
+                        {job === "done" && <MissingFootage hasMoments={moments.length > 0} formats={missingFormats(all.map((v) => v.format))} />}
                       </details>
                     )}
                     {!review && moments.length > 0 && !r.is_test && <ManualMaker moments={moments.filter((m) => m.usable)} onMake={(chosen, long) => act(() => createManualVideos(studioId, r.id, chosen, long))} />}
-                    {!review && job === "done" && <MissingFootage hasMoments={moments.length > 0} formats={missingFormats(all.map((v) => v.format))} />}
+
                     {videos.map((v) => (
                       <VideoCard key={v.id} compact={review} video={v} moments={moments} scripts={state.scripts.filter((s) => s.video_id === v.id)} montage={state.montage} act={act} studioId={studioId} workerOnline={analysisService !== undefined} onWatch={onWatch} repeats={repeatsFor(v.id)} recordingMs={r.duration_ms} />
                     ))}
