@@ -77,7 +77,7 @@ export function qcChecklist(p: QcProbe, log: QcLog, c: QcContext): QcItem[] {
   }
   if (log.truePeakDb !== null) items.push({ key: "peak", label: "Pieken (clipping)", level: log.truePeakDb > 0 ? "red" : log.truePeakDb > -1 ? "orange" : "green", value: `${log.truePeakDb.toLocaleString("nl-NL")} dBFS`, note: "Onder −1 dBFS blijft het zuiver, ook na AAC" });
   const silence = longest(log.silenceSeconds);
-  items.push({ key: "silence", label: "Stiltes", level: silence > 3 ? "orange" : "green", value: silence ? `langste ${sec(silence)}` : "geen", note: "Startwaarde: niet langer dan 3 s stil" });
+  items.push({ key: "silence", label: "Stiltes", level: silence > 2 ? "orange" : "green", value: silence ? `langste ${sec(silence)}` : "geen", note: "Superprompt: geen stilte langer dan 2 s (behalve bewust)" });
   const black = longest(log.blackSeconds);
   items.push({ key: "black", label: "Zwart beeld", level: black >= 3 ? "red" : black >= 1 ? "orange" : "green", value: black ? `langste ${sec(black)}` : "geen", note: "Startwaarde: korter dan 1 s" });
   const freeze = longest(log.freezeSeconds);

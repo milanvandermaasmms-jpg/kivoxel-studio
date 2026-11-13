@@ -98,3 +98,11 @@ describe("extra sound pass", () => {
     expect(pickLoudnessFix({ integratedLufs: -20, truePeakDb: -2 }, [{ id: "a", integratedLufs: -19.5, truePeakDb: -2 }])).toBeNull();
   });
 });
+
+describe("silence rule from the superprompt (fase 5)", () => {
+  it("marks a silence longer than 2 seconds", () => {
+    const quiet = (s: number) => qcChecklist(probe, { integratedLufs: -14, truePeakDb: -1.5, sceneTimes: [2, 4, 6, 8, 10, 12, 14], blackSeconds: [], freezeSeconds: [], silenceSeconds: [s] }, ctx);
+    expect(level(quiet(2.5), "silence")).toBe("orange");
+    expect(level(quiet(2), "silence")).toBe("green");
+  });
+});
