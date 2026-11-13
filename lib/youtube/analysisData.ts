@@ -161,8 +161,10 @@ export async function saveSettings(studioId: string, enabled: boolean, capCents:
 }
 
 /** Queues the analysis of a recording. Nothing is added twice; a failed analysis is restarted from the queue. */
-export async function queueAnalysis(studioId: string, recordingId: string): Promise<"queued" | "exists"> {
-  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "analyse", idempotency_key: `analyse:${recordingId}` });
+export async function queueAnalysis(studioId: string, recordingId: string, again = false): Promise<"queued" | "exists"> {
+  // Again (fase C): a new analysis after an earlier one, for example after a better worker. One per minute at most.
+  const key = again ? `analyse:${recordingId}:again:${new Date().toISOString().slice(0, 16)}` : `analyse:${recordingId}`;
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "analyse", idempotency_key: key });
   if (error?.code === "23505") return "exists";
   if (error) throw new Error(friendlyError(error.message));
   return "queued";

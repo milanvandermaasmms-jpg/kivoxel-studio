@@ -339,6 +339,19 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
     const saved = await db.from("yt_moments").upsert(rows, { onConflict: "studio_id,recording_id,kind,start_ms" }).select(MOMENT_COLUMNS).returns<MomentRow[]>();
     if (saved.error) throw new Error(saved.error.message);
     const moments = saved.data.map(fromRow);
+    // A new analysis of the same recording (fase C): earlier moments that no video uses are removed, so only this
+    // analysis counts. Moments a video already uses stay (that video keeps its plan).
+    const older = await db.from("yt_moments").select("id").eq("recording_id", row.id).neq("analysis_job_id", job.id).returns<{ id: string }[]>();
+    if (!older.error && older.data.length) {
+      const ids = older.data.map((m) => m.id);
+      const used = await db.from("yt_video_moments").select("moment_id").in("moment_id", ids).returns<{ moment_id: string }[]>();
+      const keep = new Set((used.data ?? []).map((u) => u.moment_id));
+      const stale = ids.filter((id) => !keep.has(id) && !moments.some((m) => m.id === id));
+      if (!used.error && stale.length) {
+        const removed = await db.from("yt_moments").delete().in("id", stale);
+        if (removed.error) log(`Oude momenten van opname ${row.id} niet opgeruimd: ${removed.error.message}`);
+      }
+    }
 
     const plans = planVideos(moments, row.duration_ms, (m) => m.id ?? `${m.kind}:${m.startMs}`);
     for (const plan of plans) {

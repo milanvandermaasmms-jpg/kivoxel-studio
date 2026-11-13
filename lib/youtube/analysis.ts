@@ -58,6 +58,9 @@ export type Moment = {
 /** A moment needs at least this much lead-in before the peak (context) and this much after it (payoff). */
 export const MIN_CONTEXT_MS = 3000;
 export const MIN_PAYOFF_MS = 1500;
+/** When a moment is cut too tight, it is widened to this much before and after the peak (if the recording has it). */
+export const LEAD_IN_MS = 6000;
+export const AFTER_PEAK_MS = 4000;
 /** Format A and B are built from one continuous piece of raw footage of at most about 60 s. */
 export const MAX_SHORT_SOURCE_MS = 60_000;
 /** Format C needs a recording of at least 8 minutes and at least three usable story moments. */
@@ -77,12 +80,13 @@ export function checkMoment(raw: unknown, durationMs: number): { moment: Moment 
   if (!raw || typeof raw !== "object") return { error: "geen object" };
   const r = raw as Record<string, unknown>;
   if (!isKind(r.kind)) return { error: `onbekend soort moment: ${String(r.kind)}` };
-  const startMs = int(r.start_ms);
+  const rawStart = int(r.start_ms);
   const endMs = int(r.end_ms);
-  if (startMs === null || endMs === null) return { error: "tijdcode ontbreekt" };
-  if (startMs < 0 || endMs <= startMs) return { error: "tijdcodes kloppen niet" };
+  if (rawStart === null || endMs === null) return { error: "tijdcode ontbreekt" };
+  if (rawStart < 0 || endMs <= rawStart) return { error: "tijdcodes kloppen niet" };
+  let startMs = rawStart;
   if (endMs > durationMs + 1000) return { error: "tijdcode ligt na het einde van de opname" };
-  const end = Math.min(endMs, durationMs);
+  let end = Math.min(endMs, durationMs);
   const peak = int(r.peak_ms);
   const peakMs = peak !== null && peak >= startMs && peak <= end ? peak : Math.round((startMs + end) / 2);
   const reason = text(r.reason, 500);
@@ -91,15 +95,24 @@ export function checkMoment(raw: unknown, durationMs: number): { moment: Moment 
 
   let contextNote = text(r.context_note, 300);
   let hasContext = r.has_context === true;
+  // The service often cuts the window tight around the peak (for example a PvP death right at end_ms). When the
+  // recording itself has room, the window is widened: the montage takes build-up and outcome from around the moment
+  // anyway. Only when the recording really starts or stops too close to the peak is the moment not usable.
   if (hasContext && peakMs - startMs < MIN_CONTEXT_MS) {
-    hasContext = false;
-    contextNote = `Te weinig aanloop: ${formatTimecode(peakMs - startMs)} vóór het hoogtepunt (minimaal ${MIN_CONTEXT_MS / 1000} s).`;
+    if (peakMs >= MIN_CONTEXT_MS) startMs = Math.max(0, peakMs - LEAD_IN_MS);
+    else {
+      hasContext = false;
+      contextNote = `Te weinig aanloop: de opname begint ${formatTimecode(peakMs)} vóór het hoogtepunt (minimaal ${MIN_CONTEXT_MS / 1000} s).`;
+    }
   }
   let payoffNote = text(r.payoff_note, 300);
   let hasPayoff = r.has_payoff === true;
   if (hasPayoff && end - peakMs < MIN_PAYOFF_MS) {
-    hasPayoff = false;
-    payoffNote = `De afloop is niet te zien: de opname stopt ${formatTimecode(end - peakMs)} na het hoogtepunt.`;
+    if (durationMs - peakMs >= MIN_PAYOFF_MS) end = Math.min(durationMs, peakMs + AFTER_PEAK_MS);
+    else {
+      hasPayoff = false;
+      payoffNote = `De afloop is niet te zien: de opname stopt ${formatTimecode(durationMs - peakMs)} na het hoogtepunt.`;
+    }
   }
   const privacyFlags = Array.isArray(r.privacy_flags) ? [...new Set(r.privacy_flags.filter(isFlag))] : [];
   const suggested = r.suggested_format === "A" || r.suggested_format === "B" || r.suggested_format === "C" ? r.suggested_format : FORMAT_FOR_KIND[r.kind];
@@ -297,7 +310,8 @@ export function analysisPrompt(durationMs: number): string {
     `The recording is ${formatTimecode(durationMs)} long. Report every usable moment with exact timecodes in milliseconds.`,
     `Kinds: ${MOMENT_KINDS.join(", ")}. Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.`,
     "Only report moments a viewer would find exciting or surprising. Routine actions (sleeping, walking, crafting, building) are not moments unless something unexpected happens.",
-    "start_ms is where the build-up starts (usually 10-20 seconds before the peak), end_ms is where the outcome is clearly visible.",
+    "start_ms is where the build-up starts (usually 10-20 seconds before the peak), end_ms is where the outcome is clearly visible (at least 3 seconds after the peak). peak_ms is the single most intense instant and lies before end_ms.",
+    "PvP fights against other players count too (near_death or escape); report each fight once, not every hit. Never write real names or gamertags in reason or notes: say \"the opponent\".",
     "For each moment give: kind, start_ms, end_ms, peak_ms, reason (what happens on screen, one sentence), score 0-100,",
     "has_context (is it clear what is going on before the peak?) with context_note, has_payoff (is the outcome visible?) with payoff_note,",
     `privacy_flags (any of ${PRIVACY_FLAGS.join(", ")} that is visible or audible), suggested_format (A near-death Short, B rare-find Short, C long story).`,

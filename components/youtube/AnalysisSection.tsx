@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
-import { FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
+import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
 import { euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { Editor } from "@/components/youtube/Editor";
 import { PublishPanel } from "@/components/youtube/PublishPanel";
@@ -120,7 +120,15 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                         {r.label} {r.is_test && <TestBadge />} <span className="text-xs font-normal text-slate-500">· {formatDuration(r.duration_ms)}</span>
                       </p>
                       {job ? (
-                        <span className="text-xs text-slate-600">Analyse: {JOB_STATUS_LABEL[job as keyof typeof JOB_STATUS_LABEL] ?? job}{job === "failed" ? " (zie de wachtrij)" : ""}</span>
+                        <span className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          Analyse: {JOB_STATUS_LABEL[job as keyof typeof JOB_STATUS_LABEL] ?? job}
+                          {job === "failed" ? " (zie de wachtrij)" : ""}
+                          {job === "done" && !r.is_test && state.settings?.paid_processing_enabled && analysisService && (
+                            <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => void act(() => queueAnalysis(studioId, r.id, true))}>
+                              Opnieuw analyseren (± {euros(estimateAnalysisCents(r.duration_ms ?? 0))})
+                            </Button>
+                          )}
+                        </span>
                       ) : r.is_test || (state.settings?.paid_processing_enabled && analysisService) ? (
                         <Button variant="secondary" onClick={() => void act(() => queueAnalysis(studioId, r.id))}>
                           Analyseren

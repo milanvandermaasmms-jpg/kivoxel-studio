@@ -33,13 +33,19 @@ describe("checkMoment", () => {
     expect(m.hasContext && m.hasPayoff).toBe(true);
     expect(m.suggestedFormat).toBe("A");
   });
-  it("overrules 'has context' when the lead-in is too short", () => {
-    const m = ok({ start_ms: 21_000 });
+  it("widens a window that is cut too tight when the recording has room (PvP death at the very end)", () => {
+    const m = ok({ start_ms: 21_000, end_ms: 22_000, peak_ms: 22_000 });
+    expect(m.hasContext && m.hasPayoff).toBe(true);
+    expect(m.startMs).toBe(16_000);
+    expect(m.endMs).toBe(26_000);
+  });
+  it("overrules 'has context' when the recording itself starts too close to the peak", () => {
+    const m = ok({ start_ms: 0, end_ms: 6000, peak_ms: 2000 });
     expect(m.hasContext).toBe(false);
     expect(m.contextNote).toMatch(/aanloop/);
   });
   it("overrules 'has payoff' when the recording stops right after the peak", () => {
-    const m = ok({ end_ms: 22_500 });
+    const m = ok({ start_ms: 590_000, end_ms: 600_000, peak_ms: 599_500 });
     expect(m.hasPayoff).toBe(false);
     expect(m.payoffNote).toMatch(/afloop/);
   });
@@ -77,7 +83,7 @@ describe("planVideos", () => {
     expect(Math.min(...shorts.map((p) => p.moments[0].score))).toBe(53);
   });
   it("makes one Short per usable moment and skips unusable ones", () => {
-    const plans = planVideos([ok(), ok({ kind: "rare_find", start_ms: 100_000, end_ms: 125_000, peak_ms: 110_000 }), ok({ start_ms: 300_000, end_ms: 301_000, peak_ms: 300_500 })], 600_000, key);
+    const plans = planVideos([ok(), ok({ kind: "rare_find", start_ms: 100_000, end_ms: 125_000, peak_ms: 110_000 }), ok({ start_ms: 300_000, end_ms: 301_000, peak_ms: 300_500, has_payoff: false })], 600_000, key);
     expect(plans.map((p) => p.planKey)).toEqual(["A:10000", "B:100000"]);
   });
   it("skips a Short that mostly overlaps a better one of the same format", () => {
