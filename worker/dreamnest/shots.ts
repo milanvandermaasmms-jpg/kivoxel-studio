@@ -22,7 +22,7 @@ type Deps = {
   cache: ReturnType<typeof createCache>;
   characters: Character[];
   sets: SetPack[];
-  readRef: (path: string) => Promise<ImageRequest["refs"][number]>;
+  readRef: (path: string, kind: "character" | "set") => Promise<ImageRequest["refs"][number]>;
   save: (name: string, data: Buffer) => Promise<string>;
   log: (msg: string) => void;
   threshold?: number;
@@ -37,8 +37,10 @@ export async function runShots(shots: Shot[], d: Deps): Promise<ShotResult[]> {
     const cast = shot.characters.map((id) => d.characters.find((c) => c.id === id)!);
     const missing = shot.stage === "b" ? cast.filter((c) => !c.reference_images.length).map((c) => c.name) : [];
     const set = d.sets.find((s) => s.id === shot.set) ?? null;
-    const refsByChar = await Promise.all(cast.map(async (c) => ({ c, refs: await Promise.all(c.reference_images.map(d.readRef)) })));
-    const allRefs = refsByChar.flatMap((r) => r.refs);
+    const refsByChar = await Promise.all(cast.map(async (c) => ({ c, refs: await Promise.all(c.reference_images.map((p) => d.readRef(p, "character"))) })));
+    // Keyframes also get the approved set plate, so the room stays the same room.
+    const setRefs = shot.kind === "keyframe" && set?.reference_images ? await Promise.all(set.reference_images.map((p) => d.readRef(p, "set"))) : [];
+    const allRefs = [...refsByChar.flatMap((r) => r.refs), ...setRefs];
     for (let v = 1; v <= shot.variants; v++) {
       const result: ShotResult = { shot: shot.id, variant: v, file: null, attempts: 0, score: null, issues: [], status: "failed" };
       results.push(result);

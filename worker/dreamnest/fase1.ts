@@ -47,7 +47,7 @@ const results = await runShots(shots, {
   cache: createCache(join(base, "cache")),
   characters,
   sets,
-  readRef: async (p) => ({ mime: extname(p) === ".png" ? "image/png" : "image/jpeg", data: await readFile(join(content, "characters", p)) }),
+  readRef: async (p, kind) => ({ mime: extname(p) === ".png" ? "image/png" : "image/jpeg", data: await readFile(join(content, kind === "set" ? "sets" : "characters", p)) }),
   save: async (name, data) => (await writeFile(join(out, name), data), name),
   log,
 });

@@ -33,7 +33,16 @@
     "never realistic fur, always soft felt",
     "never text, logos or letters on her or near her"
   ],
-  "turnaround": ["front", "three-quarter", "side", "back"],
-  "reference_images": ["lumi/ref-thumbnail.jpg", "lumi/ref-awake.jpg"],
-  "notes": "Canoniek ontwerp gekozen door Milan op 13-11-2026: de thumbnail-versie (lumiv2.png) met blauwe slaapmuts en sterknuffel Twinkle erbij. Altijd 'Lumi van Dreamnest', nooit 'Lumi' los."
+  "turnaround": [
+    "front",
+    "three-quarter",
+    "side",
+    "back"
+  ],
+  "reference_images": [
+    "lumi/ref-turnaround.jpg",
+    "lumi/ref-expressions.jpg",
+    "lumi/ref-thumbnail.jpg"
+  ],
+  "notes": "Canoniek ontwerp gekozen door Milan op 13-11-2026: de thumbnail-versie (lumiv2.png) met blauwe slaapmuts en sterknuffel Twinkle erbij. Altijd 'Lumi van Dreamnest', nooit 'Lumi' los. Referenties gekozen door Milan op 13-11-2026: rondom v2, gezichtjes v1."
 }

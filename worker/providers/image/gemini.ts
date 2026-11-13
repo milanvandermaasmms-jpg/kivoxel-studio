@@ -44,7 +44,9 @@ export function createGeminiVision(key: string, model = "gemini-3.1-flash-lite",
       const text =
         `You check character consistency for a children's animation. The first ${refs.length} image(s) are the reference for this character: ${character}\n` +
         `The last image is a new image. Score 0-100 how well the character in the new image matches the reference in body shape, colours, ears, face, markings and outfit ` +
-        `(ignore pose, background, lighting and other characters). If the character is missing, score 0. Answer only JSON: {"score": number, "issues": [short strings]}.`;
+        `(ignore pose, expression, background, lighting and other characters). The reference may not show every outfit item from the description; ` +
+        `check outfit items only against the description, and look carefully before calling something missing. If the character is missing, score 0. ` +
+        `Answer only JSON: {"score": number, "issues": [short strings]}.`;
       const json = await call(fetchImpl, key, model, {
         contents: [{ role: "user", parts: [{ text }, ...refs.map(inline), inline(candidate)] }],
         generationConfig: { responseMimeType: "application/json", temperature: 0 },

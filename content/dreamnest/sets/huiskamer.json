@@ -7,9 +7,23 @@
     "middle": "a small round stone fireplace with a gently crackling warm fire, a wooden rocking chair with a knitted blanket, a little round table with a steaming teapot, a round wall clock shaped like a sleeping cat",
     "foreground": "thick hand-knitted round rugs in lilac and cream, soft cushions, a small star-shaped night light glowing warm yellow"
   },
-  "lights": ["fireplace (warm orange, main light)", "star night light (soft yellow)", "moonlight through the window (cool soft blue rim light)"],
-  "ambient_motion": ["fire flickers slowly", "rain drops slide down the window", "steam curls up from the teapot", "cat clock pendulum swings very slowly", "dust motes float in the firelight"],
-  "sounds": ["soft crackling fire", "gentle rain on the window", "a quiet ticking clock (optional, very soft)"],
+  "lights": [
+    "fireplace (warm orange, main light)",
+    "star night light (soft yellow)",
+    "moonlight through the window (cool soft blue rim light)"
+  ],
+  "ambient_motion": [
+    "fire flickers slowly",
+    "rain drops slide down the window",
+    "steam curls up from the teapot",
+    "cat clock pendulum swings very slowly",
+    "dust motes float in the firelight"
+  ],
+  "sounds": [
+    "soft crackling fire",
+    "gentle rain on the window",
+    "a quiet ticking clock (optional, very soft)"
+  ],
   "palette": {
     "wood": "#8A5A3C",
     "fire": "#FFA24A",
@@ -18,5 +32,9 @@
     "rug_lilac": "#C7B2E0",
     "rug_cream": "#F4E9D8",
     "night_light": "#FFD97A"
-  }
+  },
+  "reference_images": [
+    "huiskamer/ref-plate.jpg"
+  ],
+  "notes": "Set-plaat v1 gekozen door Milan op 13-11-2026."
 }

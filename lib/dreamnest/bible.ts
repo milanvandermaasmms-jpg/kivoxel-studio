@@ -24,6 +24,8 @@ export type SetPack = {
   ambient_motion: string[];
   sounds: string[];
   palette: Record<string, string>;
+  /** Paths relative to content/dreamnest/sets/: the approved set plate, sent along with keyframes in this set. */
+  reference_images?: string[];
 };
 
 export type Shot = {

@@ -13,9 +13,28 @@
     "candle_flame": "#FFC864"
   },
   "proportions": "Almost a ball: head and body one round shape, about 0.7x Lumi's height; eyes very large; scarf twice his body length.",
-  "expressions": ["sleepy", "asleep", "yawning", "happy", "curious", "cosy"],
-  "never": ["no flapping or fast flying", "never a flickering or big flame", "never scary owl eyes or glowing eyes", "no sharp talons or beak"],
-  "turnaround": ["front", "three-quarter", "side", "back"],
-  "reference_images": [],
-  "notes": "Ontwerp volgt uit fase 1 stap A; na Milans keuze komt het gekozen beeld hier als referentie."
+  "expressions": [
+    "sleepy",
+    "asleep",
+    "yawning",
+    "happy",
+    "curious",
+    "cosy"
+  ],
+  "never": [
+    "no flapping or fast flying",
+    "never a flickering or big flame",
+    "never scary owl eyes or glowing eyes",
+    "no sharp talons or beak"
+  ],
+  "turnaround": [
+    "front",
+    "three-quarter",
+    "side",
+    "back"
+  ],
+  "reference_images": [
+    "pip/ref-design.jpg"
+  ],
+  "notes": "Ontwerp v1 gekozen door Milan op 13-11-2026."
 }

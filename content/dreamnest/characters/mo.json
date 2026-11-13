@@ -11,9 +11,28 @@
     "nose": "#3A2A2A"
   },
   "proportions": "About Lumi's size; round body; tail as big as his body; short legs.",
-  "expressions": ["sleepy", "asleep", "yawning", "happy", "curious", "cosy"],
-  "never": ["no sharp teeth", "never sly or mischievous", "no running or jumping", "never realistic fur, always soft felt"],
-  "turnaround": ["front", "three-quarter", "side", "back"],
-  "reference_images": [],
-  "notes": "Ontwerp volgt uit fase 1 stap A; na Milans keuze komt het gekozen beeld hier als referentie."
+  "expressions": [
+    "sleepy",
+    "asleep",
+    "yawning",
+    "happy",
+    "curious",
+    "cosy"
+  ],
+  "never": [
+    "no sharp teeth",
+    "never sly or mischievous",
+    "no running or jumping",
+    "never realistic fur, always soft felt"
+  ],
+  "turnaround": [
+    "front",
+    "three-quarter",
+    "side",
+    "back"
+  ],
+  "reference_images": [
+    "mo/ref-design.jpg"
+  ],
+  "notes": "Ontwerp v1 gekozen door Milan op 13-11-2026."
 }
