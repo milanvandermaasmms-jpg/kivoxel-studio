@@ -62,7 +62,6 @@ const clamp = (n: number) => Math.max(1, Math.min(10, Math.round(n * 10) / 10));
 const nl1 = (n: number) => n.toLocaleString("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const words = (t: string) => t.trim().split(/\s+/).filter(Boolean);
 export const mmss = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
-const range = (a: number, b: number) => `${mmss(a)}–${mmss(b)}`;
 const median = (xs: number[]) => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
@@ -126,7 +125,7 @@ export function scriptPart(i: ViralInput): { part: Part; f: Pick<Features, "firs
   const maxGap = i.kind === "short" ? 7000 : 20_000;
   if (longest.ms > maxGap) {
     score -= 1.5;
-    fixes.push({ fromMs: longest.at, toMs: longest.at + longest.ms, text: `${range(longest.at, longest.at + longest.ms)} is ${Math.round(longest.ms / 1000)} s stil. Voeg een zin toe die spanning opbouwt.`, auto: "rewrite" });
+    fixes.push({ fromMs: longest.at, toMs: longest.at + longest.ms, text: `Lang stuk met maar één zin voice-over (${Math.round(longest.ms / 1000)} s). Voeg een zin toe die spanning opbouwt.`, auto: "rewrite" });
   }
 
   // Repetition: the same opening word in a row, or a sentence that is said twice.
@@ -164,7 +163,7 @@ export function gameplayPart(i: ViralInput, reference: ReferenceSummary | null):
   else if (!deadParts.length) good.push("Geen stilstaande of lege stukken in de montage.");
   for (const d of deadParts.slice(0, 2)) {
     score -= 1.5;
-    fixes.push({ fromMs: d.fromMs, toMs: d.toMs, text: `${range(d.fromMs, d.toMs)} gebeurt niets (${d.kind === "black" ? "zwart beeld" : d.kind === "afk" ? "speler staat stil" : "stilstaand beeld"}). Inkorten.`, auto: "cut", src: d.src });
+    fixes.push({ fromMs: d.fromMs, toMs: d.toMs, text: `Hier gebeurt niets (${d.kind === "black" ? "zwart beeld" : d.kind === "afk" ? "speler staat stil" : "stilstaand beeld"}). Inkorten.`, auto: "cut", src: d.src });
   }
 
   // A segment that runs long without a peak feels slow.
@@ -175,7 +174,7 @@ export function gameplayPart(i: ViralInput, reference: ReferenceSummary | null):
     const s = slow[0];
     // Keep the first and last part of the long stretch; the middle goes.
     const keep = (maxSeg / 2) * s.speed;
-    fixes.push({ fromMs: s.out_start_ms, toMs: segEnd(s), text: `${range(s.out_start_ms, segEnd(s))} is een lang stuk zonder actie. Knip het korter of versnel het.`, auto: "cut", src: [Math.round(s.src_start_ms + keep), Math.round(s.src_end_ms - keep)] });
+    fixes.push({ fromMs: s.out_start_ms, toMs: segEnd(s), text: `Lang stuk zonder actie (${Math.round((segEnd(s) - s.out_start_ms) / 1000)} s). Knip het korter of versnel het.`, auto: "cut", src: [Math.round(s.src_start_ms + keep), Math.round(s.src_end_ms - keep)] });
   }
   const minutes = i.durationMs / 60_000;
   const cpm = minutes ? i.segments.length / minutes : 0;

@@ -41,7 +41,7 @@ describe("script part", () => {
     const { part } = scriptPart(base({ hook: "", lines: [{ at_ms: 5000, text: "So here we go." }, { at_ms: 25_000, text: "Done." }] }));
     expect(part.score).toBeLessThan(7);
     expect(part.fixes[0]).toMatchObject({ fromMs: 0, toMs: 3000, auto: "rewrite" });
-    expect(part.fixes.some((x) => x.text.startsWith("0:05–0:25"))).toBe(true);
+    expect(part.fixes.some((x) => x.fromMs === 5000 && x.toMs === 25_000 && !x.text.includes("0:05"))).toBe(true);
   });
 });
 
