@@ -7,6 +7,8 @@ import { Button, Dialog } from "@/components/ui/Dialog";
 import { SuggestBox, TagChips } from "@/components/youtube/SuggestBox";
 import { PRIVACY } from "@/lib/youtube/flow";
 import { PrivacyBadge } from "@/components/youtube/FlowBadges";
+import { amsterdamHhmm, defaultSlot, defaultTags, nextSlot } from "@/lib/youtube/learning";
+import { loadLearning, track } from "@/lib/youtube/learningData";
 import type { Hook } from "@/lib/youtube/hooks";
 import {
   amsterdamToIso,
@@ -102,9 +104,13 @@ function AfterUpload({ current, busy, onAsk, studioId }: { current: DbPublicatio
  * Fase 1.5: 🔒 Privé | 🔗 Niet vermeld | 🌍 Openbaar as one clear control, Privé by default. Openbaar asks first.
  * Inplannen (Europe/Amsterdam) keeps the video private on YouTube until that moment; YouTube then makes it public.
  */
-function PrivacyControl({ draft, set, disabled, isTest, studioId }: { draft: PublicationDraft; set: (patch: Partial<PublicationDraft>) => void; disabled: boolean; isTest: boolean; studioId: string }) {
+function PrivacyControl({ draft, set, disabled, isTest, studioId, log }: { draft: PublicationDraft; set: (patch: Partial<PublicationDraft>) => void; disabled: boolean; isTest: boolean; studioId: string; log: (action: string, metadata: Record<string, unknown>) => void }) {
   const [askPublic, setAskPublic] = useState(false);
   const [planning, setPlanning] = useState(!!draft.publish_at);
+  // A time can also arrive later (a saved draft, or a default from a Studio-tip): then show it as planned.
+  useEffect(() => {
+    if (draft.publish_at) setPlanning(true);
+  }, [draft.publish_at]);
   const field = "min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";
   const options: { key: Visibility; active: string }[] = [
     { key: "private", active: "border-[#475569] bg-[#475569] text-white" },
@@ -113,6 +119,7 @@ function PrivacyControl({ draft, set, disabled, isTest, studioId }: { draft: Pub
   ];
   const choose = (v: Visibility) => {
     if (v === "public" && draft.visibility !== "public") return setAskPublic(true);
+    log("privacy_chosen", { visibility: v });
     setPlanning(false);
     set({ visibility: v, publish_at: null });
   };
@@ -144,6 +151,7 @@ function PrivacyControl({ draft, set, disabled, isTest, studioId }: { draft: Pub
               onChange={(e) => {
                 setPlanning(e.target.checked);
                 set(e.target.checked ? { visibility: "private" } : { publish_at: null });
+                log("schedule_toggled", { on: e.target.checked });
               }}
             />
             🗓️ Publicatie inplannen
@@ -166,6 +174,7 @@ function PrivacyControl({ draft, set, disabled, isTest, studioId }: { draft: Pub
               onClick={() => {
                 setPlanning(false);
                 set({ visibility: "public", publish_at: null });
+                log("privacy_chosen", { visibility: "public" });
                 setAskPublic(false);
               }}
             >
@@ -195,6 +204,9 @@ function UploadBar({ progress }: { progress: UploadProgress | null }) {
     </div>
   );
 }
+
+/** Test videos are never planned: they only go to YouTube as private. */
+const isTestVideo = (c: GateContext) => !!(c.script as { is_test?: boolean } | null)?.is_test;
 
 const toDraft = (p: DbPublication): PublicationDraft => ({
   title: p.title,
@@ -241,12 +253,15 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [busy, setBusy] = useState(false);
   const [upload, setUpload] = useState<UploadProgress | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [fromTip, setFromTip] = useState<string | null>(null);
   const wasTransit = useRef(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirming, setConfirming] = useState<Confirm | null>(null);
   const [extras, setExtras] = useState<Extras>({ captions_enabled: true, thumbnail_ms: null });
   const [gateCtx, setGateCtx] = useState<GateContext | null>(null);
   const [thumbs, setThumbs] = useState<StoredThumb[]>([]);
+  const channelId = gateCtx?.channel?.id ?? null;
+  const log = (action: string, metadata: Record<string, unknown> = {}) => track(studioId, action, "klaar", { video: videoId, kind, ...metadata }, channelId);
 
   useEffect(() => {
     let live = true;
@@ -283,6 +298,29 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       live = false;
     };
   }, [videoId]);
+
+  // Fase 2.2: a new draft starts with what Milan made standard via a Studio-tip (tags and a publish time). Privé stays
+  // the default: a time only plans the video, sending it to YouTube is still his click.
+  const defaultsDone = useRef(false);
+  useEffect(() => {
+    if (row !== null || !gateCtx || defaultsDone.current) return;
+    defaultsDone.current = true;
+    let live = true;
+    void loadLearning(studioId)
+      .then((l) => {
+        if (!live || !l.ready) return;
+        const tags = defaultTags(l.prefs, channelId);
+        const slot = isTestVideo(gateCtx) ? null : defaultSlot(l.prefs, channelId, kind);
+        const at = slot ? nextSlot(slot) : null;
+        if (!tags.length && !at) return;
+        setDraft((d) => ({ ...d, tags: d.tags.length ? d.tags : tags, ...(at && !d.publish_at && d.visibility === "private" ? { publish_at: at } : {}) }));
+        setFromTip([tags.length ? `standaardtags (${tags.join(", ")})` : "", at ? `inplannen om ${slot}` : ""].filter(Boolean).join(" en "));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [row, gateCtx, studioId, channelId, kind]);
 
   // While the worker uploads, look every 3 seconds how far it is; when it is done, show where it went.
   const transit = !!row && row !== "migration" && IN_TRANSIT.includes(row.status);
@@ -354,6 +392,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       }
       if (!target) throw new Error("Er is nog geen concept.");
       await requestPublish(target.id, c.action, c.at, c.visibility);
+      log("publish_sent", { action: c.action, visibility: c.visibility ?? (c.action === "private" ? "private" : null), publish_at: c.at, hhmm: c.at ? amsterdamHhmm(c.at) : null, tags: draft.tags.slice(0, 20) });
       setConfirming(null);
       const fresh = await loadPublication(videoId);
       if (fresh && fresh !== "migration") setRow(fresh);
@@ -420,6 +459,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         </div>
       )}
 
+      {fromTip && !row && <p className="rounded bg-amber-50 px-2 py-1 text-amber-900">💡 Vooraf ingevuld uit je Studio-tips: {fromTip}. Pas gerust aan.</p>}
       <p className="text-slate-500">Montage: {renderLabel ?? "nog geen montage"}. Dit is de versie die geüpload wordt.</p>
       {row?.error && <p className="text-red-800">Laatste fout: {row.error}</p>}
       {locked && <p className="text-amber-800">{stateText(current!)}</p>}
@@ -495,9 +535,9 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
             <span className="font-medium">Tags</span>
             <Counter used={tagsLength(draft.tags)} max={TAGS_MAX} unit="tekens" />
           </span>
-          <TagChips tags={draft.tags} onChange={(tags) => set({ tags })} disabled={locked || busy} />
+          <TagChips tags={draft.tags} onChange={(tags) => set({ tags })} disabled={locked || busy} log={log} />
         </div>
-        <SuggestBox studioId={studioId} videoId={videoId} title={draft.title} description={draft.description} tags={draft.tags} disabled={locked || busy} onTags={(tags) => set({ tags })} onTitle={(t) => set({ title: t.slice(0, TITLE_MAX) })} onDescription={(d) => set({ description: d })} />
+        <SuggestBox studioId={studioId} videoId={videoId} channelId={channelId} title={draft.title} description={draft.description} tags={draft.tags} disabled={locked || busy} onTags={(tags) => set({ tags })} onTitle={(t) => set({ title: t.slice(0, TITLE_MAX) })} onDescription={(d) => set({ description: d })} />
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1">
@@ -524,7 +564,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
           <YesNo name={`ai-${videoId}`} value={draft.contains_synthetic_media} onChange={(v) => set({ contains_synthetic_media: v })} no="Nee" yes="Ja, melden bij YouTube" />
         </div>
 
-        <PrivacyControl draft={draft} set={set} disabled={locked || busy} isTest={isTest} studioId={studioId} />
+        <PrivacyControl draft={draft} set={set} disabled={locked || busy} isTest={isTest} studioId={studioId} log={log} />
         {extrasReady && !onYouTube && (
           <div className="space-y-2 rounded-md bg-slate-50 p-2">
             <CaptionsChoice value={extras.captions_enabled} onChange={(v) => setExtras({ ...extras, captions_enabled: v })} />

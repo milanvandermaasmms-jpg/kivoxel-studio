@@ -18,6 +18,10 @@ import { PipelineBoard } from "@/components/youtube/PipelineBoard";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
 import { ReviewMode } from "@/components/youtube/ReviewMode";
+import { StudioContext } from "@/components/youtube/StudioContext";
+import { StudioPreferences, StudioTips } from "@/components/youtube/StudioTips";
+import { hiddenFolds } from "@/lib/youtube/learning";
+import { setPreference, track, useLearning } from "@/lib/youtube/learningData";
 import { StudioTopBar } from "@/components/youtube/StudioTopBar";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
 import { reviewQueue } from "@/lib/youtube/board";
@@ -78,6 +82,18 @@ export default function YouTubeStudioPage() {
   const [reviewing, setReviewing] = useState(false);
   const analysis = useAnalysis(studio.id, isAdmin);
   const flow = useFlow(studio.id, isAdmin);
+  const channelsNow = flow.state && "board" in flow.state ? flow.state.board.channels : [];
+  const learning = useLearning(studio.id, isAdmin, (id) => channelsNow.find((c) => c.id === id)?.name ?? "dit kanaal");
+
+  // Fase 2.1: which step Milan opens and how long he stays there.
+  const tabSince = useRef<{ tab: Tab; at: number } | null>(null);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const prev = tabSince.current;
+    if (prev && prev.tab !== tab) track(studio.id, "tab_time", prev.tab, { seconds: Math.round((Date.now() - prev.at) / 1000) });
+    track(studio.id, "tab_opened", tab);
+    tabSince.current = { tab, at: Date.now() };
+  }, [tab, isAdmin, studio.id]);
 
   // The chosen tab is kept in the address (#klaar), so a refresh or a link opens the same tab.
   useEffect(() => {
@@ -184,7 +200,20 @@ export default function YouTubeStudioPage() {
   );
   const flowError = flow.state && "error" in flow.state ? <Notice tone="error">{flow.state.error}</Notice> : null;
 
+  const hidden = hiddenFolds(learning.prefs);
+  const studioContext = {
+    studioId: studio.id,
+    hiddenFolds: hidden,
+    onFoldOpen: (id: string) => track(studio.id, "fold_opened", tab, { fold: id }),
+    onShowFold: (id: string) =>
+      void act(async () => {
+        await setPreference(studio.id, null, "hidden_folds", hidden.filter((f) => f !== id));
+        await learning.refresh();
+      }),
+  };
+
   return (
+    <StudioContext.Provider value={studioContext}>
     <div className="studio mx-auto max-w-6xl space-y-4">
       <div className="studio-header flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-4 py-3">
         <div>
@@ -216,7 +245,7 @@ export default function YouTubeStudioPage() {
           <ul role="tablist" className="flex gap-1 lg:sticky lg:top-24 lg:flex-col">
             {TABS.map((t) => {
               const active = tab === t.key;
-              const count = flowReady && t.key !== "upload" && t.key !== "insights" && t.key !== "settings" ? flowReady.items.filter((i) => (!channel || i.channelId === channel) && FLOW_TAB[i.flow] === t.key).length : null;
+              const count = t.key === "insights" ? learning.tips.length : flowReady && t.key !== "upload" && t.key !== "settings" ? flowReady.items.filter((i) => (!channel || i.channelId === channel) && FLOW_TAB[i.flow] === t.key).length : null;
               return (
                 <li key={t.key} className={t.key === "settings" ? "lg:mt-4 lg:border-t lg:border-slate-200 lg:pt-4" : ""}>
                   <button
@@ -228,7 +257,7 @@ export default function YouTubeStudioPage() {
                   >
                     {t.key === "settings" ? <Settings className="h-4 w-4 shrink-0 text-slate-400" aria-hidden /> : <span aria-hidden>{t.icon}</span>}
                     <span className="flex-1">{t.label}</span>
-                    {count !== null && count > 0 && <span className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs font-semibold tabular-nums ${t.key === "ready" ? "bg-amber-500 text-slate-950" : "bg-slate-100 text-slate-700"}`}>{count}</span>}
+                    {count !== null && count > 0 && <span title={t.key === "insights" ? `${count} Studio-tips` : undefined} className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs font-semibold tabular-nums ${t.key === "ready" ? "bg-amber-500 text-slate-950" : t.key === "insights" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{count}</span>}
                   </button>
                 </li>
               );
@@ -240,7 +269,7 @@ export default function YouTubeStudioPage() {
             <>
               <UploadCard workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
               <InboxCard health={health} />
-              <Fold title="Opnames op de pc" intro={local ? `${local.length} opnames · wat FFmpeg erover uitlas` : "De ruwe opnames staan alleen op de pc."}>
+              <Fold id="upload.local" title="Opnames op de pc" intro={local ? `${local.length} opnames · wat FFmpeg erover uitlas` : "De ruwe opnames staan alleen op de pc."}>
                 {!health ? (
                   <p className="text-sm text-slate-500">Zichtbaar zodra de werker bereikbaar is.</p>
                 ) : local === null ? (
@@ -281,7 +310,7 @@ export default function YouTubeStudioPage() {
                   </ul>
                 )}
               </Fold>
-              <Fold title="AI Video Maker" intro="Stap voor stap van gameplay naar een video, met dezelfde stappen als de rest van de Studio.">
+              <Fold id="upload.maker" title="AI Video Maker" intro="Stap voor stap van gameplay naar een video, met dezelfde stappen als de rest van de Studio.">
                 <VideoMaker state={analysis.state} studioId={studio.id} act={act} refresh={analysis.refresh} onOpen={chooseTab} />
               </Fold>
             </>
@@ -293,7 +322,7 @@ export default function YouTubeStudioPage() {
               <Fold title="Live voortgang" intro="Wat de werker nu doet: preview, stappen, logboek en de renderwachtrij." defaultOpen>
                 <LiveCenter studioId={studio.id} analysis={analysis.state?.ready ? analysis.state : null} workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("review")} />
               </Fold>
-              <Fold title="Wachtrij van de werker" intro={db?.ready ? `${db.jobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig` : undefined}>
+              <Fold id="production.queue" title="Wachtrij van de werker" intro={db?.ready ? `${db.jobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig` : undefined}>
                 {db === null ? (
                   <p className="text-sm text-slate-500">Laden…</p>
                 ) : !db.ready ? (
@@ -371,10 +400,10 @@ export default function YouTubeStudioPage() {
           {tab === "live" && (
             <>
               {flowError ?? (!flowReady ? loading : <VideoQueue state={flowReady} flows={["live"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} empty="Nog niets op YouTube." />)}
-              <Fold title="Contentkalender" intro="Wat wanneer online gaat.">
+              <Fold id="live.calendar" title="Contentkalender" intro="Wat wanneer online gaat.">
                 <ContentCalendar studioId={studio.id} onOpen={() => chooseTab("ready")} />
               </Fold>
-              <Fold title="Alle publicaties" intro="Overzicht van alles wat naar YouTube is gegaan of gaat.">
+              <Fold id="live.all" title="Alle publicaties" intro="Overzicht van alles wat naar YouTube is gegaan of gaat.">
                 <PublicationsOverview studioId={studio.id} onOpen={() => chooseTab("ready")} />
               </Fold>
             </>
@@ -382,12 +411,13 @@ export default function YouTubeStudioPage() {
 
           {tab === "insights" && (
             <>
+              <StudioTips studioId={studio.id} tips={learning.tips} state={learning.state} onChanged={learning.refresh} />
               <Notices studioId={studio.id} onOpen={chooseTab} />
               <StatsCenter studioId={studio.id} workerOnline={workerOnline} />
-              <Fold title="Vandaag in de Studio">
+              <Fold id="insights.today" title="Vandaag in de Studio">
                 <TodayOverview overview={overviewFrom(db, analysis.state, workerOnline)} onOpen={chooseTab} />
               </Fold>
-              <Fold title="Stand van de productielijn" intro="Per stap: werkt, nog te verbinden of later.">
+              <Fold id="insights.steps" title="Stand van de productielijn" intro="Per stap: werkt, nog te verbinden of later.">
                 <ol className="divide-y divide-slate-100">
                   {steps.map((s) => (
                     <li key={s.key} className="flex items-start gap-3 py-2 text-sm">
@@ -403,7 +433,7 @@ export default function YouTubeStudioPage() {
                   ))}
                 </ol>
               </Fold>
-              <Fold title="Formats om te testen">
+              <Fold id="insights.formats" title="Formats om te testen">
                 <ul className="grid gap-2 sm:grid-cols-3">
                   {FORMATS.map((f) => (
                     <li key={f.key} className="rounded-lg border border-slate-200 p-3 text-sm">
@@ -422,6 +452,7 @@ export default function YouTubeStudioPage() {
       {tab === "settings" && (
         <>
           <ChannelCard studioId={studio.id} onError={setError} />
+          <StudioPreferences prefs={learning.prefs} channels={channelsNow} onChanged={learning.refresh} />
           <PrivateTermsSettings studioId={studio.id} onError={setError} />
           <Section title="Werker op de pc" intro="De werker doet het zware werk op de pc van Milan: bestanden ontvangen, FFmpeg en later montage en uploaden. Hij werkt alleen als de pc aanstaat.">
             {health === undefined ? (
@@ -455,5 +486,6 @@ export default function YouTubeStudioPage() {
       </div>
       </div>
     </div>
+    </StudioContext.Provider>
   );
 }

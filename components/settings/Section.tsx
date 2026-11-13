@@ -1,3 +1,7 @@
+"use client";
+
+import { useStudioContext } from "@/components/youtube/StudioContext";
+
 export function Section({ title, intro, children }: { title: string; intro?: string; children: React.ReactNode }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-[var(--shadow-card)]">
@@ -16,10 +20,20 @@ export function Notice({ tone, children }: { tone: "error" | "ok"; children: Rea
   );
 }
 
-/** A section that opens on a click (fase 1.3): details only when you ask for them. */
-export function Fold({ title, intro, children, defaultOpen = false }: { title: string; intro?: string; children: React.ReactNode; defaultOpen?: boolean }) {
+/**
+ * A section that opens on a click (fase 1.3): details only when you ask for them. With an id, opening it is remembered
+ * (fase 2) and Milan can hide it after a Studio-tip; a hidden part stays one click away.
+ */
+export function Fold({ id, title, intro, children, defaultOpen = false }: { id?: string; title: string; intro?: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const { hiddenFolds, onFoldOpen, onShowFold } = useStudioContext();
+  if (id && hiddenFolds.includes(id))
+    return (
+      <button type="button" onClick={() => onShowFold(id)} className="text-xs text-slate-500 underline underline-offset-2">
+        Verborgen: {title} (tonen)
+      </button>
+    );
   return (
-    <details open={defaultOpen} className="group rounded-xl border border-slate-200 bg-surface shadow-[var(--shadow-card)]">
+    <details open={defaultOpen} onToggle={(e) => id && (e.currentTarget as HTMLDetailsElement).open && onFoldOpen(id)} className="group rounded-xl border border-slate-200 bg-surface shadow-[var(--shadow-card)]">
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <span>
           <span className="block text-sm font-semibold tracking-tight">{title}</span>

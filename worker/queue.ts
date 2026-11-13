@@ -28,7 +28,8 @@ import {
 import type { LocalRecording } from "../lib/youtube/protocol.ts";
 import { applyHook, parseHooks } from "../lib/youtube/hooks.ts";
 import { STEP_MILESTONE, STEP_PHASE, stepNotes } from "../lib/youtube/live.ts";
-import { parseSuggestions, suggestPrompt, testSuggestions, type SuggestInput } from "../lib/youtube/suggest.ts";
+import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type SuggestInput } from "../lib/youtube/suggest.ts";
+import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName, renderSize, segmentOverlays, srtFileName, type VoiceClip } from "../lib/youtube/render.ts";
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
@@ -824,6 +825,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     ]);
     const counts = new Map<string, number>();
     for (const p of used.data ?? []) for (const t of p.tags ?? []) counts.set(t.toLowerCase(), (counts.get(t.toLowerCase()) ?? 0) + 1);
+    const learned = await learning(job.studio_id, video.data.channel_id);
     const forbidden = [...(settings.data?.private_terms ?? []), ...(channel.data?.banned_words ?? [])];
     const s = scriptRow.data;
     const p = job.payload ?? {};
@@ -835,14 +837,49 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       description: typeof p.description === "string" ? p.description.slice(0, 2000) : "",
       narration: (s?.lines ?? []).map((l) => l.text),
       hook: s ? (s.hooks?.[s.chosen_hook ?? -1]?.first_line ?? s.hook) : null,
-      usedTags: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t),
+      // Defaults Milan chose first, then the tags he kept before, then what he used most.
+      usedTags: [...new Set([...learned.defaults, ...learned.liked, ...[...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)].map((t) => t.toLowerCase()))].filter((t) => !learned.disliked.includes(t)),
       forbidden,
+      dislikedTags: learned.disliked,
+      likedTitles: learned.titles,
     };
     await reserve(job, 1);
     const { json } = await paid(job, () => ai.gemini.generateText(suggestPrompt(input)));
-    const parsed = parseSuggestions(json, forbidden);
+    const parsed = parseSuggestions(json, forbidden, learned.disliked);
     if ("error" in parsed) throw new Error(`Suggesties van de analysedienst onbruikbaar: ${parsed.error}`);
     return parsed;
+  }
+
+  /**
+   * Fase 2: what Milan did with earlier suggestions on this channel (kept, removed, titles picked) and his default tags.
+   * Before migration 049 (or on any error) this is empty and the suggestions work as before.
+   */
+  async function learning(studioId: string, channelId: string | null): Promise<{ defaults: string[]; liked: string[]; disliked: string[]; titles: string[] }> {
+    const none = { defaults: [], liked: [], disliked: [], titles: [] };
+    try {
+      const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
+      let ev = db.from("studio_events").select("action, screen, at, channel_id, metadata").eq("studio_id", studioId).gte("at", since).in("action", ["ai_tag_accepted", "ai_tag_removed", "tag_added", "tag_removed", "ai_title_used"]).order("at", { ascending: false }).limit(1000);
+      if (channelId) ev = ev.eq("channel_id", channelId);
+      const [events, prefs, offered] = await Promise.all([
+        ev.returns<StudioEvent[]>(),
+        db.from("studio_preferences").select("id, channel_id, key, value, updated_at").eq("studio_id", studioId).eq("key", "default_tags").returns<Preference[]>(),
+        db.from("yt_jobs").select("video_id, result").eq("studio_id", studioId).eq("step", "suggest").eq("status", "done").order("created_at", { ascending: false }).limit(30).returns<{ video_id: string; result: unknown }[]>(),
+      ]);
+      if (events.error || prefs.error) return none;
+      // Offered tags against the tags that really went to YouTube.
+      const ids = [...new Set((offered.data ?? []).map((o) => o.video_id))];
+      const pubs = ids.length ? await db.from("yt_publications").select("video_id, tags, status").in("video_id", ids).neq("status", "draft").returns<{ video_id: string; tags: string[]; status: string }[]>() : { data: [] };
+      const finalOf = new Map((pubs.data ?? []).map((p) => [p.video_id, p.tags]));
+      const history = (offered.data ?? []).flatMap((o) => {
+        const s = readSuggestions(o.result);
+        const final = finalOf.get(o.video_id);
+        return s && final && s.source === "ai" ? [{ offered: s.tags, final }] : [];
+      });
+      const { liked, disliked } = learnTags(history, events.data ?? []);
+      return { defaults: defaultTags(prefs.data ?? [], channelId), liked: liked.slice(0, 20), disliked: disliked.slice(0, 30), titles: likedTitles(events.data ?? []) };
+    } catch {
+      return none;
+    }
   }
 
   const handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { intake, analyse, script, ...(montage ? { render } : {}), ...(publisher ? { upload, publish } : {}) };
@@ -947,6 +984,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
 
   return {
     start(intervalMs = 5000) {
+      // Fase 2: old Studio events are not needed to learn (migration 049; quietly nothing before it).
+      void Promise.resolve(db.rpc("prune_studio_events", { p_days: 180 })).catch(() => undefined);
       void recover().then(() => Promise.all([tick(), tickFast()]));
       timer = setInterval(() => void Promise.all([tick(), tickFast()]), intervalMs);
     },
