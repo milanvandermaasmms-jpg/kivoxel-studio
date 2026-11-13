@@ -1,0 +1,19 @@
+[
+  { "shot": "b01-welcome-exterior", "motion": "Rain falls softly, the moon Momo smiles and glows a little warmer, the camera drifts very slowly towards the warm round window." },
+  { "shot": "b02-lumi-rocking-chair", "motion": "Lumi rocks very slowly in her chair hugging Twinkle, the fire flickers softly, rain slides down the window.",
+    "loop": "Lumi rocks very slowly back and forth in the rocking chair, breathing calmly, Twinkle glowing softly; the fire flickers gently." },
+  { "shot": "b03-pip-arrives", "motion": "Pip waddles in slowly with his candle, his long scarf trailing; Lumi looks up with a small happy smile." },
+  { "shot": "b04-tea", "motion": "Steam curls slowly from the teapot and cups, Lumi and Pip sip their tea slowly and blink sleepily.",
+    "loop": "Soft steam curls up from the teapot and cups, Lumi and Pip breathe slowly and blink sleepily, the fire flickers gently." },
+  { "shot": "b05-mo-by-fire", "motion": "Mo turns once very slowly and settles into a round ball, his tail wrapping around him, his eyes closing.",
+    "loop": "Mo sleeps curled up in a round ball, his body rising and falling slowly with each breath, the fire flickering softly beside him." },
+  { "shot": "b06-window-momo", "motion": "Rain drops slide slowly down the round window, the moon Momo glows gently, wisteria sways a tiny bit.",
+    "loop": "Rain drops slide slowly down the glass, the moon Momo glows calmly, the wisteria outside sways very gently." },
+  { "shot": "b07-lumi-yawn", "motion": "Lumi gives one slow soft yawn and hugs Twinkle closer, Twinkle glows a little warmer." },
+  { "shot": "b08-blanket-together", "motion": "The three friends snuggle closer under the blanket, breathing slowly, the night light glowing softly.",
+    "loop": "Lumi, Pip and Mo breathe slowly under the blanket, the star night light glows softly, the fire flickers low." },
+  { "shot": "b09-lumi-falls-asleep", "motion": "Lumi's eyes close slowly, her breathing becomes slow and deep, the room light becomes slightly dimmer and warmer.",
+    "loop": "Lumi sleeps peacefully, her chest rising and falling slowly, Twinkle glowing softly in her arms." },
+  { "shot": "b10-sleep-loop-base", "motion": "Everyone sleeps, the fire glows low, rain slides down the window, almost nothing moves.",
+    "loop": "Everyone sleeps peacefully, breathing slowly, the fire glows low and steady, rain slides softly down the window." }
+]
