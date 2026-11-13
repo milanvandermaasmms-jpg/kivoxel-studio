@@ -244,3 +244,39 @@ export async function setScriptStatus(script: DbScript, status: "approved" | "re
 
 /** 1234 -> "€ 12,34". */
 export const euros = (cents: number) => new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(cents / 100);
+
+/** "C:<ids>" for a long video, "A:<id>" for a Short: the same choice twice never makes a second video. */
+export function manualPlanKey(recordingId: string, format: Format, momentIds: string[]): string {
+  const ids = [...momentIds].sort();
+  return `${recordingId}:manual:${format}:${format === "C" ? ids.join(",") : ids[0]}`.slice(0, 200);
+}
+
+const MANUAL_PROMISE: Record<Format, string> = {
+  A: "Je ziet in 30 seconden of hij het overleeft.",
+  B: "Kijk wat hij vond, en waar.",
+  C: "Eén avontuur van begin tot eind, verteld als een verhaal.",
+};
+
+/**
+ * Fase C, "Zelf samenstellen": Milan picks moments himself. A Short per moment (format A, or B for a find), or one
+ * long video (format C) from several moments. The worker then writes the script as usual; nothing is published.
+ */
+export async function createManualVideos(studioId: string, recordingId: string, moments: Pick<DbMoment, "id" | "kind">[], long: boolean): Promise<number> {
+  const groups: { format: Format; ids: string[] }[] = long ? [{ format: "C", ids: moments.map((m) => m.id) }] : moments.map((m) => ({ format: m.kind === "rare_find" || m.kind === "discovery" ? "B" : "A", ids: [m.id] }));
+  if (long && moments.length < 3) throw new Error("Kies minstens 3 momenten voor een lange video.");
+  let made = 0;
+  for (const g of groups) {
+    const plan_key = manualPlanKey(recordingId, g.format, g.ids);
+    const existing = await supabase.from("yt_videos").select("id").eq("studio_id", studioId).eq("plan_key", plan_key).maybeSingle<{ id: string }>();
+    if (existing.error) throw new Error(friendlyError(existing.error.message));
+    if (existing.data) continue;
+    const video = await supabase.from("yt_videos").insert({ studio_id: studioId, recording_id: recordingId, format: g.format, plan_key, promise: MANUAL_PROMISE[g.format] }).select("id").single<{ id: string }>();
+    if (video.error) throw new Error(friendlyError(video.error.message));
+    const links = g.ids.map((moment_id, position) => ({ studio_id: studioId, video_id: video.data.id, moment_id, position }));
+    const linked = await supabase.from("yt_video_moments").insert(links);
+    if (linked.error) throw new Error(friendlyError(linked.error.message));
+    await regenerateScript(studioId, video.data.id, 1);
+    made += 1;
+  }
+  return made;
+}

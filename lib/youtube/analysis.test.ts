@@ -220,3 +220,14 @@ describe("analysis in parts with MM:SS times (fase C)", () => {
     expect(p).not.toMatch(/milliseconds/);
   });
 });
+
+describe("zelf samenstellen (fase C)", () => {
+  it("gives the same plan key for the same choice, in any order", async () => {
+    const { vi } = await import("vitest");
+    vi.doMock("../supabase", () => ({ supabase: {}, friendlyError: (m: string) => m }));
+    const { manualPlanKey } = await import("./analysisData");
+    expect(manualPlanKey("rec", "C", ["b", "a", "c"])).toBe(manualPlanKey("rec", "C", ["c", "a", "b"]));
+    expect(manualPlanKey("rec", "A", ["x"])).toBe("rec:manual:A:x");
+    expect(manualPlanKey("rec", "C", ["a", "b", "c"])).not.toBe(manualPlanKey("rec", "C", ["a", "b"]));
+  });
+});

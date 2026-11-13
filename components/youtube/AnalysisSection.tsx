@@ -5,7 +5,7 @@ import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
-import { euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
+import { createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { Editor } from "@/components/youtube/Editor";
 import { PublishPanel } from "@/components/youtube/PublishPanel";
 import { WORKER_URL } from "@/lib/youtube/protocol";
@@ -146,6 +146,7 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                       <RealGameplayFix canAnalyse={!!(state.settings?.paid_processing_enabled && analysisService)} onConfirm={(label) => act(() => markAsRealGameplay(studioId, r.id, label))} />
                     )}
                     {moments.length > 0 && <MomentList moments={moments} />}
+                    {moments.length > 0 && !r.is_test && <ManualMaker moments={moments.filter((m) => m.usable)} onMake={(chosen, long) => act(() => createManualVideos(studioId, r.id, chosen, long))} />}
                     {job === "done" && <MissingFootage hasMoments={moments.length > 0} formats={missingFormats(videos.map((v) => v.format))} />}
                     {videos.map((v) => (
                       <VideoCard key={v.id} video={v} moments={moments} scripts={state.scripts.filter((s) => s.video_id === v.id)} montage={state.montage} act={act} studioId={studioId} workerOnline={analysisService !== undefined} onWatch={onWatch} repeats={repeatsFor(v.id)} recordingMs={r.duration_ms} />
@@ -770,5 +771,46 @@ function FirstFrame({ file, firstLine }: { file: string; firstLine: string }) {
         <p className="mt-0.5 text-slate-500">Snap je in één seconde waar het om gaat, zonder geluid? Zo niet: kies een andere hook.</p>
       </div>
     </div>
+  );
+}
+
+/** "Zelf samenstellen" (fase C): pick moments yourself, for more Shorts or an extra long video from one recording. */
+function ManualMaker({ moments, onMake }: { moments: DbMoment[]; onMake: (chosen: DbMoment[], long: boolean) => Promise<void> }) {
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const picked = moments.filter((m) => chosen.includes(m.id));
+  const make = (long: boolean) => {
+    setBusy(true);
+    void onMake(picked, long).finally(() => {
+      setBusy(false);
+      setChosen([]);
+    });
+  };
+  if (!moments.length) return null;
+  return (
+    <details className="mt-2 rounded-md border border-slate-200 px-3 py-2 text-sm">
+      <summary className="cursor-pointer font-medium">Zelf samenstellen</summary>
+      <p className="mt-1 text-xs text-slate-500">Vink momenten aan. Een Short per moment, of één lange video met de gekozen momenten als hoofdstukken (minstens 3). De werker schrijft daarna het script; er gaat niets online.</p>
+      <ul className="mt-2 space-y-1">
+        {moments.map((m) => (
+          <li key={m.id}>
+            <label className="flex items-start gap-2">
+              <input type="checkbox" checked={chosen.includes(m.id)} onChange={(e) => setChosen(e.target.checked ? [...chosen, m.id] : chosen.filter((c) => c !== m.id))} className="mt-1" />
+              <span>
+                <span className="font-mono text-xs">{formatTimecode(m.start_ms)}</span> {KIND_LABEL[m.kind]} · score {m.score} <span className="text-xs text-slate-500">{m.reason}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button variant="secondary" disabled={busy || picked.length === 0} onClick={() => make(false)}>
+          {picked.length === 1 ? "Short van dit moment" : `${picked.length || ""} Shorts maken`.trim()}
+        </Button>
+        <Button variant="secondary" disabled={busy || picked.length < 3} onClick={() => make(true)}>
+          Lange video van {picked.length} momenten
+        </Button>
+      </div>
+    </details>
   );
 }
