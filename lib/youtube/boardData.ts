@@ -7,7 +7,7 @@ import type { BoardCost, BoardInput, BoardJob, BoardMoment, BoardRecording, Boar
 import { loadChannels, type Channel } from "./channels";
 import { loadPrivateTerms } from "./gatekeeperData";
 
-export type BoardJobWithPayload = BoardJob & { payload: { script_id?: string } | null };
+export type BoardJobWithPayload = BoardJob & { payload: { script_id?: string } | null; phase?: string | null; progress?: number | string | null; started_at?: string | null };
 export type BoardState =
   | { ready: true; channels: Channel[]; privateTerms: string[]; input: BoardInput; scripts: DbScript[]; renders: DbRender[]; jobs: BoardJobWithPayload[] }
   | { ready: false; reason: "migration" | "error"; message?: string };
@@ -21,7 +21,7 @@ export async function loadBoard(studioId: string): Promise<BoardState> {
     supabase.from("yt_recordings").select("id, label, status, error, is_test, channel_id, created_at").eq("studio_id", studioId).returns<BoardRecording[]>(),
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id)").eq("studio_id", studioId).returns<BoardVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),
-    supabase.from("yt_jobs").select("id, recording_id, video_id, step, status, error, created_at, payload").eq("studio_id", studioId).order("created_at").limit(2000).returns<BoardJobWithPayload[]>(),
+    supabase.from("yt_jobs").select("*").eq("studio_id", studioId).order("created_at").limit(2000).returns<BoardJobWithPayload[]>(),
     supabase.from("yt_costs").select("video_id, job_id, amount_cents").eq("studio_id", studioId).eq("currency", "EUR").returns<BoardCost[]>(),
     supabase.from("yt_moments").select("id, privacy_flags").eq("studio_id", studioId).returns<BoardMoment[]>(),
     supabase.from("yt_renders").select("*").eq("studio_id", studioId).order("created_at", { ascending: false }).returns<DbRender[]>(),

@@ -873,6 +873,18 @@ if (hasMigration("046")) {
     await as(MILAN, "insert into public.yt_jobs(studio_id,video_id,step,idempotency_key) values($1,$2,'viral','viral-test')", [hh, vid]);
     ok("admin can ask for a Viral-check", (await one(MILAN, "select count(*)::int from public.yt_jobs where idempotency_key='viral-test'")) === 1);
   }
+  // ---------- Archive (migration 051) ----------
+  if (hasMigration("051")) {
+    const rec = await one(MILAN, "insert into public.yt_recordings(studio_id,label,original_name,size_bytes,fingerprint,channel_id) values($1,'Archief','a.mp4',1,$2,$3) returning id", [hh, "a".repeat(64), def]);
+    const v = await one(MILAN, "insert into public.yt_videos(studio_id,recording_id,format) values($1,$2,'A') returning id", [hh, rec]);
+    await as(MILAN, "update public.yt_videos set status='archived' where id=$1", [v]);
+    ok("admin archives a video", (await one(MILAN, "select status from public.yt_videos where id=$1", [v])) === "archived");
+    await as(MILAN, "update public.yt_videos set status='scripted' where id=$1", [v]);
+    ok("and puts it back", (await one(MILAN, "select status from public.yt_videos where id=$1", [v])) === "scripted");
+    await db.query("update public.yt_videos set youtube_video_id='archieftest1' where id=$1", [v]);
+    await rejects("a video on YouTube can never be archived", MILAN, "update public.yt_videos set status='archived' where id=$1", [v]);
+    await noneAffected("a stranger cannot archive", STRANGER, "update public.yt_videos set status='archived'");
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 

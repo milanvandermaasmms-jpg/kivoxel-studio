@@ -138,7 +138,8 @@ export async function queueRender(studioId: string, script: DbScript, attempt: n
   await setVideoStatus(script.video_id, "rendering", ["idea", "scripted", "review", "approved"]);
 }
 
-async function setVideoStatus(videoId: string, status: string, from: string[]): Promise<void> {
+/** The one place where the dashboard changes the status of a video (opschonen 13-11-2026): only from the given states. */
+export async function setVideoStatus(videoId: string, status: string, from: string[]): Promise<void> {
   const { error } = await supabase.from("yt_videos").update({ status }).eq("id", videoId).in("status", from);
   if (error) throw new Error(friendlyError(error.message));
 }
@@ -153,6 +154,10 @@ export async function setVideoReview(videoId: string, decision: "approve" | "rej
   const { error } = await supabase.from("yt_videos").update({ review_note: reason }).eq("id", videoId);
   if (error && !isMissing(error) && error.code !== "PGRST204") throw new Error(friendlyError(error.message));
 }
+
+/** Archive: out of every list, never deleted. A video on YouTube is refused by the database (migration 051). */
+export const archiveVideo = (videoId: string) => setVideoStatus(videoId, "archived", ["idea", "scripted", "rendering", "review", "approved", "failed"]);
+export const restoreVideo = (videoId: string) => setVideoStatus(videoId, "scripted", ["archived"]);
 
 /** Switching paid processing on records who approved it (trigger in migration 009). */
 export async function saveSettings(studioId: string, enabled: boolean, capCents: number): Promise<void> {
