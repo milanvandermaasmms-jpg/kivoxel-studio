@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { checkStall, createProgressParser, type FfmpegSnapshot } from "../lib/youtube/progress.ts";
 import type { ProbeInfo } from "../lib/youtube/protocol.ts";
 import { parseQcLog, type QcProbe } from "../lib/youtube/qc.ts";
+import { createSignalParser, signalArgs, type Signals } from "../lib/youtube/footage.ts";
 
 const run = promisify(execFile);
 
@@ -269,4 +270,12 @@ export async function measureLoudness(ffmpeg: string, file: string, cwd: string)
   await runFfmpeg(ffmpeg, ["-hide_banner", "-i", file, "-vn", "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"], cwd, 10 * 60_000, { onStderr: (c) => (text = (text + c).slice(-6000)) });
   const log = parseQcLog(text);
   return { integratedLufs: log.integratedLufs, truePeakDb: log.truePeakDb };
+}
+
+/** Fase 3: one cheap pass over the recording for scene cuts, stillness, black picture, silence and loud moments. */
+export async function detectSignals(ffmpeg: string, file: string, durationMs: number, cwd: string, options: RunOptions = {}): Promise<Signals> {
+  const parser = createSignalParser(durationMs);
+  // Long recordings decode at several times real time; allow an hour as an outer limit (the stall watchdog stops a stuck run sooner).
+  await runFfmpeg(ffmpeg, signalArgs(file), cwd, 60 * 60_000, { ...options, onStderr: (c) => { parser.feed(c); options.onStderr?.(c); } });
+  return parser.finish();
 }

@@ -28,6 +28,7 @@ import { STEP_MILESTONE, STEP_PHASE, stepNotes } from "../lib/youtube/live.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName, renderSize, segmentOverlays, srtFileName, type VoiceClip } from "../lib/youtube/render.ts";
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
+import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
 import { firstActionMs, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
@@ -55,7 +56,13 @@ export type Montage = {
 export type Publisher = { uploader: Uploader; rendersDir: string; tmpDir?: string; frame?: (input: string, atMs: number, output: string) => Promise<void>; pollMs?: number; pollTimes?: number };
 
 /** The paid analysis service; null while GEMINI_API_KEY is missing from worker/.env.local. */
-export type Ai = { gemini: Gemini; makeProxy: (file: string, fingerprint: string, durationMs: number, options?: RunOptions) => Promise<string>; removeProxy: (file: string) => Promise<void> };
+export type Ai = {
+  gemini: Gemini;
+  makeProxy: (file: string, fingerprint: string, durationMs: number, options?: RunOptions) => Promise<string>;
+  removeProxy: (file: string) => Promise<void>;
+  /** Fase 3: free FFmpeg signals (stillness, black, loud moments) before the paid analysis. Optional: without it the analysis works as before. */
+  signals?: (file: string, fingerprint: string, durationMs: number, options?: RunOptions) => Promise<Signals>;
+};
 
 type Job = { id: string; studio_id: string; recording_id: string | null; video_id: string | null; step: string; attempts: number; max_attempts: number; payload: Record<string, unknown> | null };
 /** What a step tells the Live Production Center while it runs (migration 033). Quietly does nothing before 033. */
@@ -66,6 +73,17 @@ export type Live = {
   event: (kind: "log" | "milestone" | "note" | "error", message: string) => Promise<void>;
   stop: () => void;
 };
+/** Fase 3: moments in parts where nothing happens (AFK, menu, loading) are not kept; the reason goes to "rejected". */
+export function dropDead(parsed: { moments: Moment[]; rejected: string[] }, timeline: Timeline): { moments: Moment[]; rejected: string[] } {
+  const moments: Moment[] = [];
+  const rejected = [...parsed.rejected];
+  for (const m of parsed.moments) {
+    const why = deadReason(m, timeline);
+    if (why) rejected.push(`${m.kind} ${Math.round(m.startMs / 1000)} s: ${why}`);
+    else moments.push(m);
+  }
+  return { moments, rejected };
+}
 const NO_LIVE: Live = { signal: new AbortController().signal, phase: async () => {}, progress: async () => {}, event: async () => {}, stop: () => {} };
 
 type RecordingRow = { id: string; fingerprint: string; status: string; is_test: boolean; duration_ms: number | null };
@@ -238,6 +256,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const local = await store.get(row.fingerprint);
     if (!local) throw new Error("Het bestand staat niet op deze pc");
     await reserve(job, estimateAnalysisCents(row.duration_ms));
+    // Fase 3: free signals first. They make the prompt sharper and drop moments in dead parts. A failure here never blocks the analysis.
+    let timeline: Timeline | null = null;
+    if (ai.signals) {
+      await lv.phase("Beeld en geluid nalopen (stilstand, laadschermen, harde geluiden)", 0);
+      try {
+        timeline = buildTimeline(await ai.signals(local.file, row.fingerprint, row.duration_ms, { signal: lv.signal }));
+        const summary = timelineSummary(timeline, row.duration_ms);
+        log(`Signalen ${row.fingerprint.slice(0, 8)}: ${summary}`);
+        await lv.event("note", `Signalen: ${summary}`);
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        log(`Signalen niet gelukt, analyse gaat zonder: ${e instanceof Error ? e.message : "onbekend"}`);
+      }
+    }
+    const hints = timeline ? signalHints(timeline) : "";
     // Progress (fase E3): the proxy is measured by FFmpeg; Gemini only tells which stage it is in, the thinking time is an estimate.
     await lv.phase(ANALYSIS_STAGES.proxy.label, 0);
     const proxyStart = Date.now();
@@ -252,7 +285,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     try {
       const expected = expectedThinkingMs(row.duration_ms);
       const { json } = await paid(job, () =>
-        ai.gemini.analyseVideo(proxy, analysisPrompt(row.duration_ms), (stage) => {
+        ai.gemini.analyseVideo(proxy, hints ? `${analysisPrompt(row.duration_ms)}
+${hints}` : analysisPrompt(row.duration_ms), (stage) => {
           void lv.phase(ANALYSIS_STAGES[stage].label, stageProgress(stage, 0));
           if (stage === "thinking") {
             const started = Date.now();
@@ -267,7 +301,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await lv.phase("Momenten opslaan en formats plannen", 0.98);
       const parsed = parseAnalysis(json, row.duration_ms);
       if (!parsed.moments.length && parsed.rejected.length) throw new Error(`Antwoord van de analysedienst onbruikbaar: ${parsed.rejected.slice(0, 3).join("; ")}`);
-      return parsed;
+      return timeline ? dropDead(parsed, timeline) : parsed;
     } finally {
       if (timer) clearInterval(timer);
       await ai.removeProxy(proxy);

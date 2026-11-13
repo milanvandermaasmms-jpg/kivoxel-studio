@@ -2,11 +2,12 @@
 // Settings go in worker/.env.local (see worker/.env.example); without Supabase settings it runs locally only.
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
 import { WORKER_PORT, type WorkerHealth } from "../lib/youtube/protocol.ts";
-import { boostLoudness, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
+import type { Signals } from "../lib/youtube/footage.ts";
+import { boostLoudness, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
 import { createGemini } from "./gemini.ts";
 import { createTts, createUsageCounter } from "./tts.ts";
 import { createQueue, type Ai, type Montage, type Publisher } from "./queue.ts";
@@ -18,8 +19,10 @@ import { createStats } from "./youtubeStats.ts";
 import { createStatsSync } from "./statsSync.ts";
 import { createClient } from "@supabase/supabase-js";
 import { createStore } from "./store.ts";
+import { createInbox } from "./inbox.ts";
+import { createRegistrar } from "./register.ts";
 
-const VERSION = "59.0";
+const VERSION = "61.0";
 
 function loadEnv(file: string) {
   if (!existsSync(file)) return;
@@ -52,6 +55,7 @@ const supabaseUrl = env.SUPABASE_URL;
 const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
 // Paid analysis (Gemini, paid tier). Proxies are temporary and deleted right after the analysis.
 const proxyDir = join(dataDir, "proxies");
+const signalsDir = join(dataDir, "signals");
 const ai: Ai | null = env.GEMINI_API_KEY
   ? {
       gemini: createGemini(env.GEMINI_API_KEY, env.GEMINI_MODEL || undefined),
@@ -61,6 +65,16 @@ const ai: Ai | null = env.GEMINI_API_KEY
         return makeProxy(ffmpeg, join(dataDir, "recordings", file), join(proxyDir, `${fingerprint}.mp4`), durationMs, options);
       },
       removeProxy: (file) => rm(file, { force: true }),
+      // Fase 3: the signal pass is free and runs on this pc; the result is kept so a retry does not redo it.
+      signals: async (file, fingerprint, durationMs, options) => {
+        const cache = join(signalsDir, `${fingerprint}.json`);
+        const cached = await readFile(cache, "utf8").then((t) => JSON.parse(t) as Signals).catch(() => null);
+        if (cached?.version === 1 && cached.durationMs === durationMs) return cached;
+        await mkdir(signalsDir, { recursive: true });
+        const signals = await detectSignals(ffmpeg, join(dataDir, "recordings", file), durationMs, signalsDir, options);
+        await writeFile(cache, JSON.stringify(signals));
+        return signals;
+      },
     }
   : null;
 // Montage: previews stay on this pc in <data>/renders; work files in <data>/tmp are removed after each montage.
@@ -99,7 +113,28 @@ const publisher: Publisher | null = youtube.configured && montage ? { uploader: 
 const statsSync = youtube.configured && supabaseUrl && serviceKey ? createStatsSync({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), stats: createStats({ yt: youtube }), log }) : null;
 const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, workerName, store, log, ai, montage, undefined, publisher) : null;
 
-const health = (): WorkerHealth => ({ ok: true, version: VERSION, ffmpeg: version, queue: queue ? "supabase" : "local", dataDir, analysis: ai?.gemini.model ?? null, voice: !!montage?.voice, youtube: youtube.configured });
+// Inbox folder (fase 2): KIVOXEL/inbox in the user's home folder unless KIVOXEL_INBOX_DIR says otherwise. KIVOXEL_INBOX=0 switches it off.
+const inboxDir = env.KIVOXEL_INBOX_DIR || join(homedir(), "KIVOXEL", "inbox");
+const registrar = supabaseUrl && serviceKey ? createRegistrar(createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })) : null;
+const inbox =
+  env.KIVOXEL_INBOX === "0"
+    ? null
+    : createInbox({
+        dir: inboxDir,
+        importFile: (file, label) => store.importFile(file, label),
+        register: async (recording) => {
+          if (registrar) {
+            await registrar(recording);
+            queue?.poke();
+          } else {
+            const r = await store.intake(recording.fingerprint);
+            log(r.intakeError ? `Intake mislukt: ${r.intakeError}` : `Intake klaar: ${r.label}`);
+          }
+        },
+        log,
+      });
+
+const health = (): WorkerHealth => ({ ok: true, version: VERSION, ffmpeg: version, queue: queue ? "supabase" : "local", dataDir, analysis: ai?.gemini.model ?? null, voice: !!montage?.voice, youtube: youtube.configured, inbox: inbox?.status() ?? null });
 
 const server = createWorkerServer({
   store,
@@ -130,6 +165,10 @@ server.listen(port, "127.0.0.1", () => {
     void youtube.status().then((s) => s.connected && statsSync?.start());
   });
   queue?.start();
+  if (inbox) {
+    log(`Inbox-map: ${inboxDir} (zet hier een opname neer; de werker pakt hem op zodra het kopiëren klaar is)`);
+    inbox.start();
+  }
 });
 server.on("error", (e: NodeJS.ErrnoException) => {
   log(e.code === "EADDRINUSE" ? `Poort ${port} is al in gebruik: draait de werker al?` : `Fout: ${e.message}`);

@@ -2,8 +2,8 @@
 // Raw recordings never leave this pc; Supabase only gets the facts about the file.
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream, openAsBlob } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, readFile, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { computeFingerprint } from "../lib/youtube/fingerprint.ts";
@@ -188,6 +188,33 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
     });
   }
 
+  /**
+   * Inbox (fase 2): take over a file that Milan put in the inbox folder. The file is moved (not copied) into the
+   * recordings folder, so a recording of many GB never takes double space. A duplicate stays where it is.
+   */
+  async function importFile(source: string, label: string): Promise<CompleteResult> {
+    const name = basename(source);
+    const ext = videoExtension(name);
+    if (!ext) throw new StoreError(400, "Alleen videobestanden (mp4, webm, mkv of mov)");
+    const cleanLabel = label.trim().slice(0, 200) || "Opname";
+    const size = (await stat(source)).size;
+    if (size <= 0 || size > MAX_RECORDING_SIZE) throw new StoreError(400, "Ongeldige bestandsgrootte");
+    const fp = await computeFingerprint(await openAsBlob(source));
+    return locked(fp, async () => {
+      const index = await readIndex();
+      const done = index.find((r) => r.fingerprint === fp);
+      if (done) return { recording: done, duplicateOf: done };
+      const sha256 = await sha256Of(source);
+      const same = index.find((r) => r.sha256 === sha256);
+      if (same) return { recording: same, duplicateOf: same };
+      const file = `${fp}.${ext}`;
+      await moveFile(source, join(recordingsDir, file));
+      const recording: LocalRecording = { fingerprint: fp, sha256, label: cleanLabel, originalName: name, size, isTest: false, file, receivedAt: new Date().toISOString(), probe: null, intakeError: null };
+      await writeIndex([...index, recording]);
+      return { recording, duplicateOf: null };
+    });
+  }
+
   /** Intake step: read length, picture size and codecs with ffprobe. */
   async function intake(fp: string): Promise<LocalRecording> {
     return locked(fp, async () => {
@@ -208,5 +235,17 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
   const list = async () => (await readIndex()).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   const get = async (fp: string) => (await readIndex()).find((r) => r.fingerprint === fp) ?? null;
 
-  return { init, start, append, complete, intake, list, get, recordingsDir };
+  return { init, start, append, complete, importFile, intake, list, get, recordingsDir };
+}
+
+/** Rename when possible; across drives (EXDEV) copy and then remove the original. */
+export async function moveFile(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw e;
+    await copyFile(from, `${to}.tmp`);
+    await rename(`${to}.tmp`, to);
+    await rm(from, { force: true });
+  }
 }

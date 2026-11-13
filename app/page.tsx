@@ -13,6 +13,7 @@ import { Notices } from "@/components/youtube/Notices";
 import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
+import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
 import { useStudio } from "@/lib/studio";
 import type { LocalRecording, WorkerHealth } from "@/lib/youtube/protocol";
@@ -261,6 +262,7 @@ export default function YouTubeStudioPage() {
       )}
       {tab === "library" && (
         <>
+          <InboxCard health={health} />
           <UploadCard workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
           <Section title="Opnames op de pc" intro="De ruwe opnames staan alleen op de pc. Hier zie je wat FFmpeg erover heeft uitgelezen.">
             {!health ? (
