@@ -25,6 +25,9 @@ import {
   type Visibility,
 } from "@/lib/youtube/publication";
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
+import { GateList } from "@/components/youtube/GateList";
+import { hasRed, publicationGate, videoGate } from "@/lib/youtube/gatekeeper";
+import { loadGateContext, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { loadPublication, PUBLICATION_STATUS, requestPublish, savePublication, type DbPublication, type Extras, type PublishAction } from "@/lib/youtube/publicationData";
 
 const IN_TRANSIT = ["queued", "uploading", "processing"];
@@ -138,6 +141,18 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirming, setConfirming] = useState<Confirm | null>(null);
   const [extras, setExtras] = useState<Extras>({ captions_enabled: true, thumbnail_ms: null });
+  const [gateCtx, setGateCtx] = useState<GateContext | null>(null);
+
+  // What the Poortwachter needs: channel profile, private words, approved script and privacy flags.
+  useEffect(() => {
+    let live = true;
+    loadGateContext(studioId, videoId)
+      .then((c) => live && setGateCtx(c))
+      .catch(() => live && setGateCtx(null));
+    return () => {
+      live = false;
+    };
+  }, [studioId, videoId]);
 
   useEffect(() => {
     let live = true;
@@ -189,6 +204,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const problems = draftProblems(draft);
   const before = uploadProblems(draft);
   const advice = draftAdvice(draft, kind);
+  const gate = gateCtx ? [...videoGate(gateCtx), ...publicationGate({ draft, channel: gateCtx.channel, privateTerms: gateCtx.privateTerms })] : [];
   const titles = titleSuggestions(hook);
   const field = "w-full min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";
 
@@ -196,7 +212,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const isTest = !!current?.is_test;
   const onYouTube = !!current?.youtube_video_id;
   const base = uploadProblems({ ...draft, publish_at: null });
-  const ready = !!current && saved && !locked && !onYouTube && base.length === 0 && !!renderId;
+  const ready = !!current && saved && !locked && !onYouTube && base.length === 0 && !!renderId && !hasRed(gate);
   const scheduleOk = draft.visibility === "private" && !!draft.publish_at && before.length === 0;
   const publishOk = draft.visibility !== "private" && !draft.publish_at;
   const canAfter = onYouTube && !!current && ["uploaded", "scheduled", "published", "failed"].includes(current.status);
@@ -389,6 +405,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         </ul>
       )}
 
+      {gate.length > 0 && !onYouTube && <GateList items={gate} />}
       <div className="flex flex-wrap items-center gap-2">
         <Button disabled={locked || busy || problems.length > 0 || saved} onClick={() => void save()}>
           {saved ? "Concept opgeslagen" : "Concept opslaan"}

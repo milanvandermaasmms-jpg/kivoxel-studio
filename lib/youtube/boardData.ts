@@ -5,17 +5,19 @@ import type { DbRender, DbScript } from "./analysisData";
 import { queueRender, setScriptStatus, setVideoReview } from "./analysisData";
 import type { BoardCost, BoardInput, BoardJob, BoardMoment, BoardRecording, BoardVideo } from "./board";
 import { loadChannels, type Channel } from "./channels";
+import { loadPrivateTerms } from "./gatekeeperData";
 
 export type BoardJobWithPayload = BoardJob & { payload: { script_id?: string } | null };
 export type BoardState =
-  | { ready: true; channels: Channel[]; input: BoardInput; scripts: DbScript[]; renders: DbRender[]; jobs: BoardJobWithPayload[] }
+  | { ready: true; channels: Channel[]; privateTerms: string[]; input: BoardInput; scripts: DbScript[]; renders: DbRender[]; jobs: BoardJobWithPayload[] }
   | { ready: false; reason: "migration" | "error"; message?: string };
 
 const isMissing = (error: { code?: string; message: string }) => error.code === "42P01" || error.code === "PGRST205" || error.code === "42703" || /does not exist|could not find/i.test(error.message);
 
 export async function loadBoard(studioId: string): Promise<BoardState> {
-  const [channels, recordings, videos, scripts, jobs, costs, moments, renders] = await Promise.all([
+  const [channels, privateTerms, recordings, videos, scripts, jobs, costs, moments, renders] = await Promise.all([
     loadChannels(studioId).catch(() => null),
+    loadPrivateTerms(studioId).catch(() => null),
     supabase.from("yt_recordings").select("id, label, status, error, is_test, channel_id, created_at").eq("studio_id", studioId).returns<BoardRecording[]>(),
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id)").eq("studio_id", studioId).returns<BoardVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),
@@ -30,6 +32,7 @@ export async function loadBoard(studioId: string): Promise<BoardState> {
   return {
     ready: true,
     channels: channels ?? [],
+    privateTerms: privateTerms ?? [],
     input: { recordings: recordings.data ?? [], videos: videos.data ?? [], scripts: scripts.data ?? [], jobs: jobRows, costs: costs.data ?? [], moments: moments.data ?? [] },
     scripts: scripts.data ?? [],
     renders: renders.data ?? [],

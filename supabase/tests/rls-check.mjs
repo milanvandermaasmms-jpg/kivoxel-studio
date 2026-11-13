@@ -754,5 +754,56 @@ if (hasMigration("045")) {
   await rejects("dashboard still cannot link a YouTube channel", MILAN, "update public.yt_channels set youtube_channel_id='UCzzzzzzzzzzzzzzzzzzzzzz' where id=$1", [ch]);
 }
 
+// ---------- Poortwachter (migration 046) ----------
+if (hasMigration("046")) {
+  ok("a private word is found as a whole word, any case", (await one(MILAN, "select public.yt_term_hit('Hallo TESTKIND!', array['testkind'])")) === "testkind");
+  ok("a private word inside another word is not a hit", (await one(MILAN, "select public.yt_term_hit('testkinderen', array['testkind'])")) === null);
+  ok("a phone number is found", (await one(MILAN, "select public.yt_personal_data('bel 06-12345678')")) === "een telefoonnummer");
+  ok("an e-mail address is found", (await one(MILAN, "select public.yt_personal_data('mail a@b.nl')")) === "een e-mailadres");
+  ok("a normal sentence has no personal data", (await one(MILAN, "select public.yt_personal_data('Dag 1 van 100 in Minecraft, 2026')")) === null);
+
+  await as(MILAN, "update public.yt_settings set private_terms=array['Testkind','Teststraat'] where studio_id=$1", [hh]);
+  ok("admin keeps a private word list", (await one(NATASJA, "select cardinality(private_terms) from public.yt_settings where studio_id=$1", [hh])) === 2);
+  await noneAffected("child cannot read or change the private words", CHILD, "update public.yt_settings set private_terms='{}'");
+  await rejects("the app cannot ask the gatekeeper directly", MILAN, "select public.yt_video_gate_problems(gen_random_uuid())");
+
+  const def = await one(MILAN, "select id from public.yt_channels where studio_id=$1 and is_default", [hh]);
+  await as(MILAN, "update public.yt_channels set banned_words=array['gegarandeerd'] where id=$1", [def]);
+  const rec = await one(MILAN, "insert into public.yt_recordings(studio_id,label,original_name,size_bytes,fingerprint,channel_id) values($1,'Poort','g.mp4',1,$2,$3) returning id", [hh, fp("6"), def]);
+  const vid = await one(MILAN, "insert into public.yt_videos(studio_id,recording_id,format) values($1,$2,'A') returning id", [hh, rec]);
+  const sys = async (sql, params) => Object.values((await db.query(sql, params)).rows[0])[0];
+  const script = await sys(`insert into public.yt_scripts(studio_id,video_id,version,hook,target_ms,source,lines) values($1,$2,1,'Kijk wat Testkind bouwt',20000,'test','[{"at_ms":0,"text":"Hallo"}]') returning id`, [hh, vid]);
+  await as(MILAN, "update public.yt_scripts set status='approved' where id=$1", [script]);
+  await db.query("update public.yt_videos set status='review' where id=$1", [vid]);
+  await rejects("a script with a private word cannot be approved", MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
+  await db.query("update public.yt_scripts set hook='Kijk wat hij bouwt' where id=$1", [script]);
+  const moment = await sys("insert into public.yt_moments(studio_id,recording_id,kind,start_ms,end_ms,reason,score,has_context,has_payoff,source,privacy_flags) values($1,$2,'near_death',0,1000,'r',50,true,true,'test',array['face']) returning id", [hh, rec]);
+  await db.query("insert into public.yt_video_moments(studio_id,video_id,moment_id,position) values($3,$1,$2,0)", [vid, moment, hh]);
+  await rejects("a video with a face in view cannot be approved", MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
+  await db.query("update public.yt_moments set privacy_flags=array['gamertag'] where id=$1", [moment]);
+  const render = await sys("insert into public.yt_renders(studio_id,video_id,script_id,file_name,duration_ms,width,height,privacy_blur) values($1,$2,$3,'poort.mp4',20000,1080,1920,false) returning id", [hh, vid, script]);
+  await rejects("a gamertag that is not blurred blocks approval", MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
+  await db.query("update public.yt_renders set privacy_blur=true where id=$1", [render]);
+  await as(MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
+  ok("a clean video is approved", (await one(MILAN, "select status from public.yt_videos where id=$1", [vid])) === "approved");
+
+  const pub = await one(MILAN, "insert into public.yt_publications(studio_id,video_id,render_id,title,description,made_for_kids,contains_synthetic_media) values($1,$2,$3,'Minecraft gegarandeerd spannend','Bouwen.',true,false) returning id", [hh, vid, render]);
+  await rejects("a banned word in the title stops the upload", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
+  await as(MILAN, "update public.yt_publications set title='Minecraft spannend', description='Bel 06-12345678' where id=$1", [pub]);
+  await rejects("a phone number in the description stops the upload", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
+  await as(MILAN, "update public.yt_publications set description='Groeten uit de Teststraat' where id=$1", [pub]);
+  await rejects("a private word in the description stops the upload", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
+  await as(MILAN, "update public.yt_publications set description='Bouwen.', title='Lumi slaapt' where id=$1", [pub]);
+  await rejects("Lumi without Dreamnest in the title stops the upload", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
+  await as(MILAN, "update public.yt_channels set synthetic_media=true where id=$1", [def]);
+  await as(MILAN, "update public.yt_publications set title='Minecraft spannend' where id=$1", [pub]);
+  await rejects("an AI channel needs the AI notice", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
+  await as(MILAN, "update public.yt_channels set synthetic_media=false, safety_profile='infant_sleep' where id=$1", [def]);
+  await rejects("a sleep channel needs the volume tip", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
+  await as(MILAN, "update public.yt_channels set safety_profile='kids_gaming', banned_words='{}' where id=$1", [def]);
+  ok("a clean publication goes to the worker", typeof (await one(MILAN, "select public.request_yt_publish($1,'private')", [pub])) === "string");
+  await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nALL PASSED");
 process.exit(failed ? 1 : 0);

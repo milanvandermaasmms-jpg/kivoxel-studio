@@ -8,6 +8,7 @@ import { ReviewMode } from "@/components/youtube/ReviewMode";
 import { euros } from "@/lib/youtube/analysisData";
 import { buildProjects, reviewQueue, STAGES, type Project } from "@/lib/youtube/board";
 import { loadBoard, type BoardState } from "@/lib/youtube/boardData";
+import { videoGate } from "@/lib/youtube/gatekeeper";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
 /**
@@ -34,7 +35,9 @@ export function PipelineBoard({ studioId, workerOnline, onOpenStudio }: { studio
       </Section>
     );
 
-  const projects = buildProjects(board.input).filter((p) => !channel || p.channelId === channel);
+  const projects = buildProjects(board.input)
+    .filter((p) => !channel || p.channelId === channel)
+    .map((p) => ({ ...p, blocked: [...p.blocked, ...gateReasons(board, p)] }));
   const queue = reviewQueue(board.input.videos, board.input.scripts, channel);
   const channelOf = (id: string) => board.channels.find((c) => c.id === id);
 
@@ -102,6 +105,19 @@ export function PipelineBoard({ studioId, workerOnline, onOpenStudio }: { studio
       )}
     </div>
   );
+}
+
+/** Red Poortwachter points of the newest script of each video (private or banned words, personal data); faces are already in blocked. */
+function gateReasons(board: Extract<BoardState, { ready: true }>, p: Project): string[] {
+  const out = new Set<string>();
+  for (const id of p.videoIds) {
+    const video = board.input.videos.find((v) => v.id === id);
+    const script = board.scripts.find((s) => s.video_id === id && s.status !== "rejected");
+    if (!video || !script) continue;
+    const channel = board.channels.find((c) => c.id === video.channel_id) ?? null;
+    for (const i of videoGate({ script, channel, privateTerms: board.privateTerms, flags: [] })) if (i.level === "red") out.add(`${i.label}: ${i.note}`);
+  }
+  return [...out];
 }
 
 /** First frame of the newest montage of the project, when the worker can serve it. */

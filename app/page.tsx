@@ -13,6 +13,7 @@ import { Notices } from "@/components/youtube/Notices";
 import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
+import { PrivateTermsSettings } from "@/components/youtube/GateList";
 import { PipelineBoard } from "@/components/youtube/PipelineBoard";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -370,6 +371,7 @@ export default function YouTubeStudioPage() {
       {tab === "settings" && (
         <>
           <ChannelCard studioId={studio.id} onError={setError} />
+          <PrivateTermsSettings studioId={studio.id} onError={setError} />
           <Section title="Werker op de pc" intro="De werker doet het zware werk op de pc van Milan: bestanden ontvangen, FFmpeg en later montage en uploaden. Hij werkt alleen als de pc aanstaat.">
             {health === undefined ? (
               <p className="text-sm text-slate-500">Controleren…</p>

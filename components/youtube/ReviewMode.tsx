@@ -8,6 +8,8 @@ import type { ReviewItem } from "@/lib/youtube/board";
 import { approveConcept, approveFinal, rejectConcept, rejectFinal, type BoardState } from "@/lib/youtube/boardData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers, reviewChecks } from "@/lib/youtube/review";
+import { hasRed, videoGate } from "@/lib/youtube/gatekeeper";
+import { GateList } from "@/components/youtube/GateList";
 import { FORMATS } from "@/lib/youtube/studio";
 
 type Ready = Extract<BoardState, { ready: true }>;
@@ -60,7 +62,8 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const qc = item?.kind === "final" ? (renders[0]?.qc?.items ?? []) : [];
   const reds = qc.filter((q) => q.level === "red");
   const oranges = qc.filter((q) => q.level === "orange");
-  const canApprove = !!item && !!script && blockers.length === 0 && (reds.length === 0 || redSeen);
+  const gate = item ? videoGate({ script, channel: channel ?? null, privateTerms: board.privateTerms, flags }) : [];
+  const canApprove = !!item && !!script && blockers.length === 0 && !hasRed(gate) && (reds.length === 0 || redSeen);
 
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -152,6 +155,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               </section>
             )}
 
+            {script && <GateList items={gate} />}
             {blockers.length > 0 && (
               <ul className="list-disc space-y-0.5 rounded-md border border-red-200 bg-red-50 py-2 pl-7 pr-3 text-red-800">
                 {blockers.map((b) => (
