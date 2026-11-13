@@ -162,7 +162,7 @@ function NicheView({ studioId, channel, data, busy, prefs, onPrefs, onAsk }: { s
                       {s.bestHours.length > 0 && <li>Vaak geplaatst rond {s.bestHours.map((h) => `${h}:00`).join(", ")} (Nederlandse tijd)</li>}
                       {s.topWords.length > 0 && <li>Veel gebruikte woorden: {s.topWords.join(", ")}</li>}
                       {s.examples.map((e) => (
-                        <li key={e.title} className="truncate text-slate-500">
+                        <li key={`${e.title}-${e.views}`} className="truncate text-slate-500">
                           · {e.title} ({e.views.toLocaleString("nl-NL")} views)
                         </li>
                       ))}

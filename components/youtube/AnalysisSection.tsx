@@ -5,8 +5,9 @@ import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
-import { createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
+import { createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { ViralCard } from "@/components/youtube/ViralCard";
+import { pageVisible } from "@/lib/visible";
 import { Editor } from "@/components/youtube/Editor";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { DEFAULT_BLUR_REGIONS, type Region } from "@/lib/youtube/render";
@@ -48,7 +49,7 @@ export function useAnalysis(studioId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const timer = setInterval(() => !missing.current && void refresh(), 5000);
+    const timer = setInterval(() => pageVisible() && !missing.current && void refresh(), 5000);
     return () => clearInterval(timer);
   }, [refresh, enabled]);
 
@@ -313,8 +314,9 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
   const used = [...video.yt_video_moments].sort((a, b) => a.position - b.position).map((l) => moments.find((m) => m.id === l.moment_id)).filter((m): m is DbMoment => !!m);
   const nextVersion = (scripts[0]?.version ?? 0) + 1;
   const waits = video.status === "review" || script?.status === "draft";
+  const [open, setOpen] = useState(waits);
   return (
-    <details open={waits} className="group mt-3 rounded-md border border-slate-200 p-3 text-sm">
+    <details open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)} className="group mt-3 rounded-md border border-slate-200 p-3 text-sm">
       <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-2 [&::-webkit-details-marker]:hidden">
         <p className="font-medium">
           <span aria-hidden className="mr-1 inline-block text-slate-400 transition-transform group-open:rotate-90">▸</span>
@@ -326,6 +328,9 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
           Momenten: {used.map((m) => `${KIND_LABEL[m.kind]} ${formatTimecode(m.start_ms)}`).join(", ")}
         </p>
       </summary>
+      {/* Closed cards load nothing: no previews that fill the connections to the worker. */}
+      {open && (
+        <>
       {video.promise && <p className="text-xs text-slate-600">Kijkersbelofte: {video.promise}</p>}
       {!script ? (
         <p className="mt-2 text-xs text-slate-500">Het script wordt gemaakt…</p>
@@ -420,6 +425,8 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
         </div>
       )}
       <MontageBlock video={video} approved={approved ?? null} scripts={scripts} montage={montage} act={act} studioId={studioId} workerOnline={workerOnline} privacyFlags={[...new Set(used.flatMap((m) => m.privacy_flags))]} onWatch={onWatch} repeats={repeats} />
+        </>
+      )}
     </details>
   );
 }
@@ -507,6 +514,12 @@ function ReviewBlock({ video, blockers, checks, act, qc, repeats, firstFrame }: 
 }
 
 /** Montage of the approved script: the button queues it for the worker; the preview plays straight from the pc. */
+/** The first thumbnail of a montage (fase C) as poster, so the video itself only loads when Milan presses play. */
+const posterOf = (r: DbRender): string | undefined => {
+  const file = (r as DbRender & { thumbnails?: { file: string }[] }).thumbnails?.[0]?.file;
+  return file ? `${WORKER_URL}/renders/${encodeURIComponent(file)}` : undefined;
+};
+
 function MontageBlock({ video, approved, scripts, montage, act, studioId, workerOnline, privacyFlags, onWatch, repeats }: { video: DbVideo; approved: DbScript | null; scripts: DbScript[]; montage: MontageState; act: Act; studioId: string; workerOnline: boolean; privacyFlags: PrivacyFlag[]; onWatch?: (videoId: string) => void; repeats?: Repetition[] }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [broken, setBroken] = useState<string | null>(null);
@@ -544,7 +557,8 @@ function MontageBlock({ video, approved, scripts, montage, act, studioId, worker
             src={`${WORKER_URL}/renders/${encodeURIComponent(shown.file_name)}`}
             crossOrigin="anonymous"
             controls
-            preload="metadata"
+            poster={posterOf(shown)}
+            preload={posterOf(shown) ? "none" : "metadata"}
             playsInline
             onError={() => setBroken(shown.id)}
             style={{ aspectRatio: `${shown.width} / ${shown.height}` }}
@@ -775,7 +789,7 @@ function HookChoice({ script, act }: { script: DbScript; act: Act }) {
 function FirstFrame({ file, firstLine }: { file: string; firstLine: string }) {
   return (
     <div className="flex items-start gap-3 rounded-md bg-slate-50 p-2">
-      <video src={`${WORKER_URL}/renders/${encodeURIComponent(file)}#t=0.05`} crossOrigin="anonymous" muted playsInline preload="auto" className="h-28 w-28 shrink-0 rounded bg-black object-contain" aria-label="Eerste beeld van de montage" />
+      <video src={`${WORKER_URL}/renders/${encodeURIComponent(file)}#t=0.05`} crossOrigin="anonymous" muted playsInline preload="metadata" className="h-28 w-28 shrink-0 rounded bg-black object-contain" aria-label="Eerste beeld van de montage" />
       <div className="min-w-0 text-xs">
         <p className="font-medium text-slate-700">Eerste-frametest (zonder geluid)</p>
         <p className="mt-0.5 text-slate-600">Eerste zin: {firstLine || "–"}</p>

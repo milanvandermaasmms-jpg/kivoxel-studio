@@ -7,6 +7,7 @@ import { FORMATS } from "./studio";
 import { loadBoard, type BoardState } from "./boardData";
 import { buildFlow, type FlowItem, type FlowPublication } from "./flow";
 import { loadPublications } from "./publicationData";
+import { pageVisible } from "../visible";
 
 type Ready = Extract<BoardState, { ready: true }>;
 export type FlowState = { board: Ready; items: FlowItem[]; publications: FlowPublication[] } | { error: string } | null;
@@ -41,7 +42,7 @@ export function useFlow(studioId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const t = setInterval(() => void refresh(), 8000);
+    const t = setInterval(() => pageVisible() && void refresh(), 8000);
     return () => clearInterval(t);
   }, [refresh, enabled]);
 

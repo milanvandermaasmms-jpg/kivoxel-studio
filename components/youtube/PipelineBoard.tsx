@@ -10,6 +10,7 @@ import { buildProjects, reviewQueue, STAGES, type Project } from "@/lib/youtube/
 import { loadBoard, type BoardState } from "@/lib/youtube/boardData";
 import { videoGate } from "@/lib/youtube/gatekeeper";
 import { WORKER_URL } from "@/lib/youtube/protocol";
+import { pageVisible } from "@/lib/visible";
 
 /**
  * Pipeline board (superprompt 7.1): one column per step, one card per source, a filter per channel and a button
@@ -30,7 +31,7 @@ export function PipelineBoard({ studioId, workerOnline, onOpenStudio }: { studio
   }, [studioId]);
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 10000);
+    const timer = setInterval(() => pageVisible() && void refresh(), 10000);
     return () => clearInterval(timer);
   }, [refresh]);
 

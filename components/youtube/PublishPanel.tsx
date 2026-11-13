@@ -370,7 +370,8 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const field = "w-full min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";
 
   // What may be sent: Milan's complete, saved choices. The database checks all of this again.
-  const isTest = !!current?.is_test;
+  // A test video is known from its script before there is a draft: it only ever goes to YouTube as private.
+  const isTest = current ? !!current.is_test : !!gateCtx && isTestVideo(gateCtx);
   const onYouTube = !!current?.youtube_video_id;
   const base = uploadProblems({ ...draft, publish_at: null });
   const scheduleOk = draft.visibility === "private" && !!draft.publish_at && before.length === 0;
@@ -432,9 +433,9 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       {/* Fase 1.2: the primary action sits at the top of the card, never between the other buttons. */}
       {!locked && !onYouTube && (
         <div className="space-y-1.5 rounded-lg border-2 border-amber-300 bg-amber-50 p-3">
-          <Button disabled={!primary || busy} onClick={() => primary && setConfirming(primary)} className="min-h-12 w-full justify-center bg-amber-500 text-base font-semibold text-slate-950 hover:bg-amber-400 disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto sm:px-6">
+          <button type="button" disabled={!primary || busy} onClick={() => primary && setConfirming(primary)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-6 text-base font-semibold text-slate-950 shadow-sm hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto">
             <Rocket className="h-5 w-5" aria-hidden /> Naar YouTube sturen
-          </Button>
+          </button>
           <p className="text-amber-900">
             {primary
               ? primary.action === "private"

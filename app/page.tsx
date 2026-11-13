@@ -29,6 +29,7 @@ import { reviewQueue } from "@/lib/youtube/board";
 import type { Flow } from "@/lib/youtube/flow";
 import { useFlow } from "@/lib/youtube/flowData";
 import { useStudio } from "@/lib/studio";
+import { pageVisible } from "@/lib/visible";
 import type { LocalRecording, WorkerHealth } from "@/lib/youtube/protocol";
 import {
   cancelJob,
@@ -124,10 +125,16 @@ export default function YouTubeStudioPage() {
   const dbMissing = useRef(false);
   const lastDb = useRef("");
   const lastLocal = useRef("");
+  const healthMisses = useRef(0);
   const refresh = useCallback(
     async (full = true) => {
-      const [h, state] = await Promise.all([workerHealth(), full || !dbMissing.current ? loadStudio(studio.id) : null]);
-      setHealth((old) => (JSON.stringify(old) === JSON.stringify(h) ? old : h));
+      const [checked, state] = await Promise.all([workerHealth(), full || !dbMissing.current ? loadStudio(studio.id) : null]);
+      healthMisses.current = checked ? 0 : healthMisses.current + 1;
+      setHealth((old) => {
+        const h = checked ?? (old && healthMisses.current < 2 ? old : null);
+        return JSON.stringify(old) === JSON.stringify(h) ? old : h;
+      });
+      const h = checked;
       if (state) {
         dbMissing.current = !state.ready && state.reason === "migration";
         const key = JSON.stringify(state);
@@ -136,6 +143,8 @@ export default function YouTubeStudioPage() {
           setDb(state);
         }
       }
+      // One missed check keeps the list as it is; only a worker that is really gone empties it.
+      if (!h && healthMisses.current < 2) return;
       const list = h ? await listLocalRecordings().catch(() => null) : null;
       const key = JSON.stringify(list);
       if (key !== lastLocal.current) {
@@ -149,8 +158,14 @@ export default function YouTubeStudioPage() {
   useEffect(() => {
     if (!isAdmin) return;
     void refresh();
-    const timer = setInterval(() => void refresh(false), 5000);
-    return () => clearInterval(timer);
+    const timer = setInterval(() => pageVisible() && void refresh(false), 5000);
+    // Back on the Studio after a while: fresh numbers at once instead of waiting for the next round.
+    const onShow = () => pageVisible() && void Promise.all([refresh(false), analysis.refresh(), flow.refresh()]);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [refresh, isAdmin]);
 
   if (!isAdmin) return <p className="py-16 text-center text-sm text-slate-500">YouTube Studio is alleen voor beheerders.</p>;

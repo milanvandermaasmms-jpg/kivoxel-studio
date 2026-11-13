@@ -106,7 +106,7 @@ export function ViralCard({ studioId, videoId, scripts, approved, act }: { studi
               <Wand2 className="h-4 w-4" aria-hidden /> Script laten herschrijven
             </Button>
           )}
-          {plan && plan.removedMs > 0 && (
+          {plan && plan.removedMs >= 2000 && (
             <Button variant="secondary" onClick={() => setDialog("cut")}>
               <Scissors className="h-4 w-4" aria-hidden /> Saaie stukken wegknippen
             </Button>

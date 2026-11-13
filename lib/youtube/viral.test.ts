@@ -136,6 +136,12 @@ describe("what works on this channel", () => {
 });
 
 describe("automatisch verbeteren", () => {
+  it("does not propose a cut that saves less than 2 seconds", () => {
+    const nine = base({ segments: [seg(0, 9000, 0), seg(20_000, 6000, 9000), seg(30_000, 6000, 15_000)], peaks: [] });
+    expect(gameplayPart(nine, null).part.fixes.some((f) => f.auto === "cut")).toBe(false);
+    const long = base({ segments: [seg(0, 14_000, 0), seg(20_000, 6000, 14_000)], peaks: [] });
+    expect(gameplayPart(long, null).part.fixes.find((f) => f.auto === "cut")?.src).toEqual([4000, 10_000]);
+  });
   it("cuts a dead part out of the plan and moves the narration with the picture", () => {
     const segs = [seg(0, 6000, 0), seg(10_000, 6000, 6000), seg(20_000, 6000, 12_000)];
     const lines = [{ at_ms: 0, text: "a" }, { at_ms: 13_000, text: "b" }, { at_ms: 16_000, text: "c" }];

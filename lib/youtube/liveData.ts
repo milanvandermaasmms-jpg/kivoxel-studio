@@ -3,6 +3,7 @@
 // every 5 seconds as fallback while the live connection is down. A page refresh loses nothing: it is all in the database.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { friendlyError, supabase } from "../supabase";
+import { pageVisible } from "../visible";
 import type { LiveJob } from "./production";
 
 export type JobEvent = { id: number; job_id: string; at: string; kind: "log" | "milestone" | "note" | "error"; message: string };
@@ -62,7 +63,7 @@ export function useLiveJobs(studioId: string, enabled: boolean) {
   // Fallback: while not live, ask again every 5 seconds; while live, every 30 seconds as a safety net.
   useEffect(() => {
     if (!enabled) return;
-    const id = setInterval(() => void reload(), connection === "live" ? 30_000 : 5_000);
+    const id = setInterval(() => pageVisible() && void reload(), connection === "live" ? 30_000 : 5_000);
     return () => clearInterval(id);
   }, [enabled, connection, reload]);
 

@@ -168,7 +168,8 @@ export function gameplayPart(i: ViralInput, reference: ReferenceSummary | null):
 
   // A segment that runs long without a peak feels slow.
   const maxSeg = i.kind === "short" ? 8000 : 30_000;
-  const slow = i.segments.filter((s) => segEnd(s) - s.out_start_ms > maxSeg && !(i.peaks ?? []).some((p) => p.atMs >= s.src_start_ms && p.atMs <= s.src_end_ms));
+  // Only when cutting the middle saves at least 2 seconds.
+  const slow = i.segments.filter((s) => segEnd(s) - s.out_start_ms > maxSeg + 2000 && !(i.peaks ?? []).some((p) => p.atMs >= s.src_start_ms && p.atMs <= s.src_end_ms));
   if (slow.length && fixes.length < 3) {
     score -= 1;
     const s = slow[0];
