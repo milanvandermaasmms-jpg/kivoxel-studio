@@ -7,7 +7,7 @@ import { hostname, homedir } from "node:os";
 import { join } from "node:path";
 import { WORKER_PORT, type WorkerHealth } from "../lib/youtube/protocol.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
-import { boostLoudness, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
+import { boostLoudness, cutArgs, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
 import { createGemini } from "./gemini.ts";
 import { createTts, createUsageCounter } from "./tts.ts";
 import { createQueue, type Ai, type Montage, type Publisher } from "./queue.ts";
@@ -22,7 +22,7 @@ import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
 
-const VERSION = "62.1";
+const VERSION = "62.2";
 
 function loadEnv(file: string) {
   if (!existsSync(file)) return;
@@ -61,10 +61,24 @@ const ai: Ai | null = env.GEMINI_API_KEY
       gemini: createGemini(env.GEMINI_API_KEY, env.GEMINI_MODEL || undefined),
       makeProxy: async (file, fingerprint, durationMs, options) => {
         await mkdir(proxyDir, { recursive: true });
+        // Fase C: the small copy is kept (a few hundred MB at most), so analysing again does not redo it.
+        const out = join(proxyDir, `${fingerprint}.mp4`);
+        const done = `${out}.klaar`;
+        if ((await readFile(done, "utf8").catch(() => "")) === String(durationMs)) return out;
         // The store keeps file names relative to its recordings folder.
-        return makeProxy(ffmpeg, join(dataDir, "recordings", file), join(proxyDir, `${fingerprint}.mp4`), durationMs, options);
+        await makeProxy(ffmpeg, join(dataDir, "recordings", file), out, durationMs, options);
+        await writeFile(done, String(durationMs));
+        return out;
       },
-      removeProxy: (file) => rm(file, { force: true }),
+      // The kept copy stays; only parts (fase C) are removed after use.
+      removeProxy: async (file) => {
+        if (/-deel\d+\.mp4$/.test(file)) await rm(file, { force: true });
+      },
+      cutProxy: async (proxy, startMs, lengthMs, options) => {
+        const out = proxy.replace(/\.mp4$/, `-deel${Math.round(startMs / 1000)}.mp4`);
+        await runFfmpeg(ffmpeg, cutArgs(proxy, startMs, lengthMs, out), proxyDir, 10 * 60_000, options ?? {});
+        return out;
+      },
       // Fase 3: the signal pass is free and runs on this pc; the result is kept so a retry does not redo it.
       signals: async (file, fingerprint, durationMs, options) => {
         const cache = join(signalsDir, `${fingerprint}.json`);

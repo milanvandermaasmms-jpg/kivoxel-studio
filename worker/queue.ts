@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   analysisPrompt,
+  analysisChunks,
   buildEditPlan,
   estimateAnalysisCents,
   formatTimecode,
@@ -18,6 +19,7 @@ import {
   testScript,
   type Format,
   type Moment,
+  mergeMoments,
   type ScriptDraft,
   type ScriptFeedback,
   type ScriptLine,
@@ -62,6 +64,8 @@ export type Ai = {
   gemini: Gemini;
   makeProxy: (file: string, fingerprint: string, durationMs: number, options?: RunOptions) => Promise<string>;
   removeProxy: (file: string) => Promise<void>;
+  /** Fase C: one part of the small copy, for long recordings. Optional: without it the whole copy goes at once. */
+  cutProxy?: (proxy: string, startMs: number, lengthMs: number, options?: RunOptions) => Promise<string>;
   /** Fase 3: free FFmpeg signals (stillness, black, loud moments) before the paid analysis. Optional: without it the analysis works as before. */
   signals?: (file: string, fingerprint: string, durationMs: number, options?: RunOptions) => Promise<Signals>;
 };
@@ -283,27 +287,50 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         void lv.progress({ progress: stageProgress("proxy", p.progress ?? 0), metrics: { eta_ms: p.etaMs, speed: snap.speed } });
       },
     });
+    // Fase C: a long recording goes in parts of about 8 minutes, so the times Gemini gives stay exact.
+    const chunks = ai.cutProxy ? analysisChunks(row.duration_ms) : [{ index: 0, count: 1, startMs: 0, endMs: row.duration_ms }];
+    const found: Moment[][] = [];
+    const rejected: string[] = [];
+    let answered = 0;
     let timer: NodeJS.Timeout | null = null;
     try {
-      const expected = expectedThinkingMs(row.duration_ms);
-      const { json } = await paid(job, () =>
-        ai.gemini.analyseVideo(proxy, hints ? `${analysisPrompt(row.duration_ms)}
-${hints}` : analysisPrompt(row.duration_ms), (stage) => {
-          void lv.phase(ANALYSIS_STAGES[stage].label, stageProgress(stage, 0));
-          if (stage === "thinking") {
-            const started = Date.now();
-            timer = setInterval(() => {
-              const elapsed = Date.now() - started;
-              void lv.progress({ progress: stageProgress("thinking", thinkingShare(elapsed, expected)), metrics: { eta_ms: Math.max(0, expected - elapsed), estimate: 1 } });
-            }, 2000);
-          }
-        }),
-      );
-      if (timer) clearInterval(timer);
+      for (const chunk of chunks) {
+        if (lv.signal.aborted) throw new CancelledError();
+        const many = chunk.count > 1;
+        const lengthMs = chunk.endMs - chunk.startMs;
+        const label = many ? ` (deel ${chunk.index + 1} van ${chunk.count})` : "";
+        const file = many && ai.cutProxy ? await ai.cutProxy(proxy, chunk.startMs, lengthMs, { signal: lv.signal }) : proxy;
+        try {
+          const expected = expectedThinkingMs(lengthMs);
+          const partHints = timeline ? signalHints(timeline, many ? chunk : undefined) : hints;
+          const prompt = analysisPrompt(row.duration_ms, chunk);
+          const { json } = await paid(job, () =>
+            ai.gemini.analyseVideo(file, partHints ? `${prompt}\n${partHints}` : prompt, (stage) => {
+              void lv.phase(`${ANALYSIS_STAGES[stage].label}${label}`, stageProgress(stage, 0));
+              if (stage === "thinking") {
+                const started = Date.now();
+                if (timer) clearInterval(timer);
+                timer = setInterval(() => {
+                  const elapsed = Date.now() - started;
+                  void lv.progress({ progress: stageProgress("thinking", thinkingShare(elapsed, expected)), metrics: { eta_ms: Math.max(0, expected - elapsed), estimate: 1 } });
+                }, 2000);
+              }
+            }),
+          );
+          if (timer) clearInterval(timer);
+          const parsed = parseAnalysis(json, row.duration_ms, chunk);
+          answered += 1;
+          found.push(parsed.moments);
+          rejected.push(...parsed.rejected);
+          if (many) await lv.event("note", `Deel ${chunk.index + 1} van ${chunk.count}: ${parsed.moments.length} momenten`);
+        } finally {
+          if (file !== proxy) await ai.removeProxy(file);
+        }
+      }
       await lv.phase("Momenten opslaan en formats plannen", 0.98);
-      const parsed = parseAnalysis(json, row.duration_ms);
-      if (!parsed.moments.length && parsed.rejected.length) throw new Error(`Antwoord van de analysedienst onbruikbaar: ${parsed.rejected.slice(0, 3).join("; ")}`);
-      return timeline ? dropDead(parsed, timeline) : parsed;
+      const merged = { moments: mergeMoments(found), rejected };
+      if (!merged.moments.length && rejected.length && answered) throw new Error(`Antwoord van de analysedienst onbruikbaar: ${rejected.slice(0, 3).join("; ")}`);
+      return timeline ? dropDead(merged, timeline) : merged;
     } finally {
       if (timer) clearInterval(timer);
       await ai.removeProxy(proxy);

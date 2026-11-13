@@ -89,6 +89,14 @@ export function proxyArgs(input: string, output: string): string[] {
   return ["-hide_banner", "-loglevel", "error", "-y", "-i", input, "-vf", "scale=-2:360,fps=1", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-ac", "1", "-b:a", "48k", "-movflags", "+faststart", output];
 }
 
+/**
+ * One part of the small copy for the analysis (fase C): re-encoded so it starts exactly at startMs (the copy has few
+ * keyframes, so cutting without re-encoding would start up to minutes too early). Small and fast: 360p, 1 frame/s.
+ */
+export function cutArgs(input: string, startMs: number, lengthMs: number, output: string): string[] {
+  return ["-hide_banner", "-loglevel", "error", "-y", "-ss", (startMs / 1000).toFixed(3), "-i", input, "-t", (lengthMs / 1000).toFixed(3), "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-c:a", "aac", "-ac", "1", "-b:a", "48k", "-movflags", "+faststart", output];
+}
+
 /** With options (fase E3, progress of the analysis) FFmpeg reports how far it is; without, it runs as before. */
 export async function makeProxy(ffmpeg: string, input: string, output: string, durationMs: number, options?: RunOptions): Promise<string> {
   try {

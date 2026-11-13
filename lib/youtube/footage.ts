@@ -151,7 +151,15 @@ const tc = (ms: number) => {
 };
 
 /** Extra lines for the analysis prompt: where nothing happens, and loud moments worth checking. Short, to keep tokens low. */
-export function signalHints(t: Timeline): string {
+export function signalHints(full: Timeline, window?: { startMs: number; endMs: number }): string {
+  // For one part of a long recording (fase C): only what lies in that part, with times counted from its start.
+  const t: Timeline = window
+    ? {
+        ...full,
+        dead: full.dead.filter((d) => d.endMs > window.startMs && d.startMs < window.endMs).map((d) => ({ ...d, startMs: Math.max(0, d.startMs - window.startMs), endMs: Math.min(window.endMs, d.endMs) - window.startMs })),
+        peaks: full.peaks.filter((p) => p.atMs >= window.startMs && p.atMs <= window.endMs).map((p) => ({ ...p, atMs: p.atMs - window.startMs })),
+      }
+    : full;
   const lines: string[] = [];
   const dead = t.dead.filter((d) => d.endMs - d.startMs >= 3_000).slice(0, 25);
   if (dead.length) {

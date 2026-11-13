@@ -84,3 +84,14 @@ describe("timeline from the signals", () => {
     expect(signalHints(buildTimeline(empty()))).toBe("");
   });
 });
+
+describe("signal hints for one part (fase C)", () => {
+  it("keeps only what lies in the part, with times from its start", async () => {
+    const { signalHints } = await import("./footage");
+    const t = { dead: [{ kind: "black" as const, startMs: 500_000, endMs: 510_000 }, { kind: "still" as const, startMs: 10_000, endMs: 20_000 }], peaks: [{ atMs: 470_000, lu: 12 }, { atMs: 30_000, lu: 12 }], sceneCutsMs: [], deadMs: 20_000 };
+    const hints = signalHints(t as never, { startMs: 460_000, endMs: 940_000 });
+    expect(hints).toContain("0:40-0:50 black screen");
+    expect(hints).toContain("0:10");
+    expect(hints).not.toContain("0:30");
+  });
+});

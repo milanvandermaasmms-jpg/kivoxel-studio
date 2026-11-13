@@ -170,3 +170,53 @@ describe("test data and costs", () => {
     expect(formatTimecode(3_725_000)).toBe("1:02:05");
   });
 });
+
+describe("analysis in parts with MM:SS times (fase C)", () => {
+  it("reads MM:SS, H:MM:SS, tenths and plain milliseconds", async () => {
+    const { parseTime } = await import("./analysis");
+    expect(parseTime("03:44")).toBe(224_000);
+    expect(parseTime("1:02:05")).toBe(3_725_000);
+    expect(parseTime("00:07.5")).toBe(7_500);
+    expect(parseTime(12_000)).toBe(12_000);
+    expect(parseTime("3:75")).toBeNull();
+    expect(parseTime("soon")).toBeNull();
+  });
+
+  it("splits a long recording into overlapping parts of 8 minutes, a short one not", async () => {
+    const { analysisChunks } = await import("./analysis");
+    expect(analysisChunks(6 * 60_000)).toEqual([{ index: 0, count: 1, startMs: 0, endMs: 360_000 }]);
+    const parts = analysisChunks(2_694_000); // 44:54
+    expect(parts.length).toBe(6);
+    expect(parts[1].startMs).toBe(460_000);
+    expect(parts.at(-1)!.endMs).toBe(2_694_000);
+    for (let i = 1; i < parts.length; i++) expect(parts[i].startMs).toBeLessThan(parts[i - 1].endMs);
+  });
+
+  it("moves times of a part to the whole recording and refuses times outside the part", async () => {
+    const { parseAnalysis } = await import("./analysis");
+    const chunk = { index: 2, count: 6, startMs: 920_000, endMs: 1_400_000 };
+    const r = parseAnalysis({ moments: [{ kind: "near_death", start: "03:30", peak: "03:44", end: "03:50", reason: "Zombies in a cave", score: 90, has_context: true, has_payoff: true }, { kind: "escape", start: "09:00", peak: "09:10", end: "09:20", reason: "x", score: 50, has_context: true, has_payoff: true }] }, 2_694_000, chunk);
+    expect(r.moments).toHaveLength(1);
+    expect(r.moments[0]).toMatchObject({ startMs: 1_130_000, peakMs: 1_144_000, endMs: 1_150_000 });
+    expect(r.rejected[0]).toMatch(/deel 3.*buiten dit deel/);
+  });
+
+  it("keeps one moment when overlapping parts report the same one", async () => {
+    const { mergeMoments } = await import("./analysis");
+    const a = ok({ start_ms: 450_000, end_ms: 470_000, peak_ms: 462_000, score: 70 }, 2_694_000);
+    const b = ok({ start_ms: 452_000, end_ms: 472_000, peak_ms: 466_000, score: 85 }, 2_694_000);
+    const c = ok({ kind: "escape", start_ms: 452_000, end_ms: 472_000, peak_ms: 466_000 }, 2_694_000);
+    const merged = mergeMoments([[a], [b, c]]);
+    expect(merged).toHaveLength(2);
+    expect(merged.find((m) => m.kind === "near_death")?.score).toBe(85);
+  });
+
+  it("asks for MM:SS counted from the start of the part", async () => {
+    const { analysisPrompt } = await import("./analysis");
+    const p = analysisPrompt(2_694_000, { index: 1, count: 6, startMs: 460_000, endMs: 940_000 });
+    expect(p).toContain("part 2 of 6");
+    expect(p).toContain("8:00 long");
+    expect(p).toMatch(/MM:SS/);
+    expect(p).not.toMatch(/milliseconds/);
+  });
+});

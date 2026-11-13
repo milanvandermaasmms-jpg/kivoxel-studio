@@ -73,6 +73,37 @@ const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v
 const int = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null);
 
 /**
+ * A time from the analysis service: "MM:SS", "H:MM:SS" (optionally with tenths) or, as before, a number of
+ * milliseconds. Gemini is far more exact with MM:SS than with millisecond numbers in long videos.
+ */
+export function parseTime(v: unknown): number | null {
+  if (typeof v === "number") return int(v);
+  if (typeof v !== "string") return null;
+  const m = /^\s*(?:(\d+):)?(\d{1,3}):(\d{1,2})(?:[.,](\d{1,3}))?\s*$/.exec(v);
+  if (!m) return null;
+  const [h, min, s] = [Number(m[1] ?? 0), Number(m[2]), Number(m[3])];
+  if (s >= 60 || (m[1] !== undefined && min >= 60)) return null;
+  const fraction = m[4] ? Math.round(Number(`0.${m[4]}`) * 1000) : 0;
+  return ((h * 60 + min) * 60 + s) * 1000 + fraction;
+}
+
+/** Long recordings go to the service in parts of this length (with overlap), so its times stay exact. */
+export const ANALYSIS_CHUNK_MS = 8 * 60_000;
+export const ANALYSIS_OVERLAP_MS = 20_000;
+export type Chunk = { index: number; count: number; startMs: number; endMs: number };
+
+/** The parts of a recording for the analysis; one part when it is short enough. */
+export function analysisChunks(durationMs: number): Chunk[] {
+  if (durationMs <= ANALYSIS_CHUNK_MS + 60_000) return [{ index: 0, count: 1, startMs: 0, endMs: durationMs }];
+  const step = ANALYSIS_CHUNK_MS - ANALYSIS_OVERLAP_MS;
+  const starts: number[] = [];
+  for (let s = 0; s < durationMs - ANALYSIS_OVERLAP_MS; s += step) starts.push(s);
+  // A very short last part is merged into the one before.
+  if (starts.length > 1 && durationMs - starts[starts.length - 1] < 90_000) starts.pop();
+  return starts.map((s, i) => ({ index: i, count: starts.length, startMs: s, endMs: i === starts.length - 1 ? durationMs : Math.min(durationMs, s + ANALYSIS_CHUNK_MS) }));
+}
+
+/**
  * Checks one moment as the analysis service reported it. The service's own yes/no on context and payoff only counts
  * when the timecodes back it up: enough lead-in before the peak and a visible outcome after it.
  */
@@ -80,14 +111,14 @@ export function checkMoment(raw: unknown, durationMs: number): { moment: Moment 
   if (!raw || typeof raw !== "object") return { error: "geen object" };
   const r = raw as Record<string, unknown>;
   if (!isKind(r.kind)) return { error: `onbekend soort moment: ${String(r.kind)}` };
-  const rawStart = int(r.start_ms);
-  const endMs = int(r.end_ms);
+  const rawStart = parseTime(r.start ?? r.start_ms);
+  const endMs = parseTime(r.end ?? r.end_ms);
   if (rawStart === null || endMs === null) return { error: "tijdcode ontbreekt" };
   if (rawStart < 0 || endMs <= rawStart) return { error: "tijdcodes kloppen niet" };
   let startMs = rawStart;
   if (endMs > durationMs + 1000) return { error: "tijdcode ligt na het einde van de opname" };
   let end = Math.min(endMs, durationMs);
-  const peak = int(r.peak_ms);
+  const peak = parseTime(r.peak ?? r.peak_ms);
   const peakMs = peak !== null && peak >= startMs && peak <= end ? peak : Math.round((startMs + end) / 2);
   const reason = text(r.reason, 500);
   if (!reason) return { error: "reden ontbreekt" };
@@ -120,18 +151,52 @@ export function checkMoment(raw: unknown, durationMs: number): { moment: Moment 
 }
 
 /** Parses the JSON the analysis service returns ({ "moments": [...] }); keeps what is valid and says what was dropped. */
-export function parseAnalysis(raw: unknown, durationMs: number): { moments: Moment[]; rejected: string[] } {
+export function parseAnalysis(raw: unknown, durationMs: number, chunk?: Chunk): { moments: Moment[]; rejected: string[] } {
   const list = raw && typeof raw === "object" && Array.isArray((raw as { moments?: unknown }).moments) ? (raw as { moments: unknown[] }).moments : null;
   if (!list) return { moments: [], rejected: ["antwoord bevat geen lijst met momenten"] };
   const moments: Moment[] = [];
   const rejected: string[] = [];
+  const part = chunk && chunk.count > 1 ? ` (deel ${chunk.index + 1})` : "";
   list.forEach((item, i) => {
-    const checked = checkMoment(item, durationMs);
-    if ("error" in checked) rejected.push(`moment ${i + 1}: ${checked.error}`);
+    // Times in a part are counted from the start of that part: move them to the time of the whole recording.
+    const shifted = chunk ? toRecordingTime(item, chunk) : item;
+    if (typeof shifted === "string") {
+      rejected.push(`moment ${i + 1}${part}: ${shifted}`);
+      return;
+    }
+    const checked = checkMoment(shifted, durationMs);
+    if ("error" in checked) rejected.push(`moment ${i + 1}${part}: ${checked.error}`);
     else moments.push(checked.moment);
   });
   moments.sort((a, b) => a.startMs - b.startMs);
   return { moments, rejected };
+}
+
+/** start/peak/end of one answer of a part, moved to the time of the whole recording; a text says why not. */
+function toRecordingTime(item: unknown, chunk: Chunk): Record<string, unknown> | string {
+  if (!item || typeof item !== "object") return "geen object";
+  const r = item as Record<string, unknown>;
+  const length = chunk.endMs - chunk.startMs;
+  const out: Record<string, unknown> = { ...r };
+  for (const key of ["start", "peak", "end"] as const) {
+    const v = parseTime(r[key] ?? r[`${key}_ms`]);
+    delete out[key];
+    delete out[`${key}_ms`];
+    if (v === null) continue;
+    if (v > length + 2000) return `tijd ${String(r[key] ?? r[`${key}_ms`])} valt buiten dit deel van ${formatTimecode(length)}`;
+    out[`${key}_ms`] = chunk.startMs + Math.min(v, length);
+  }
+  return out;
+}
+
+/** Moments of overlapping parts: the same kind with peaks less than 10 s apart is one moment (the best score stays). */
+export function mergeMoments(lists: Moment[][]): Moment[] {
+  const out: Moment[] = [];
+  for (const m of lists.flat().sort((a, b) => b.score - a.score)) {
+    if (out.some((o) => o.kind === m.kind && Math.abs(o.peakMs - m.peakMs) < 10_000)) continue;
+    out.push(m);
+  }
+  return out.sort((a, b) => a.startMs - b.startMs);
 }
 
 export const isUsable = (m: Pick<Moment, "hasContext" | "hasPayoff">) => m.hasContext && m.hasPayoff;
@@ -304,15 +369,19 @@ export function testScript(plan: EditPlan, moments: Moment[]): ScriptDraft {
 }
 
 /** Instructions for the analysis service (Gemini, after approval). The answer must be JSON that parseAnalysis accepts. */
-export function analysisPrompt(durationMs: number): string {
+export function analysisPrompt(durationMs: number, chunk?: Chunk): string {
+  const clipMs = chunk ? chunk.endMs - chunk.startMs : durationMs;
   return [
     "You analyse raw Minecraft (PS5, Bedrock) survival gameplay for a faceless YouTube channel.",
-    `The recording is ${formatTimecode(durationMs)} long. Report every usable moment with exact timecodes in milliseconds.`,
+    chunk && chunk.count > 1
+      ? `This clip is part ${chunk.index + 1} of ${chunk.count} of a longer recording and is ${formatTimecode(clipMs)} long. Give every time as "MM:SS" counted from the start of THIS clip (00:00), never from the whole recording.`
+      : `The recording is ${formatTimecode(clipMs)} long. Give every time as "MM:SS" counted from the start (00:00).`,
+    "Times must point at what is really on screen at that second; check each one against the picture before you answer. Report every usable moment.",
     `Kinds: ${MOMENT_KINDS.join(", ")}. Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.`,
     "Only report moments a viewer would find exciting or surprising. Routine actions (sleeping, walking, crafting, building) are not moments unless something unexpected happens.",
-    "start_ms is where the build-up starts (usually 10-20 seconds before the peak), end_ms is where the outcome is clearly visible (at least 3 seconds after the peak). peak_ms is the single most intense instant and lies before end_ms.",
+    "start is where the build-up starts (usually 10-20 seconds before the peak), end is where the outcome is clearly visible (at least 3 seconds after the peak). peak is the single most intense instant and lies before end.",
     "PvP fights against other players count too (near_death or escape); report each fight once, not every hit. Never write real names or gamertags in reason or notes: say \"the opponent\".",
-    "For each moment give: kind, start_ms, end_ms, peak_ms, reason (what happens on screen, one sentence), score 0-100,",
+    "For each moment give: kind, start, peak, end (all \"MM:SS\"), reason (what happens on screen, one sentence), score 0-100,",
     "has_context (is it clear what is going on before the peak?) with context_note, has_payoff (is the outcome visible?) with payoff_note,",
     `privacy_flags (any of ${PRIVACY_FLAGS.join(", ")} that is visible or audible), suggested_format (A near-death Short, B rare-find Short, C long story).`,
     "Only describe what is visible or audible. Do not invent story elements. Answer with JSON only: {\"moments\": [...]}",
