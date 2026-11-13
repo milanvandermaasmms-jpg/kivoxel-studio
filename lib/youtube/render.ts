@@ -225,7 +225,8 @@ export function renderFileName(videoId: string, version: number, jobId: string):
   return `${clean(videoId)}-v${Math.max(1, Math.floor(version))}-${clean(jobId).slice(0, 8)}.mp4`;
 }
 
-export const isRenderFileName = (name: string) => /^[A-Za-z0-9_-]{1,120}\.mp4$/.test(name);
+/** A montage (.mp4) or one of its thumbnails (.jpg, fase C) in the renders folder; no paths, no other files. */
+export const isRenderFileName = (name: string) => /^[A-Za-z0-9_-]{1,120}\.(mp4|jpg)$/.test(name);
 
 /** Text in the picture per segment (editor): shown during that segment on the timeline of the final video. */
 export type Overlay = { startMs: number; endMs: number; text: string };

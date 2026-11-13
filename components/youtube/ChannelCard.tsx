@@ -48,7 +48,7 @@ export function ChannelCard({ studioId, onError }: { studioId: string; onError: 
             profile={
               c.mode !== undefined ? (
                 <ProfileForm
-                  key={JSON.stringify([c.slug, c.mode, c.safety_profile, c.made_for_kids, c.synthetic_media, c.banned_words, c.publish_slots])}
+                  key={JSON.stringify([c.slug, c.mode, c.safety_profile, c.made_for_kids, c.synthetic_media, c.banned_words, c.publish_slots, c.concept_auto_approve])}
                   channel={c}
                   onSave={async (p) => {
                     try {
@@ -161,6 +161,7 @@ function ProfileForm({ channel, onSave }: { channel: Channel; onSave: (p: Profil
     synthetic_media: channel.synthetic_media ?? false,
     banned_words: channel.banned_words ?? [],
     publish_slots: channel.publish_slots ?? [],
+    concept_auto_approve: channel.concept_auto_approve ?? false,
   };
   const [draft, setDraft] = useState(initial);
   const [words, setWords] = useState(initial.banned_words.join(", "));
@@ -208,6 +209,13 @@ function ProfileForm({ channel, onSave }: { channel: Channel; onSave: (p: Profil
         <label className="flex items-center gap-2 sm:col-span-2">
           <input type="checkbox" checked={draft.synthetic_media} onChange={(e) => setDraft({ ...draft, synthetic_media: e.target.checked })} />
           <span>AI-label aan bij uploaden (verplicht bij AI-beeld of AI-muziek)</span>
+        </label>
+        <label className="flex items-start gap-2 sm:col-span-2">
+          <input type="checkbox" checked={draft.concept_auto_approve} onChange={(e) => setDraft({ ...draft, concept_auto_approve: e.target.checked })} className="mt-0.5" />
+          <span>
+            Concept (Keur 1) vanzelf goedkeuren en de montage meteen starten
+            <span className="block text-xs text-slate-500">Alleen als het script schoon is (geen privé-woorden, verboden woorden of persoonsgegevens). De eindversie keur je altijd zelf, en publiceren blijft jouw klik.</span>
+          </span>
         </label>
         <label className="grid gap-1 sm:col-span-2">
           <span className="text-xs text-slate-500">Verboden woorden in titels, beschrijvingen en thumbnails (komma tussen elk woord)</span>

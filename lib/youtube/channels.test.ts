@@ -20,7 +20,7 @@ describe("channel fields", () => {
 });
 
 const { parseWords, parseSlots, profileProblem, providersText, bannedIn } = await import("./channels");
-const profile = { slug: "dreamnest-nl", mode: "generate" as const, safety_profile: "infant_sleep" as const, made_for_kids: true, synthetic_media: true, banned_words: ["IQ"], publish_slots: ["19:00"] };
+const profile = { slug: "dreamnest-nl", mode: "generate" as const, safety_profile: "infant_sleep" as const, made_for_kids: true, synthetic_media: true, banned_words: ["IQ"], publish_slots: ["19:00"], concept_auto_approve: false };
 
 describe("channel profile (migration 045)", () => {
   it("reads banned words from a comma or line list without doubles", () => {

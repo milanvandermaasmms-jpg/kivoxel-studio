@@ -3,6 +3,7 @@ import { friendlyError, supabase } from "../supabase";
 import type { PrivacyFlag } from "./analysis";
 import type { Channel } from "./channels";
 import type { GateScript } from "./gatekeeper";
+import type { StoredThumb } from "./thumbnails";
 
 const isMissing = (error: { code?: string; message: string }) => error.code === "42703" || error.code === "PGRST204" || /does not exist|could not find/i.test(error.message);
 
@@ -23,13 +24,13 @@ export async function savePrivateTerms(studioId: string, terms: string[]): Promi
   if (error) throw new Error(friendlyError(error.message));
 }
 
-export type GateContext = { channel: Channel | null; privateTerms: string[]; script: GateScript | null; flags: PrivacyFlag[] };
+export type GateContext = { channel: Channel | null; privateTerms: string[]; script: (GateScript & { titles?: string[] }) | null; flags: PrivacyFlag[] };
 
 /** Everything the checklist of one video needs; privateTerms is empty before migration 046. */
 export async function loadGateContext(studioId: string, videoId: string): Promise<GateContext> {
   const [video, scripts, terms] = await Promise.all([
     supabase.from("yt_videos").select("channel_id, yt_video_moments(moment_id)").eq("id", videoId).maybeSingle<{ channel_id: string; yt_video_moments: { moment_id: string }[] }>(),
-    supabase.from("yt_scripts").select("top_line, hook, lines, loop_line, hooks").eq("video_id", videoId).eq("status", "approved").order("version", { ascending: false }).limit(1).returns<GateScript[]>(),
+    supabase.from("yt_scripts").select("*").eq("video_id", videoId).eq("status", "approved").order("version", { ascending: false }).limit(1).returns<(GateScript & { titles?: string[] })[]>(),
     loadPrivateTerms(studioId).catch(() => null),
   ]);
   if (video.error) throw new Error(friendlyError(video.error.message));
@@ -44,4 +45,11 @@ export async function loadGateContext(studioId: string, videoId: string): Promis
     script: scripts.data?.[0] ?? null,
     flags: [...new Set((moments?.data ?? []).flatMap((m) => m.privacy_flags))],
   };
+}
+
+/** Fase C: the thumbnails the worker made for a montage (migration 047); empty before that or when none were made. */
+export async function loadThumbs(renderId: string): Promise<StoredThumb[]> {
+  const { data, error } = await supabase.from("yt_renders").select("*").eq("id", renderId).maybeSingle<{ thumbnails?: StoredThumb[] }>();
+  if (error) return [];
+  return Array.isArray(data?.thumbnails) ? data.thumbnails : [];
 }

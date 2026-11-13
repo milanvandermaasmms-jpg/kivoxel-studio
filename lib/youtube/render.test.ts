@@ -95,6 +95,8 @@ describe("render file names", () => {
     expect(isRenderFileName(name)).toBe(true);
     expect(isRenderFileName("../x.mp4")).toBe(false);
     expect(isRenderFileName("a.mp4.exe")).toBe(false);
+    expect(isRenderFileName("abc-v1-1234-t2.jpg")).toBe(true);
+    expect(isRenderFileName("abc.png")).toBe(false);
   });
 });
 

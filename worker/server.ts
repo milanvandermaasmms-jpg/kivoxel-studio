@@ -122,7 +122,7 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
         const info = await stat(file).catch(() => null);
         if (!info?.isFile()) return send(404, { error: "Deze preview staat niet (meer) op deze pc" });
         const range = parseRange(req.headers.range, info.size);
-        const base = { "content-type": "video/mp4", "accept-ranges": "bytes", "cache-control": "private, no-store", "access-control-expose-headers": "content-range, content-length, accept-ranges" };
+        const base = { "content-type": name.endsWith(".jpg") ? "image/jpeg" : "video/mp4", "accept-ranges": "bytes", "cache-control": "private, no-store", "access-control-expose-headers": "content-range, content-length, accept-ranges" };
         if (range === "invalid") {
           res.writeHead(416, { ...base, "content-range": `bytes */${info.size}` });
           return res.end();

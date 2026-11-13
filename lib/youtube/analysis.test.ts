@@ -70,6 +70,12 @@ describe("parseAnalysis", () => {
 
 describe("planVideos", () => {
   const key = (m: Moment) => String(m.startMs);
+  it("makes at most 6 Shorts per recording, the best moments first", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ok({ start_ms: i * 100_000, end_ms: i * 100_000 + 20_000, peak_ms: i * 100_000 + 10_000, score: 50 + i }, 1_000_000));
+    const shorts = planVideos(many, 1_000_000, key).filter((p) => p.format !== "C");
+    expect(shorts).toHaveLength(6);
+    expect(Math.min(...shorts.map((p) => p.moments[0].score))).toBe(53);
+  });
   it("makes one Short per usable moment and skips unusable ones", () => {
     const plans = planVideos([ok(), ok({ kind: "rare_find", start_ms: 100_000, end_ms: 125_000, peak_ms: 110_000 }), ok({ start_ms: 300_000, end_ms: 301_000, peak_ms: 300_500 })], 600_000, key);
     expect(plans.map((p) => p.planKey)).toEqual(["A:10000", "B:100000"]);
@@ -92,12 +98,12 @@ describe("planVideos", () => {
 });
 
 describe("buildEditPlan", () => {
-  it("format A: hook, sped-up build and payoff within 15-25 s", () => {
-    const plan = buildEditPlan("A", [ok()]);
+  it("format A: hook, sped-up build and payoff within 30-45 s", () => {
+    const plan = buildEditPlan("A", [ok({ start_ms: 0, end_ms: 50_000, peak_ms: 40_000 })]);
     expect(plan.segments.map((s) => s.part)).toEqual(["hook", "build", "payoff"]);
     expect(plan.segments[1].speed).toBeGreaterThan(1);
-    expect(plan.targetMs).toBeGreaterThanOrEqual(15_000);
-    expect(plan.targetMs).toBeLessThanOrEqual(25_000);
+    expect(plan.targetMs).toBeGreaterThanOrEqual(30_000);
+    expect(plan.targetMs).toBeLessThanOrEqual(45_000);
     expect(plan.warnings).toEqual([]);
   });
   it("output timecodes follow each other without gaps", () => {
@@ -107,13 +113,13 @@ describe("buildEditPlan", () => {
       expect(segments[i].out_start_ms).toBe(prev.out_start_ms + Math.round((prev.src_end_ms - prev.src_start_ms) / prev.speed));
     }
   });
-  it("a tightly cut moment still gives a Short of 15-25 s when the recording length is known", () => {
+  it("a tightly cut moment still gives a Short of 30-45 s when the recording length is known", () => {
     // Like the first real recording: 2:05-2:14, peak in the middle, recording of 24 minutes.
     const m = ok({ start_ms: 125_000, end_ms: 134_000, peak_ms: 130_000 }, 1_444_000);
     const plan = buildEditPlan("A", [m], 1_444_000);
-    expect(plan.targetMs).toBeGreaterThanOrEqual(15_000);
-    expect(plan.targetMs).toBeLessThanOrEqual(25_000);
-    expect(plan.segments[1].src_start_ms).toBe(118_000);
+    expect(plan.targetMs).toBeGreaterThanOrEqual(30_000);
+    expect(plan.targetMs).toBeLessThanOrEqual(45_000);
+    expect(plan.segments[1].src_start_ms).toBe(100_000);
   });
   it("chapters of a long video are 1.5-3 minutes and never overlap", () => {
     const peaks = [130_000, 227_000, 444_000, 1_200_000];

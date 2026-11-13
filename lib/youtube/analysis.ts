@@ -140,6 +140,7 @@ const PROMISE: Record<Format, string> = {
  * `key` makes the plan stable: analysing the same recording again yields the same plan keys.
  */
 export function planVideos(moments: Moment[], durationMs: number, key: (m: Moment) => string): PlannedVideo[] {
+  // Superprompt (fase C): per recording one long video and at most MAX_SHORTS Shorts, the best moments first.
   const usable = moments.filter(isUsable);
   const plans: PlannedVideo[] = [];
   const taken: Moment[] = [];
@@ -147,11 +148,12 @@ export function planVideos(moments: Moment[], durationMs: number, key: (m: Momen
     if (m.suggestedFormat === "C" || m.endMs - m.startMs > MAX_SHORT_SOURCE_MS) continue;
     const clash = taken.some((t) => t.suggestedFormat === m.suggestedFormat && overlap(t, m) > 0.5 * Math.min(t.endMs - t.startMs, m.endMs - m.startMs));
     if (clash) continue;
+    if (taken.length >= MAX_SHORTS) break;
     taken.push(m);
     plans.push({ planKey: `${m.suggestedFormat}:${key(m)}`, format: m.suggestedFormat, moments: [m], promise: PROMISE[m.suggestedFormat] });
   }
   if (durationMs >= MIN_LONG_RECORDING_MS && usable.length >= MIN_LONG_MOMENTS) {
-    const story = [...usable].sort((a, b) => b.score - a.score).slice(0, 5).sort((a, b) => a.startMs - b.startMs);
+    const story = [...usable].sort((a, b) => b.score - a.score).slice(0, MAX_LONG_MOMENTS).sort((a, b) => a.startMs - b.startMs);
     plans.push({ planKey: "C", format: "C", moments: story, promise: PROMISE.C });
   }
   return plans;
@@ -172,9 +174,9 @@ export type EditPlan = { segments: Segment[]; targetMs: number; warnings: string
 
 /** Target lengths from the research (start values to test, not a proven optimum). */
 export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
-  A: { minMs: 15_000, maxMs: 25_000 },
-  B: { minMs: 20_000, maxMs: 30_000 },
-  C: { minMs: 8 * 60_000, maxMs: 12 * 60_000 },
+  A: { minMs: 30_000, maxMs: 45_000 },
+  B: { minMs: 30_000, maxMs: 45_000 },
+  C: { minMs: 8 * 60_000, maxMs: 15 * 60_000 },
 };
 
 /** Builds the segment list; speeds up a piece when it does not fit its slot (at most 2x, so it stays readable). */
@@ -197,7 +199,11 @@ const outLength = (s: Segment[]) => (s.length ? s[s.length - 1].out_start_ms + M
 export const CHAPTER_BEFORE_MS = 60_000;
 export const CHAPTER_AFTER_MS = 45_000;
 /** A Short takes up to this much build-up before the peak, also when the analysis cut the moment tighter. */
-export const SHORT_LEAD_IN_MS = 12_000;
+export const SHORT_LEAD_IN_MS = 30_000;
+/** At most this many Shorts per recording (superprompt: 3-6). */
+export const MAX_SHORTS = 6;
+/** A long video tells at most this many moments as chapters (about 1:45 each, so 8-15 minutes). */
+export const MAX_LONG_MOMENTS = 7;
 
 /**
  * Builds the edit plan. `durationMs` (length of the recording) lets the plan take build-up and outcome from just outside
@@ -212,21 +218,21 @@ export function buildEditPlan(format: Format, moments: Moment[], durationMs = Nu
     // How far the plan may run after the peak: the end of the recording when known, otherwise the end of the moment.
     const limit = Number.isFinite(durationMs) ? durationMs : m.endMs;
     if (format === "A") {
-      // 0-1 s dreiging plus hook; 1-12 s opbouw (versneld); 12-18 s afloop; abrupt einde zodat de Short opnieuw begint.
+      // 0-1 s dreiging plus hook; 1-23 s opbouw (versneld); 23-33 s afloop; abrupt einde zodat de Short opnieuw begint (30-45 s).
       const hookStart = Math.max(m.startMs, m.peakMs - 1000);
       segments = assemble([
         { part: "hook", src_start_ms: hookStart, src_end_ms: m.peakMs, effects: ["top_line", "zoom"], note: "Dreiging in beeld, eerste woorden van de hook" },
-        { part: "build", src_start_ms: Math.max(0, Math.min(m.startMs, m.peakMs - SHORT_LEAD_IN_MS)), src_end_ms: m.peakMs, slotMs: 11_000, effects: ["captions", "zoom_hearts"], note: "Opbouw; saaie stukken versneld" },
-        { part: "payoff", src_start_ms: m.peakMs, src_end_ms: Math.min(limit, m.peakMs + 6000), effects: ["sfx", "captions"], note: "Afloop; abrupt eindigen voor een naadloze herhaling" },
+        { part: "build", src_start_ms: Math.max(0, Math.min(m.startMs, m.peakMs - SHORT_LEAD_IN_MS)), src_end_ms: m.peakMs, slotMs: 22_000, effects: ["captions", "zoom_hearts"], note: "Opbouw; saaie stukken versneld" },
+        { part: "payoff", src_start_ms: m.peakMs, src_end_ms: Math.min(limit, m.peakMs + 10_000), effects: ["sfx", "captions"], note: "Afloop; abrupt eindigen voor een naadloze herhaling" },
       ]);
     } else {
-      // 0-1 s teaser van de vondst; 1-10 s zoeken (versneld); 10-18 s ontdekking met zoom en tekst; 18-25 s wat hij ermee doet.
-      const findEnd = Math.min(limit, m.peakMs + 8000);
+      // 0-1 s teaser van de vondst; 1-15 s zoeken (versneld); 15-25 s ontdekking met zoom en tekst; 25-35 s wat hij ermee doet (30-45 s).
+      const findEnd = Math.min(limit, m.peakMs + 10_000);
       segments = assemble([
         { part: "teaser", src_start_ms: m.peakMs, src_end_ms: Math.min(limit, m.peakMs + 1000), effects: ["blur", "top_line"], note: "Flits van de vondst, half verborgen" },
-        { part: "search", src_start_ms: Math.max(0, Math.min(m.startMs, m.peakMs - 14_000)), src_end_ms: m.peakMs, slotMs: 9000, effects: ["captions"], note: "Het zoeken in sneltreinvaart" },
+        { part: "search", src_start_ms: Math.max(0, Math.min(m.startMs, m.peakMs - 24_000)), src_end_ms: m.peakMs, slotMs: 14_000, effects: ["captions"], note: "Het zoeken in sneltreinvaart" },
         { part: "discovery", src_start_ms: m.peakMs, src_end_ms: findEnd, effects: ["zoom", "text", "sfx"], note: "De ontdekking met zoom en tekst" },
-        { part: "aftermath", src_start_ms: findEnd, src_end_ms: Math.min(limit, findEnd + 7000), effects: ["captions"], note: "Wat hij ermee doet" },
+        { part: "aftermath", src_start_ms: findEnd, src_end_ms: Math.min(limit, findEnd + 10_000), effects: ["captions"], note: "Wat hij ermee doet" },
       ]);
     }
   } else {
@@ -258,7 +264,9 @@ export function buildEditPlan(format: Format, moments: Moment[], durationMs = Nu
 
 export type ScriptLine = { at_ms: number; text: string };
 /** hooks and loopLine: hook-first production (fase C2); empty for scripts written before. */
-export type ScriptDraft = { topLine: string; hook: string; lines: ScriptLine[]; hooks: Hook[]; loopLine: string | null };
+export type ScriptDraft = { topLine: string; hook: string; lines: ScriptLine[]; hooks: Hook[]; loopLine: string | null; /** Fase C: 3 title variants (keyword, curiosity, challenge/number). */ titles?: string[] };
+/** Fase C: Milan sent the previous version back with a comment; the new version changes only what he asks. */
+export type ScriptFeedback = { note: string; previous: { hook: string; topLine: string | null; lines: ScriptLine[] } };
 
 /**
  * Placeholder script for recordings labelled as test data, so the chain can be tested without a paid service.
@@ -278,6 +286,7 @@ export function testScript(plan: EditPlan, moments: Moment[]): ScriptDraft {
       { type: "curiosity_gap", first_line: "[TESTDATA] Hook 3: nieuwsgierigheid", overlay: "[TEST] HOOK 3", cold_open: false },
     ],
     loopLine: "[TESTDATA] Slotzin die aansluit op het begin",
+    titles: ["[TEST] Minecraft maar het is een test", "[TEST] Wat gebeurt er hier?", "[TEST] 3 testmomenten in 1 video"],
   };
 }
 
@@ -327,13 +336,13 @@ export function missingFormats(plannedFormats: Format[]): Format[] {
 export const MAX_ANALYSIS_MS = 2 * 3_600_000;
 
 const FORMAT_RULES: Record<Format, string> = {
-  A: "Format A, near-death Short (vertical, 15-25 s). No intro: the first words are the threat. Build tension, show the outcome, end abruptly so the Short loops.",
-  B: "Format B, rare-find Short (vertical, 20-30 s). Open with a teaser of the find, race through the search, reveal the find, then what he does with it.",
-  C: "Format C, long survival story (horizontal). Cold open with the most exciting moment, then name the goal(s) before 30 s, then tell it from the beginning (\"It all started...\"), one short chapter per moment.",
+  A: "Format A, near-death Short (vertical, 30-45 s). No intro: the first words are the threat. Build tension, show the outcome, end abruptly so the Short loops.",
+  B: "Format B, rare-find Short (vertical, 30-45 s). Open with a teaser of the find, race through the search, reveal the find, then what he does with it.",
+  C: "Format C, long survival story (horizontal). Cold open with the most exciting moment, then name the goal(s) before 30 s, then tell it from the beginning (\"It all started...\"), one short chapter per moment. Give the first payoff before 0:45, end every chapter with a re-hook (\"But then...\"), and end with a teaser for the next episode.",
 };
 
 /** Instructions for the script writer. Every story element must come from the moments (research 6.5: no template text). */
-export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl"): string {
+export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl", feedback?: ScriptFeedback): string {
   return [
     `You write narration for a faceless Minecraft (PS5, Bedrock) YouTube channel, in ${language === "en" ? "English" : "Dutch"}.`,
     FORMAT_RULES[format],
@@ -348,7 +357,14 @@ export function scriptPrompt(format: Format, promise: string | null, moments: Mo
     `Then hooks: exactly 3 alternative openings of DIFFERENT types from: ${HOOK_TYPES.join(", ")}. Each: {"type", "first_line" (at most 10 words, about what is on screen in the first second), "overlay" (at most 6 words, capitals, specific), "cold_open" (true when the video should open with a 1.5 s glimpse of the payoff)}.`,
     "Then loop_line: one short last sentence that leads straight back into the first second, so viewers watch again. For videos longer than 30 s, put a second small hook or open question halfway in the lines.",
     `And lines: narration as [{"at_ms": number, "text": string}] on the timeline of the final video, between 0 and ${plan.targetMs} ms, about 2.5 words per second, short sentences.`,
-    'Answer with JSON only: {"top_line": "...", "hook": "...", "hooks": [...], "loop_line": "...", "lines": [...]}',
+    "Then titles: exactly 3 YouTube titles of at most 70 characters, each a different kind: 1) keyword first (starts with \"Minecraft\", for search), 2) curiosity (makes viewers want to know what happens), 3) challenge or number (for example \"3 creepers, 1 heart\"). Title, thumbnail and first 30 seconds make the same promise; no clickbait that the video does not deliver, no real names.",
+    ...(feedback
+      ? [
+          `The owner sent the previous version back with this comment: "${feedback.note.replace(/"/g, "'")}". Change only what the comment asks; keep everything else as it was.`,
+          `Previous version: top_line "${feedback.previous.topLine ?? ""}", hook "${feedback.previous.hook}", lines ${JSON.stringify(feedback.previous.lines)}`,
+        ]
+      : []),
+    'Answer with JSON only: {"top_line": "...", "hook": "...", "hooks": [...], "loop_line": "...", "lines": [...], "titles": ["...", "...", "..."]}',
   ]
     .filter(Boolean)
     .join("\n");
@@ -371,7 +387,8 @@ export function parseScript(raw: unknown, targetMs: number): { draft: ScriptDraf
   }
   if (!lines.length) return { error: "geen bruikbare scriptregels" };
   lines.sort((a, b) => a.at_ms - b.at_ms);
-  return { draft: { topLine, hook, lines, hooks: parseHooks(r.hooks), loopLine: text(r.loop_line, 200) }, dropped: (r.lines as unknown[]).length - lines.length };
+  const titles = Array.isArray(r.titles) ? (r.titles as unknown[]).map((t) => text(t, 100)?.replace(/[<>]/g, "")).filter((t): t is string => !!t).slice(0, 3) : [];
+  return { draft: { topLine, hook, lines, hooks: parseHooks(r.hooks), loopLine: text(r.loop_line, 200), titles }, dropped: (r.lines as unknown[]).length - lines.length };
 }
 
 /** 83_400 -> "1:23"; 3_725_000 -> "1:02:05". */

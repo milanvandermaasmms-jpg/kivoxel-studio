@@ -32,7 +32,7 @@ export type Channel = {
   providers?: Providers;
 };
 export type ChannelEdit = Pick<Channel, "name" | "status" | "language" | "audience" | "brand_color">;
-export type ProfileEdit = { slug: string; mode: ChannelMode; safety_profile: SafetyProfile; made_for_kids: boolean | null; synthetic_media: boolean; banned_words: string[]; publish_slots: string[] };
+export type ProfileEdit = { slug: string; mode: ChannelMode; safety_profile: SafetyProfile; made_for_kids: boolean | null; synthetic_media: boolean; banned_words: string[]; publish_slots: string[]; concept_auto_approve: boolean };
 
 export const CHANNEL_STATUS: Record<Channel["status"], string> = { active: "Actief", paused: "Gepauzeerd", planned: "Gepland" };
 export const CHANNEL_MODE: Record<ChannelMode, string> = { upload: "Upload (eigen opnames)", generate: "Genereren (volledig AI)", hybrid: "Allebei" };

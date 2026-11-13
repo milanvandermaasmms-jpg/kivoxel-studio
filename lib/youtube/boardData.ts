@@ -2,7 +2,7 @@
 // (Keur 1) and approving a montage (Keur 2) work exactly as in the Productiestudio.
 import { friendlyError, supabase } from "../supabase";
 import type { DbRender, DbScript } from "./analysisData";
-import { queueRender, setScriptStatus, setVideoReview } from "./analysisData";
+import { queueRender, regenerateScript, setScriptStatus, setVideoReview } from "./analysisData";
 import type { BoardCost, BoardInput, BoardJob, BoardMoment, BoardRecording, BoardVideo } from "./board";
 import { loadChannels, type Channel } from "./channels";
 import { loadPrivateTerms } from "./gatekeeperData";
@@ -53,6 +53,18 @@ export async function rejectConcept(script: DbScript, note: string): Promise<voi
   const reason = note.trim().slice(0, 500) || null;
   const { error } = await supabase.from("yt_videos").update({ review_note: reason }).eq("id", script.video_id);
   if (error) throw new Error(friendlyError(error.message));
+}
+
+/**
+ * Keur 1 "Aanpassen": send the concept back with Milan's comment; the worker writes a new version that changes only
+ * what he asks (Gemini, a fraction of a cent; free for test videos) and shows what changed.
+ */
+export async function sendBackConcept(studioId: string, script: DbScript, scriptsOfVideo: DbScript[], note: string): Promise<void> {
+  const comment = note.trim().slice(0, 500);
+  if (!comment) throw new Error("Schrijf wat er anders moet.");
+  await rejectConcept(script, comment);
+  const next = Math.max(0, ...scriptsOfVideo.map((s) => s.version)) + 1;
+  await regenerateScript(studioId, script.video_id, next, comment);
 }
 
 /** Keur 2: approve the final version (publishing stays a separate click) or send it back with a reason. */

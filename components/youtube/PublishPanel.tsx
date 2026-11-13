@@ -27,7 +27,9 @@ import {
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
 import { GateList } from "@/components/youtube/GateList";
 import { hasRed, publicationGate, videoGate } from "@/lib/youtube/gatekeeper";
-import { loadGateContext, type GateContext } from "@/lib/youtube/gatekeeperData";
+import { loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
+import { WORKER_URL } from "@/lib/youtube/protocol";
+import type { StoredThumb } from "@/lib/youtube/thumbnails";
 import { loadPublication, PUBLICATION_STATUS, requestPublish, savePublication, type DbPublication, type Extras, type PublishAction } from "@/lib/youtube/publicationData";
 
 const IN_TRANSIT = ["queued", "uploading", "processing"];
@@ -142,6 +144,15 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [confirming, setConfirming] = useState<Confirm | null>(null);
   const [extras, setExtras] = useState<Extras>({ captions_enabled: true, thumbnail_ms: null });
   const [gateCtx, setGateCtx] = useState<GateContext | null>(null);
+  const [thumbs, setThumbs] = useState<StoredThumb[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    if (renderId) void loadThumbs(renderId).then((t) => live && setThumbs(t));
+    return () => {
+      live = false;
+    };
+  }, [renderId]);
 
   // What the Poortwachter needs: channel profile, private words, approved script and privacy flags.
   useEffect(() => {
@@ -206,6 +217,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const advice = draftAdvice(draft, kind);
   const gate = gateCtx ? [...videoGate(gateCtx), ...publicationGate({ draft, channel: gateCtx.channel, privateTerms: gateCtx.privateTerms })] : [];
   const titles = titleSuggestions(hook);
+  const aiTitles = gateCtx?.script?.titles ?? [];
   const field = "w-full min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";
 
   // What may be sent: Milan's complete, saved choices. The database checks all of this again.
@@ -300,9 +312,18 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
             </div>
           </div>
         )}
-        <p className="flex items-center gap-1.5 text-slate-500">
-          Titelvarianten door AI <StatusBadge status="later" />
-        </p>
+        {aiTitles.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-slate-500">3 titelvarianten van de AI (zoekwoord, nieuwsgierigheid, uitdaging). Kies er een; de andere kun je in YouTube Studio bij Test &amp; Compare zetten:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {aiTitles.map((t) => (
+                <button key={t} type="button" onClick={() => set({ title: t.slice(0, TITLE_MAX) })} className={`rounded-full border px-2 py-0.5 text-left hover:bg-slate-50 ${draft.title === t ? "border-cyan-500" : "border-slate-300"}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <label className="grid gap-1">
           <span className="flex items-center justify-between gap-2">
@@ -382,6 +403,28 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         {extrasReady && !onYouTube && (
           <div className="space-y-2 rounded-md bg-slate-50 p-2">
             <CaptionsChoice value={extras.captions_enabled} onChange={(v) => setExtras({ ...extras, captions_enabled: v })} />
+            {thumbs.length > 0 && (
+              <div className="space-y-1">
+                <p className="font-medium">Thumbnails van de werker</p>
+                <p className="text-slate-500">Kies er een voor de upload. Ze staan ook als JPG in de map renders van de werker op je pc, voor Test &amp; Compare in YouTube Studio.</p>
+                <ul className="grid grid-cols-3 gap-2">
+                  {thumbs.map((t) => {
+                    const chosen = extras.thumbnail_ms === t.at_ms;
+                    return (
+                      <li key={t.file}>
+                        <button type="button" onClick={() => setExtras({ ...extras, thumbnail_ms: chosen ? null : t.at_ms })} aria-pressed={chosen} className={`block w-full overflow-hidden rounded-md border-2 text-left ${chosen ? "border-cyan-500" : "border-transparent"}`}>
+                          {workerOnline ? <img src={`${WORKER_URL}/renders/${encodeURIComponent(t.file)}`} crossOrigin="anonymous" alt={`Thumbnail ${t.label}`} className="w-full bg-black" /> : <span className="block bg-slate-100 p-2 text-slate-500">Start de werker om hem te zien</span>}
+                          <span className="block px-1 py-0.5">
+                            {t.label}
+                            {chosen ? " · gekozen" : ""}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             <ThumbnailPicker file={renderFile} durationMs={renderMs} valueMs={extras.thumbnail_ms} onChange={(ms) => setExtras({ ...extras, thumbnail_ms: ms })} workerOnline={workerOnline} />
           </div>
         )}

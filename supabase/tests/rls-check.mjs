@@ -802,6 +802,32 @@ if (hasMigration("046")) {
   await rejects("a sleep channel needs the volume tip", MILAN, "select public.request_yt_publish($1,'private')", [pub]);
   await as(MILAN, "update public.yt_channels set safety_profile='kids_gaming', banned_words='{}' where id=$1", [def]);
   ok("a clean publication goes to the worker", typeof (await one(MILAN, "select public.request_yt_publish($1,'private')", [pub])) === "string");
+
+  // ---------- Keur 1, titles and thumbnails (migration 047) ----------
+  if (hasMigration("047")) {
+    const newVideo = async (n) => {
+      const r = await one(MILAN, "insert into public.yt_recordings(studio_id,label,original_name,size_bytes,fingerprint,channel_id) values($1,'Keur1','k.mp4',1,$2,$3) returning id", [hh, fp(n), def]);
+      return one(MILAN, "insert into public.yt_videos(studio_id,recording_id,format) values($1,$2,'A') returning id", [hh, r]);
+    };
+    const addScript = (video, hook) => sys(`insert into public.yt_scripts(studio_id,video_id,version,hook,target_ms,source,titles) values($1,$2,1,$3,30000,'test','["Minecraft maar","Wat gebeurt er?","3 creepers"]') returning id`, [hh, video, hook]);
+    const manual = await newVideo("5");
+    const s1 = await addScript(manual, "Hij overleeft het net");
+    ok("without the switch a concept waits for Milan", (await one(MILAN, "select status from public.yt_scripts where id=$1", [s1])) === "draft");
+    ok("a script keeps 3 titles from the worker", (await one(MILAN, "select jsonb_array_length(titles) from public.yt_scripts where id=$1", [s1])) === 3);
+    await rejects("the app cannot write titles itself", MILAN, `update public.yt_scripts set titles='["x"]' where id=$1`, [s1]);
+    await as(MILAN, "update public.yt_channels set concept_auto_approve=true where id=$1", [def]);
+    const auto = await newVideo("4");
+    const s2 = await addScript(auto, "Hij overleeft het net");
+    ok("with the switch a clean concept is approved at once", (await one(MILAN, "select status from public.yt_scripts where id=$1", [s2])) === "approved");
+    ok("and the montage is queued", (await one(MILAN, "select count(*)::int from public.yt_jobs where video_id=$1 and step='render' and payload->>'script_id'=$2", [auto, s2])) === 1);
+    ok("and the video is rendering", (await one(MILAN, "select status from public.yt_videos where id=$1", [auto])) === "rendering");
+    await as(MILAN, "update public.yt_settings set private_terms=array['Testkind'] where studio_id=$1", [hh]);
+    const named = await newVideo("3");
+    const s3 = await addScript(named, "Kijk wat Testkind doet");
+    ok("a concept with a private word is never approved automatically", (await one(MILAN, "select status from public.yt_scripts where id=$1", [s3])) === "draft");
+    await rejects("the app cannot write thumbnails itself", MILAN, `update public.yt_renders set thumbnails='[]' where id=$1`, [render]);
+    await as(MILAN, "update public.yt_channels set concept_auto_approve=false where id=$1", [def]);
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 

@@ -19,6 +19,7 @@ import {
   type Format,
   type Moment,
   type ScriptDraft,
+  type ScriptFeedback,
   type ScriptLine,
   type Segment,
 } from "../lib/youtube/analysis.ts";
@@ -32,6 +33,7 @@ import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, 
 import type { Uploader } from "./youtubeUpload.ts";
 import { firstActionMs, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
+import { thumbArgs, thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
 import { costCents, type Gemini, type Usage } from "./gemini.ts";
 import type { Store } from "./store.ts";
 import type { Tts } from "./tts.ts";
@@ -353,6 +355,15 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
     return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos: plans.length, source, rejected };
   }
 
+  /** Fase C: Milan's comment on the newest earlier version, so the new version changes only what he asks. */
+  async function previousFeedback(job: Job, videoId: string, version: number): Promise<ScriptFeedback | null> {
+    const note = typeof job.payload?.note === "string" ? job.payload.note.trim().slice(0, 500) : "";
+    if (!note || version < 2) return null;
+    const prev = await db.from("yt_scripts").select("hook, top_line, lines").eq("video_id", videoId).lt("version", version).order("version", { ascending: false }).limit(1).maybeSingle<{ hook: string; top_line: string | null; lines: ScriptLine[] }>();
+    if (prev.error || !prev.data) return null;
+    return { note, previous: { hook: prev.data.hook, topLine: prev.data.top_line, lines: prev.data.lines } };
+  }
+
   /** Script: hook, top line, narration and edit plan with timecodes for one video, as a new version. */
   async function script(job: Job) {
     if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
@@ -373,7 +384,8 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
     else {
       if (!ai) throw new Error(NO_KEY);
       await reserve(job, 1);
-      const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language)));
+      const feedback = await previousFeedback(job, video.data.id, version);
+      const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined)));
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
       draft = parsed.draft;
@@ -394,7 +406,11 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
     };
     // Hook variants (migration 035): the first one is chosen by default, Milan can pick another in the review.
     const withHooks = draft.hooks.length ? { ...row, hooks: draft.hooks, loop_line: draft.loopLine, chosen_hook: 0 } : row;
-    let insert = await db.from("yt_scripts").upsert(withHooks, { onConflict: "video_id,version", ignoreDuplicates: true });
+    // Titles and Milan's comment (migration 047); without that migration the script is saved as before.
+    const note = typeof job.payload?.note === "string" ? job.payload.note.trim().slice(0, 500) : "";
+    const full = { ...withHooks, titles: draft.titles ?? [], ...(note ? { feedback: note } : {}) };
+    let insert = await db.from("yt_scripts").upsert(full, { onConflict: "video_id,version", ignoreDuplicates: true });
+    if (insert.error && liveMissing(insert.error)) insert = await db.from("yt_scripts").upsert(withHooks, { onConflict: "video_id,version", ignoreDuplicates: true });
     if (insert.error && withHooks !== row && liveMissing(insert.error)) insert = await db.from("yt_scripts").upsert(row, { onConflict: "video_id,version", ignoreDuplicates: true });
     if (insert.error) throw new Error(insert.error.message);
     if (video.data.status === "idea") {
@@ -556,8 +572,29 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
           await lv.event("error", `Kwaliteitscontrole mislukt: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
+      // Fase C: thumbnails from the montage itself (so blurred corners stay blurred). Never fails the montage.
+      let thumbs: StoredThumb[] = [];
+      try {
+        if (lv.signal.aborted) throw new CancelledError();
+        await lv.phase("Thumbnails maken");
+        const tsize = video.data.format === "C" ? THUMB_SIZE.long : THUMB_SIZE.short;
+        const texts = [...new Set([chosen?.overlay, ...hooks.map((h) => h.overlay), cut.topLine, cut.hook].filter((t): t is string => !!t))];
+        for (const [i, p] of thumbnailPlans(video.data.format, cut.segments, texts).entries()) {
+          const file = thumbFileName(fileName, i);
+          await writeFile(join(tmp, `thumb${i}.ass`), thumbAss(tsize, p.text), "utf8");
+          await montage.run(thumbArgs(output, { ...p, atMs: p.atMs.map((t) => Math.min(t, Math.max(0, plan.durationMs - 500))) }, tsize, `thumb${i}.ass`, join(montage.rendersDir, file)), tmp, 2 * 60_000, { signal: lv.signal });
+          thumbs.push({ file, key: p.key, label: p.label, text: p.text, at_ms: p.atMs[0] });
+        }
+        const savedThumbs = await db.from("yt_renders").update({ thumbnails: thumbs }).eq("job_id", job.id);
+        if (savedThumbs.error && !liveMissing(savedThumbs.error)) await lv.event("error", `Thumbnails niet opgeslagen: ${savedThumbs.error.message}`);
+        else await lv.event("note", `${thumbs.length} ${thumbs.length === 1 ? "thumbnail" : "thumbnails"} gemaakt`);
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        thumbs = [];
+        await lv.event("error", `Thumbnails mislukt: ${e instanceof Error ? e.message : String(e)}`);
+      }
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });
@@ -602,7 +639,8 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
    */
   async function extras(pub: PublicationRow, videoId: string, lv: Live, setPub: (f: Record<string, unknown>) => Promise<void>) {
     if (!publisher || pub.captions_enabled === undefined || !pub.render_id) return { captions: null, thumbnail: null };
-    const render = await db.from("yt_renders").select("file_name").eq("id", pub.render_id).single<{ file_name: string }>();
+    // "*": thumbnails only exist after migration 047.
+    const render = await db.from("yt_renders").select("*").eq("id", pub.render_id).single<{ file_name: string; thumbnails?: StoredThumb[] }>();
     if (render.error) return { captions: null, thumbnail: null };
     const stamp = () => new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam", dateStyle: "short", timeStyle: "short" });
     let captions: string | null = null;
@@ -623,10 +661,16 @@ ${hints}` : analysisPrompt(row.duration_ms), (stage) => {
     if (pub.thumbnail_ms !== null && pub.thumbnail_ms !== undefined && publisher.frame) {
       await lv.phase("Thumbnail naar YouTube");
       const file = join(publisher.tmpDir ?? publisher.rendersDir, `thumb-${pub.id}.jpg`);
+      // Fase C: one of the made thumbnails (with text) when Milan chose it; otherwise a plain frame as before.
+      const made = (render.data.thumbnails ?? []).find((t) => t.at_ms === pub.thumbnail_ms);
       try {
-        await publisher.frame(join(publisher.rendersDir, render.data.file_name), pub.thumbnail_ms, file);
-        await publisher.uploader.setThumbnail(videoId, await readFile(file));
-        thumbnail = `Klaar op ${stamp()} (beeld op ${(pub.thumbnail_ms / 1000).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} s)`;
+        const picture = made ? await readFile(join(publisher.rendersDir, made.file)).catch(() => null) : null;
+        if (picture) await publisher.uploader.setThumbnail(videoId, picture);
+        else {
+          await publisher.frame(join(publisher.rendersDir, render.data.file_name), pub.thumbnail_ms, file);
+          await publisher.uploader.setThumbnail(videoId, await readFile(file));
+        }
+        thumbnail = picture && made ? `Klaar op ${stamp()} (thumbnail "${made.label}")` : `Klaar op ${stamp()} (beeld op ${(pub.thumbnail_ms / 1000).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} s)`;
       } catch (e) {
         thumbnail = `Mislukt: ${e instanceof Error ? e.message : String(e)}`;
       } finally {

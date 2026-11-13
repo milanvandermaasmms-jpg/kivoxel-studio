@@ -72,9 +72,9 @@ export const JOB_STATUS_LABEL: Record<DbJob["status"], string> = { queued: "Wach
 
 /** Formats from docs/youtube-onderzoek.md, chapter 5. */
 export const FORMATS = [
-  { key: "A", name: "Bijna-dood-moment", kind: "Short, verticaal", length: "15-25 s", rhythm: "2 per week" },
-  { key: "B", name: "Zeldzame vondst", kind: "Short, verticaal", length: "20-30 s", rhythm: "1 per week" },
-  { key: "C", name: "Survival-verhaal", kind: "Lange video, horizontaal", length: "8-12 min", rhythm: "1 per week" },
+  { key: "A", name: "Bijna-dood-moment", kind: "Short, verticaal", length: "30-45 s", rhythm: "2 per week" },
+  { key: "B", name: "Zeldzame vondst", kind: "Short, verticaal", length: "30-45 s", rhythm: "1 per week" },
+  { key: "C", name: "Survival-verhaal", kind: "Lange video, horizontaal", length: "8-15 min", rhythm: "1 per week" },
 ] as const;
 
 /** 1536 -> "1,5 kB"; Dutch number format. */

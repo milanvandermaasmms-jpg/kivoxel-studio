@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Dialog";
 import { formatTimecode } from "@/lib/youtube/analysis";
 import type { ReviewItem } from "@/lib/youtube/board";
-import { approveConcept, approveFinal, rejectConcept, rejectFinal, type BoardState } from "@/lib/youtube/boardData";
+import { approveConcept, approveFinal, rejectConcept, rejectFinal, sendBackConcept, type BoardState } from "@/lib/youtube/boardData";
+import { changedCount, scriptDiff } from "@/lib/youtube/scriptDiff";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers, reviewChecks } from "@/lib/youtube/review";
 import { hasRed, videoGate } from "@/lib/youtube/gatekeeper";
@@ -16,11 +17,13 @@ type Ready = Extract<BoardState, { ready: true }>;
 
 /**
  * Review mode (superprompt 7.3): full screen, one item at a time, three big buttons. Swipe or use the arrow keys for
- * the next item. "Aanpassen" opens the item in the Productiestudio, where the script and montage can be changed.
+ * the next item. "Aanpassen" sends a concept back with a comment (a new version follows); for a final version it opens
+ * the Productiestudio, where the script and montage can be changed.
  */
 export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEdit, onChanged }: { studioId: string; board: Ready; items: ReviewItem[]; workerOnline: boolean; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void> }) {
   const [index, setIndex] = useState(0);
   const [rejecting, setRejecting] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
   const [note, setNote] = useState("");
   const [redSeen, setRedSeen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,6 +34,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const go = (step: number) => {
     setIndex((i) => Math.max(0, Math.min(items.length - 1, i + step)));
     setRejecting(false);
+    setAdjusting(false);
     setNote("");
     setRedSeen(false);
     setError(null);
@@ -71,6 +75,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
     try {
       await action();
       setRejecting(false);
+      setAdjusting(false);
       setNote("");
       setRedSeen(false);
       await onChanged();
@@ -88,6 +93,14 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
     if (!item || !script) return;
     void act(() => (item.kind === "concept" ? rejectConcept(script, note) : rejectFinal(item.videoId, note)));
   };
+
+  const adjust = () => {
+    if (!item || item.kind !== "concept" || !script) return;
+    void act(() => sendBackConcept(studioId, script, scripts, note));
+  };
+  // The version this concept replaces, to show what Milan's comment changed.
+  const previous = item?.kind === "concept" && script ? scripts.filter((s) => s.version < script.version).sort((a, b) => b.version - a.version)[0] : undefined;
+  const diff = previous && script ? scriptDiff(previous, script) : null;
 
   const hook = script ? (script.hooks?.[script.chosen_hook ?? -1]?.first_line ?? script.hook) : "";
   const render = renders[0];
@@ -155,6 +168,22 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               </section>
             )}
 
+            {diff && previous && (
+              <section className="space-y-1 rounded-md border border-cyan-200 p-3">
+                <p className="text-xs font-medium">
+                  Versie {script!.version} t.o.v. versie {previous.version}: {changedCount(diff)} {changedCount(diff) === 1 ? "wijziging" : "wijzigingen"}
+                  {script!.feedback ? <span className="font-normal text-slate-600"> · jouw opmerking: &ldquo;{script!.feedback}&rdquo;</span> : null}
+                </p>
+                <ul className="space-y-0.5 text-xs">
+                  {diff.filter((r) => r.kind !== "same").map((r, i) => (
+                    <li key={i} className={r.kind === "new" ? "text-emerald-700" : "text-red-700 line-through"}>
+                      {r.kind === "new" ? "+ " : "− "}
+                      {r.label}: {r.text}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {script && <GateList items={gate} />}
             {blockers.length > 0 && (
               <ul className="list-disc space-y-0.5 rounded-md border border-red-200 bg-red-50 py-2 pl-7 pr-3 text-red-800">
@@ -189,9 +218,9 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
             {item.kind === "concept" && <p className="text-xs text-slate-500">Goedkeuren start meteen de montage op de pc. Publiceren blijft altijd een aparte klik.</p>}
             {item.kind === "final" && <p className="text-xs text-slate-500">Goedkeuren zet de video klaar om te publiceren. Publiceren of inplannen doe je daarna zelf.</p>}
 
-            {rejecting && (
+            {(rejecting || adjusting) && (
               <label className="grid gap-1">
-                <span className="text-slate-500">Waarom afkeuren?</span>
+                <span className="text-slate-500">{adjusting ? "Wat moet er anders? (bijv. hook sneller, minder uitleg)" : "Waarom afkeuren?"}</span>
                 <textarea autoFocus value={note} maxLength={500} rows={2} onChange={(e) => setNote(e.target.value)} placeholder="bijv. hook sneller, gamertag nog zichtbaar" className="rounded-md border border-slate-300 bg-transparent px-2 py-1" />
               </label>
             )}
@@ -209,12 +238,12 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
           <button type="button" onClick={() => go(-1)} disabled={index === 0} aria-label="Vorige" className="rounded-md p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30">
             <ChevronLeft className="h-5 w-5" aria-hidden />
           </button>
-          {rejecting ? (
+          {rejecting || adjusting ? (
             <>
-              <Button disabled={busy || !note.trim()} onClick={reject} className="col-span-2 justify-center py-3">
-                Afkeuren met reden
+              <Button disabled={busy || !note.trim()} onClick={adjusting ? adjust : reject} className="col-span-2 justify-center py-3">
+                {adjusting ? "Nieuwe versie maken" : "Afkeuren met reden"}
               </Button>
-              <Button variant="secondary" onClick={() => setRejecting(false)} className="justify-center py-3">
+              <Button variant="secondary" onClick={() => { setRejecting(false); setAdjusting(false); }} className="justify-center py-3">
                 Annuleren
               </Button>
             </>
@@ -223,7 +252,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               <Button disabled={busy || !canApprove} onClick={approve} className="justify-center py-3">
                 <Check className="h-4 w-4" aria-hidden /> Goedkeuren
               </Button>
-              <Button variant="secondary" disabled={!item} onClick={onEdit} className="justify-center py-3">
+              <Button variant="secondary" disabled={!item || busy} onClick={() => (item?.kind === "concept" && script ? setAdjusting(true) : onEdit())} className="justify-center py-3">
                 <Pencil className="h-4 w-4" aria-hidden /> Aanpassen
               </Button>
               <Button variant="secondary" disabled={busy || !item || !script} onClick={() => setRejecting(true)} className="justify-center py-3 text-red-700">

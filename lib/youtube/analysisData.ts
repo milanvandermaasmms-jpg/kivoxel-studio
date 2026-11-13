@@ -26,7 +26,7 @@ export type DbMoment = {
   is_test: boolean;
 };
 export type DbVideo = { id: string; recording_id: string | null; format: Format; status: string; language: "en" | "nl"; promise: string | null; is_test: boolean; created_at: string; yt_video_moments: { moment_id: string; position: number }[]; /** Migration 031. */ review_note?: string | null };
-export type DbScript = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; source: string; status: "draft" | "approved" | "rejected"; is_test: boolean; created_at: string; /** Migration 035. */ hooks?: Hook[]; loop_line?: string | null; chosen_hook?: number | null };
+export type DbScript = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; source: string; status: "draft" | "approved" | "rejected"; is_test: boolean; created_at: string; /** Migration 035. */ hooks?: Hook[]; loop_line?: string | null; chosen_hook?: number | null; /** Migration 047. */ titles?: string[]; feedback?: string | null };
 export type DbRecordingInfo = { id: string; label: string; status: string; is_test: boolean; duration_ms: number | null };
 
 export type DbRender = { id: string; video_id: string; script_id: string; file_name: string; duration_ms: number; width: number; height: number; voice_name: string | null; is_test: boolean; created_at: string; /** Migration 031; absent before. */ privacy_blur?: boolean; game_muted?: boolean; /** Migration 034: real measurements and checklist. */ qc?: { measured_at: string; items: QcItem[] } | null };
@@ -216,8 +216,8 @@ export async function saveEditedScript(studioId: string, base: DbScript, nextVer
 }
 
 /** "Opnieuw genereren": queues a new script version for a video. */
-export async function regenerateScript(studioId: string, videoId: string, nextVersion: number): Promise<void> {
-  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: videoId, step: "script", idempotency_key: `script:${videoId}:v${nextVersion}`, payload: { version: nextVersion } });
+export async function regenerateScript(studioId: string, videoId: string, nextVersion: number, note?: string): Promise<void> {
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: videoId, step: "script", idempotency_key: `script:${videoId}:v${nextVersion}`, payload: { version: nextVersion, ...(note ? { note } : {}) } });
   if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
 }
 
