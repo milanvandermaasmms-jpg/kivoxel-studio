@@ -99,6 +99,11 @@ describe("reference videos", () => {
     expect(s.topWords).toContain("creeper");
     expect(s.examples[0].title).toBe("Minecraft creeper trap 4");
     expect(summarizeReference(vids, "long")).toBeNull();
+    const doubled = [...vids, ...vids].map((v, n) => ({ ...v, youtube_video_id: `id${n % 4}`, title: `${v.title} #minecraftshorts #creeper` }));
+    const d = summarizeReference(doubled, "short")!;
+    expect(d.count).toBe(4);
+    expect(d.topWords).not.toContain("#minecraftshorts");
+    expect(d.topWords).toContain("#creeper");
   });
   it("reads durations and first sentences", () => {
     expect(isoSeconds("PT1M5S")).toBe(65);

@@ -158,7 +158,7 @@ function NicheView({ studioId, channel, data, busy, prefs, onPrefs, onAsk }: { s
                   ) : (
                     <ul className="mt-1 space-y-0.5 text-slate-700">
                       <li>Titels van ongeveer {s.medianTitleChars} tekens</li>
-                      {s.medianDurationS !== null && <li>Meestal {Math.floor(s.medianDurationS / 60)}:{String(s.medianDurationS % 60).padStart(2, "0")} lang</li>}
+                      {s.medianDurationS !== null && <li>Meestal {s.medianDurationS >= 3600 ? `${Math.floor(s.medianDurationS / 3600)} u ${Math.round((s.medianDurationS % 3600) / 60)} min` : `${Math.floor(s.medianDurationS / 60)}:${String(s.medianDurationS % 60).padStart(2, "0")}`} lang</li>}
                       {s.bestHours.length > 0 && <li>Vaak geplaatst rond {s.bestHours.map((h) => `${h}:00`).join(", ")} (Nederlandse tijd)</li>}
                       {s.topWords.length > 0 && <li>Veel gebruikte woorden: {s.topWords.join(", ")}</li>}
                       {s.examples.map((e) => (
@@ -175,7 +175,7 @@ function NicheView({ studioId, channel, data, busy, prefs, onPrefs, onAsk }: { s
           <details className="text-xs">
             <summary className="cursor-pointer text-slate-600">Alle referentievideo&apos;s</summary>
             <ul className="mt-1 space-y-0.5">
-              {own.slice(0, 40).map((r) => (
+              {own.filter((r, k) => own.findIndex((x) => x.youtube_video_id === r.youtube_video_id) === k).slice(0, 40).map((r) => (
                 <li key={r.query + r.youtube_video_id} className="flex gap-2">
                   <a href={`https://youtu.be/${r.youtube_video_id}`} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 truncate underline-offset-2 hover:underline">
                     {r.title} <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />

@@ -54,7 +54,7 @@ export type ViralInput = {
   peaks: Peak[] | null;
 };
 
-export type ReferenceVideo = { title: string; tags: string[]; duration_s: number | null; is_short: boolean; published_at: string | null; views: number; ratio: number | null; hook: string | null };
+export type ReferenceVideo = { youtube_video_id?: string; title: string; tags: string[]; duration_s: number | null; is_short: boolean; published_at: string | null; views: number; ratio: number | null; hook: string | null };
 export type ReferenceSummary = { count: number; medianTitleChars: number | null; medianDurationS: number | null; bestHours: number[]; topWords: string[]; examples: { title: string; views: number }[] };
 
 // ---- Small helpers ----
@@ -315,7 +315,9 @@ export const listenAudioArgs = (input: string, output: string) => ["-hide_banner
 // ---- Reference videos (YouTube Data API) ----
 
 export function summarizeReference(videos: ReferenceVideo[], kind: "short" | "long"): ReferenceSummary | null {
-  const own = videos.filter((v) => v.is_short === (kind === "short"));
+  // The same video can be found by two search terms: count it once.
+  const seen = new Set<string>();
+  const own = videos.filter((v) => v.is_short === (kind === "short") && !seen.has(v.youtube_video_id ?? v.title) && !!seen.add(v.youtube_video_id ?? v.title));
   if (own.length < 3) return null;
   const hours = new Map<number, number>();
   for (const v of own) if (v.published_at) {
@@ -324,7 +326,7 @@ export function summarizeReference(videos: ReferenceVideo[], kind: "short" | "lo
   }
   const stop = new Set(["the", "a", "in", "i", "of", "to", "and", "my", "is", "de", "het", "een", "en", "ik", "van", "minecraft", "shorts", "#shorts", "with", "for", "this", "on", "it"]);
   const counts = new Map<string, number>();
-  for (const v of own) for (const w of new Set(words(v.title.toLowerCase().replace(/[^\p{L}\p{N}# ]/gu, " ")))) if (w.length > 2 && !stop.has(w)) counts.set(w, (counts.get(w) ?? 0) + 1);
+  for (const v of own) for (const w of new Set(words(v.title.toLowerCase().replace(/[^\p{L}\p{N}# ]/gu, " ")))) if (w.length > 2 && !stop.has(w) && !/^#(minecraft|shorts?|fyp|viral)/.test(w)) counts.set(w, (counts.get(w) ?? 0) + 1);
   return {
     count: own.length,
     medianTitleChars: median(own.map((v) => v.title.length)),
