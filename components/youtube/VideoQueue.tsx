@@ -17,8 +17,8 @@ const when = (iso: string) => new Date(iso).toLocaleString("nl-NL", { timeZone: 
  * and the big "Naar YouTube sturen" button. The details (the publication form) open only after a click.
  * Cards keep their place: the order is the creation time of the video, never its status.
  */
-export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void }) {
-  const [open, setOpen] = useState<string | null>(null);
+export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction, startOpen = false }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void; startOpen?: boolean }) {
+  const [open, setOpen] = useState<string | null>(startOpen ? (state.items[0]?.videoId ?? null) : null);
   const items = state.items.filter((i) => flows.includes(i.flow) && (!channel || i.channelId === channel));
   if (items.length === 0) return <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">{empty}</p>;
   return (

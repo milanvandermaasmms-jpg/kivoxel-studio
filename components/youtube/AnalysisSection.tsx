@@ -5,7 +5,7 @@ import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
-import { createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
+import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { ViralCard } from "@/components/youtube/ViralCard";
 import { pageVisible } from "@/lib/visible";
 import { Editor } from "@/components/youtube/Editor";
@@ -18,7 +18,7 @@ import { reviewBlockers, reviewChecks } from "@/lib/youtube/review";
 import { FORMATS, JOB_STATUS_LABEL, formatDuration } from "@/lib/youtube/studio";
 
 const SCRIPT_STATUS: Record<DbScript["status"], string> = { draft: "Concept", approved: "Goedgekeurd", rejected: "Afgekeurd" };
-const VIDEO_STATUS: Record<string, string> = { idea: "Wacht op script", scripted: "Script klaar", rendering: "Montage", review: "Controle", approved: "Goedgekeurd", scheduled: "Ingepland", published: "Gepubliceerd", failed: "Mislukt" };
+const VIDEO_STATUS: Record<string, string> = { idea: "Wacht op script", scripted: "Script klaar", rendering: "Montage", review: "Controle", approved: "Goedgekeurd", scheduled: "Ingepland", published: "Gepubliceerd", failed: "Mislukt", archived: "Gearchiveerd" };
 const PART_LABEL: Record<string, string> = { hook: "Hook", build: "Opbouw", payoff: "Afloop", teaser: "Teaser", search: "Zoeken", discovery: "Ontdekking", aftermath: "Daarna", cold_open: "Cold open", goals: "Doelen", chapter: "Hoofdstuk" };
 
 const Check = ({ ok, label, note }: { ok: boolean; label: string; note: string | null }) => (
@@ -92,8 +92,15 @@ export function AnalysisSettings({ state, studioId, act, analysisService, voiceC
 }
 
 /** analysisService: the model the worker uses, null when it has no key, undefined when the worker is not reachable. */
-export function AnalysisSection({ state, studioId, act, analysisService, onWatch }: { state: AnalysisState | null; studioId: string; act: Act; analysisService: string | null | undefined; onWatch?: (videoId: string) => void }) {
-  if (!state?.ready) return <NotReady state={state} title="Momenten, formats en scripts" />;
+/**
+ * Two ways to show the recordings (opschonen 13-11-2026):
+ * - "recordings": per recording the analysis, the moments and "zelf samenstellen", WITHOUT the videos (those each have
+ *   one place elsewhere).
+ * - "review": only the videos that wait for Milan (the filter), compact: closed cards, no recording tools.
+ */
+export function AnalysisSection({ state, studioId, act, analysisService, onWatch, mode = "recordings", showVideo }: { state: AnalysisState | null; studioId: string; act: Act; analysisService: string | null | undefined; onWatch?: (videoId: string) => void; mode?: "recordings" | "review"; showVideo?: (videoId: string) => boolean }) {
+  if (!state?.ready) return <NotReady state={state} title={mode === "review" ? "Te keuren" : "Opnames en momenten"} />;
+  const review = mode === "review";
   // Repetition check (fase C4): every real video against the other real videos, newest first.
   const texts: ScriptText[] = state.videos
     .filter((v) => !v.is_test)
@@ -108,24 +115,25 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
   };
   return (
     <>
-      <Section title="Momenten, formats en scripts" intro="Per opname: de gevonden momenten met tijdcode en reden, de controle op context en afloop, en per video de hook, het script en het montageplan.">
-        {state.recordings.filter((r) => r.status === "ready").length === 0 ? (
-          <p className="text-sm text-slate-500">Nog geen opnames waarvan de intake klaar is.</p>
+      <Section title={review ? "Te keuren, in detail" : "Opnames en momenten"} intro={review ? "Klik een video open voor de preview, de Viral-score, het script en de knoppen." : "Per opname: de analyse, de gevonden momenten en zelf samenstellen. De video's zelf staan bij Actie nodig, In productie of Live."}>
+        {state.recordings.filter((r) => r.status === "ready" && (!review || state.videos.some((v) => v.recording_id === r.id && showVideo?.(v.id)))).length === 0 ? (
+          <p className="text-sm text-slate-500">{review ? "Niets te keuren." : "Nog geen opnames waarvan de intake klaar is."}</p>
         ) : (
           <ul className="space-y-4">
             {state.recordings
-              .filter((r) => r.status === "ready")
+              .filter((r) => r.status === "ready" && (!review || state.videos.some((v) => v.recording_id === r.id && showVideo?.(v.id))))
               .map((r) => {
                 const moments = state.moments.filter((m) => m.recording_id === r.id);
-                const videos = state.videos.filter((v) => v.recording_id === r.id && v.yt_video_moments.length > 0);
+                const all = state.videos.filter((v) => v.recording_id === r.id && v.yt_video_moments.length > 0);
+                const videos = review ? all.filter((v) => showVideo?.(v.id)) : [];
                 const job = state.analyseJobs[r.id];
                 return (
                   <li key={r.id} className="rounded-lg border border-slate-200 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="font-medium">
-                        {r.label} {r.is_test && <TestBadge />} <span className="text-xs font-normal text-slate-500">· {formatDuration(r.duration_ms)}</span>
+                        {r.label} {r.is_test && <TestBadge />} <span className="text-xs font-normal text-slate-500">· {formatDuration(r.duration_ms)}{!review ? ` · ${all.length} ${all.length === 1 ? "video" : "video's"}` : ` · ${videos.length} te keuren`}</span>
                       </p>
-                      {job ? (
+                      {review ? null : job ? (
                         <span className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                           Analyse: {JOB_STATUS_LABEL[job as keyof typeof JOB_STATUS_LABEL] ?? job}
                           {job === "failed" ? " (zie de wachtrij)" : ""}
@@ -143,24 +151,24 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                         <StatusBadge status="connect" />
                       )}
                     </div>
-                    {!r.is_test && !job && !(state.settings?.paid_processing_enabled && analysisService) && (
+                    {!review && !r.is_test && !job && !(state.settings?.paid_processing_enabled && analysisService) && (
                       <p className="mt-1 text-xs text-slate-500">
                         {state.settings?.paid_processing_enabled ? "Wacht op de werker met een Gemini-sleutel." : "Zet eerst betaalde verwerking aan, met een maandplafond."}
                       </p>
                     )}
-                    {r.is_test && (
+                    {!review && r.is_test && (
                       <RealGameplayFix canAnalyse={!!(state.settings?.paid_processing_enabled && analysisService)} onConfirm={(label) => act(() => markAsRealGameplay(studioId, r.id, label))} />
                     )}
-                    {moments.length > 0 && (
+                    {!review && moments.length > 0 && (
                       <details className="mt-2">
                         <summary className="cursor-pointer text-xs text-slate-600">Gevonden momenten ({moments.length})</summary>
                         <MomentList moments={moments} />
                       </details>
                     )}
-                    {moments.length > 0 && !r.is_test && <ManualMaker moments={moments.filter((m) => m.usable)} onMake={(chosen, long) => act(() => createManualVideos(studioId, r.id, chosen, long))} />}
-                    {job === "done" && <MissingFootage hasMoments={moments.length > 0} formats={missingFormats(videos.map((v) => v.format))} />}
+                    {!review && moments.length > 0 && !r.is_test && <ManualMaker moments={moments.filter((m) => m.usable)} onMake={(chosen, long) => act(() => createManualVideos(studioId, r.id, chosen, long))} />}
+                    {!review && job === "done" && <MissingFootage hasMoments={moments.length > 0} formats={missingFormats(all.map((v) => v.format))} />}
                     {videos.map((v) => (
-                      <VideoCard key={v.id} video={v} moments={moments} scripts={state.scripts.filter((s) => s.video_id === v.id)} montage={state.montage} act={act} studioId={studioId} workerOnline={analysisService !== undefined} onWatch={onWatch} repeats={repeatsFor(v.id)} recordingMs={r.duration_ms} />
+                      <VideoCard key={v.id} compact={review} video={v} moments={moments} scripts={state.scripts.filter((s) => s.video_id === v.id)} montage={state.montage} act={act} studioId={studioId} workerOnline={analysisService !== undefined} onWatch={onWatch} repeats={repeatsFor(v.id)} recordingMs={r.duration_ms} />
                     ))}
                   </li>
                 );
@@ -304,7 +312,7 @@ function MomentList({ moments }: { moments: DbMoment[] }) {
   );
 }
 
-function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnline, onWatch, repeats, recordingMs }: { video: DbVideo; moments: DbMoment[]; scripts: DbScript[]; montage: MontageState; act: Act; studioId: string; workerOnline: boolean; onWatch?: (videoId: string) => void; repeats?: Repetition[]; recordingMs: number | null }) {
+function VideoCard({ compact = false, video, moments, scripts, montage, act, studioId, workerOnline, onWatch, repeats, recordingMs }: { compact?: boolean; video: DbVideo; moments: DbMoment[]; scripts: DbScript[]; montage: MontageState; act: Act; studioId: string; workerOnline: boolean; onWatch?: (videoId: string) => void; repeats?: Repetition[]; recordingMs: number | null }) {
   const [editing, setEditing] = useState(false);
   const format = FORMATS.find((f) => f.key === video.format);
   // Always show the newest version, so a regenerated script can be read and approved; say which one is approved.
@@ -314,13 +322,13 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
   const used = [...video.yt_video_moments].sort((a, b) => a.position - b.position).map((l) => moments.find((m) => m.id === l.moment_id)).filter((m): m is DbMoment => !!m);
   const nextVersion = (scripts[0]?.version ?? 0) + 1;
   const waits = video.status === "review" || script?.status === "draft";
-  const [open, setOpen] = useState(waits);
+  const [open, setOpen] = useState(waits && !compact);
   return (
     <details open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)} className="group mt-3 rounded-md border border-slate-200 p-3 text-sm">
       <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-2 [&::-webkit-details-marker]:hidden">
         <p className="font-medium">
           <span aria-hidden className="mr-1 inline-block text-slate-400 transition-transform group-open:rotate-90">▸</span>
-          Format {video.format}: {format?.name} <span className="text-xs font-normal text-slate-500">· {format?.kind} · {VIDEO_STATUS[video.status] ?? video.status}</span>
+          {script?.top_line ?? `Format ${video.format}: ${format?.name}`} <span className="text-xs font-normal text-slate-500">· {format?.kind} · {VIDEO_STATUS[video.status] ?? video.status}</span>
           {video.is_test && <TestBadge />}
         </p>
         <p className="text-xs text-slate-500">
@@ -406,6 +414,11 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
             <Button variant="secondary" onClick={() => void act(() => regenerateScript(studioId, video.id, nextVersion))}>
               Opnieuw genereren
             </Button>
+            {!(video as DbVideo & { youtube_video_id?: string | null }).youtube_video_id && (
+              <Button variant="ghost" onClick={() => void act(() => archiveVideo(video.id))}>
+                Archiveren
+              </Button>
+            )}
             <Button variant="secondary" onClick={() => setEditing(!editing)}>
               {editing ? "Editor sluiten" : "Bewerken"}
             </Button>

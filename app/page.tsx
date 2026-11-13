@@ -14,7 +14,8 @@ import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
 import { PrivateTermsSettings } from "@/components/youtube/GateList";
-import { PipelineBoard } from "@/components/youtube/PipelineBoard";
+import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
+import { LiveList } from "@/components/youtube/LiveList";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
 import { ReviewMode } from "@/components/youtube/ReviewMode";
@@ -26,7 +27,7 @@ import { setPreference, track, useLearning } from "@/lib/youtube/learningData";
 import { StudioTopBar } from "@/components/youtube/StudioTopBar";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
 import { reviewQueue } from "@/lib/youtube/board";
-import type { Flow } from "@/lib/youtube/flow";
+import { needsAction, type Flow } from "@/lib/youtube/flow";
 import { useFlow } from "@/lib/youtube/flowData";
 import { useStudio } from "@/lib/studio";
 import { pageVisible } from "@/lib/visible";
@@ -47,22 +48,23 @@ import {
 import { pipelineSteps, type StepState } from "@/lib/youtube/review";
 import { listLocalRecordings, workerHealth, type UploadOutcome } from "@/lib/youtube/workerClient";
 
-// Navigation (superprompt opschonen, fase 1.3): six steps in the order a video goes through, plus Instellingen.
-// Every tab shows only what belongs to that step. Old addresses (#pijplijn, #bord, #cijfers, ...) keep working.
+// Navigation (opschonen 13-11-2026): ONE video = ONE status = ONE place. Actie nodig first (only what Milan must do),
+// then In productie (the pipeline, with the montage as a sub step), Ingepland and Live. Every section filters only on
+// the central status from lib/youtube/flow.ts. Old addresses keep working.
 const TABS = [
   { key: "upload", label: "Uploaden", icon: "📤", hash: "uploaden" },
+  { key: "action", label: "Actie nodig", icon: "👀", hash: "actie" },
   { key: "production", label: "In productie", icon: "⚙️", hash: "productie" },
-  { key: "review", label: "Review", icon: "👀", hash: "review" },
-  { key: "ready", label: "Klaar voor YouTube", icon: "🚀", hash: "klaar" },
-  { key: "live", label: "Live", icon: "✅", hash: "live" },
+  { key: "scheduled", label: "Ingepland", icon: "🗓️", hash: "ingepland" },
+  { key: "live", label: "Live op YouTube", icon: "✅", hash: "live" },
   { key: "insights", label: "Inzichten", icon: "📈", hash: "inzichten" },
   { key: "settings", label: "Instellingen", icon: "⚙", hash: "instellingen" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
-const OLD_HASH: Record<string, Tab> = { bord: "production", overzicht: "insights", pijplijn: "review", gameplay: "upload", maker: "upload", kalender: "live", youtube: "live", cijfers: "insights" };
+const OLD_HASH: Record<string, Tab> = { klaar: "action", review: "action", pijplijn: "action", bord: "production", overzicht: "insights", gameplay: "upload", maker: "upload", kalender: "scheduled", youtube: "live", cijfers: "insights" };
 /** Buttons inside older parts still name their old tab; this is where those parts live now. */
-const OLD_TAB: Record<string, Tab> = { library: "upload", maker: "upload", pipeline: "review", live: "production", stats: "insights", settings: "settings", board: "production", overview: "insights", calendar: "live", youtube: "live" };
-const FLOW_TAB: Record<Flow, Tab> = { production: "production", review: "review", ready: "ready", uploading: "ready", live: "live" };
+const OLD_TAB: Record<string, Tab> = { library: "upload", maker: "upload", pipeline: "action", review: "action", ready: "action", live: "production", stats: "insights", settings: "settings", board: "production", overview: "insights", calendar: "scheduled", youtube: "live" };
+const FLOW_TAB: Record<Flow, Tab | null> = { production: "production", review: "action", ready: "action", uploading: "action", failed: "action", scheduled: "scheduled", live: "live", archived: null };
 
 const STEP_TONE: Record<StepState, { mark: string; tone: string }> = {
   works: { mark: "✓", tone: "text-emerald-700" },
@@ -79,7 +81,7 @@ export default function YouTubeStudioPage() {
   const [local, setLocal] = useState<LocalRecording[] | null>(null);
   const [db, setDb] = useState<DbState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("ready");
+  const [tab, setTab] = useState<Tab>("action");
   const [channel, setChannel] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const analysis = useAnalysis(studio.id, isAdmin);
@@ -248,7 +250,7 @@ export default function YouTubeStudioPage() {
         </div>
       </div>
 
-      <StudioTopBar items={flowReady?.items ?? null} channels={flowReady?.board.channels ?? []} channel={channel} onChannel={setChannel} onOpen={(f) => chooseTab(FLOW_TAB[f])} />
+      <StudioTopBar items={flowReady?.items ?? null} channels={flowReady?.board.channels ?? []} channel={channel} onChannel={setChannel} onOpen={(f) => chooseTab(FLOW_TAB[f] ?? "action")} />
 
       {error && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -261,7 +263,7 @@ export default function YouTubeStudioPage() {
           <ul role="tablist" className="flex gap-1 lg:sticky lg:top-24 lg:flex-col">
             {TABS.map((t) => {
               const active = tab === t.key;
-              const count = t.key === "insights" ? learning.tips.length : flowReady && t.key !== "upload" && t.key !== "settings" ? flowReady.items.filter((i) => (!channel || i.channelId === channel) && FLOW_TAB[i.flow] === t.key).length : null;
+              const count = t.key === "insights" ? learning.tips.length : flowReady && t.key !== "upload" && t.key !== "settings" ? flowReady.items.filter((i) => (!channel || i.channelId === channel) && FLOW_TAB[i.flow] === t.key && (t.key !== "action" || needsAction(i))).length : null;
               return (
                 <li key={t.key} className={t.key === "settings" ? "lg:mt-4 lg:border-t lg:border-slate-200 lg:pt-4" : ""}>
                   <button
@@ -273,7 +275,7 @@ export default function YouTubeStudioPage() {
                   >
                     {t.key === "settings" ? <Settings className="h-4 w-4 shrink-0 text-slate-400" aria-hidden /> : <span aria-hidden>{t.icon}</span>}
                     <span className="flex-1">{t.label}</span>
-                    {count !== null && count > 0 && <span title={t.key === "insights" ? `${count} Studio-tips` : undefined} className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs font-semibold tabular-nums ${t.key === "ready" ? "bg-amber-500 text-slate-950" : t.key === "insights" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{count}</span>}
+                    {count !== null && count > 0 && <span title={t.key === "insights" ? `${count} Studio-tips` : undefined} className={`min-w-[1.5rem] rounded-full px-1.5 text-center text-xs font-semibold tabular-nums ${t.key === "action" ? "bg-amber-500 text-slate-950" : t.key === "insights" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{count}</span>}
                   </button>
                 </li>
               );
@@ -326,6 +328,7 @@ export default function YouTubeStudioPage() {
                   </ul>
                 )}
               </Fold>
+              <AnalysisSection mode="recordings" state={analysis.state} studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />
               <Fold id="upload.maker" title="AI Video Maker" intro="Stap voor stap van gameplay naar een video, met dezelfde stappen als de rest van de Studio.">
                 <VideoMaker state={analysis.state} studioId={studio.id} act={act} refresh={analysis.refresh} onOpen={chooseTab} />
               </Fold>
@@ -334,20 +337,24 @@ export default function YouTubeStudioPage() {
 
           {tab === "production" && (
             <>
-              <PipelineBoard studioId={studio.id} workerOnline={!!health} onOpenStudio={() => chooseTab("review")} />
-              <Fold title="Live voortgang" intro="Wat de werker nu doet: preview, stappen, logboek en de renderwachtrij." defaultOpen>
-                <LiveCenter studioId={studio.id} analysis={analysis.state?.ready ? analysis.state : null} workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("review")} />
+              {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} />)}
+              <Fold title="Live meekijken" intro="Preview, stappen en logboek van wat de werker nu doet.">
+                <LiveCenter studioId={studio.id} analysis={analysis.state?.ready ? analysis.state : null} workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
               </Fold>
-              <Fold id="production.queue" title="Wachtrij van de werker" intro={db?.ready ? `${db.jobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig` : undefined}>
+              <Fold id="production.queue" title="Wachtrij van de werker" intro={db?.ready ? `${db.jobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig · geschiedenis van de laatste stappen` : undefined}>
                 {db === null ? (
                   <p className="text-sm text-slate-500">Laden…</p>
                 ) : !db.ready ? (
                   db.reason === "migration" ? <p className="text-sm text-slate-600">De tabellen in Supabase komen er met migratie 007 (nog niet uitgevoerd).</p> : <Notice tone="error">{db.message}</Notice>
-                ) : db.jobs.length === 0 ? (
-                  <p className="text-sm text-slate-500">De wachtrij is leeg.</p>
                 ) : (
+                  <>
+                  {db.jobs.filter((j) => j.status === "queued" || j.status === "running").length === 0 && <p className="text-sm text-slate-500">Er wacht niets: de werker heeft niets te doen.</p>}
+                  {/* Only what is open; finished steps are history, one click away. */}
+                  {[{ title: null, list: db.jobs.filter((j) => j.status === "queued" || j.status === "running") }, { title: "Geschiedenis", list: db.jobs.filter((j) => j.status !== "queued" && j.status !== "running") }].map(({ title, list }) => list.length === 0 ? null : (
+                  <details key={title ?? "open"} open={!title} className={title ? "mt-2" : ""}>
+                  {title && <summary className="cursor-pointer text-xs text-slate-600">{title} ({list.length} afgeronde stappen)</summary>}
                   <ul className="divide-y divide-slate-100">
-                    {db.jobs.map((j) => (
+                    {list.map((j) => (
                       <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                         <div className="min-w-0">
                           <p>{STEP_LABEL[j.step] ?? j.step}</p>
@@ -372,23 +379,38 @@ export default function YouTubeStudioPage() {
                       </li>
                     ))}
                   </ul>
+                  </details>
+                  ))}
+                  </>
                 )}
               </Fold>
             </>
           )}
 
-          {tab === "review" && (
+          {tab === "action" && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3">
-                <div>
-                  <p className="font-semibold text-violet-900">{queue.length === 0 ? "Niets te keuren" : `👀 ${queue.length} ${queue.length === 1 ? "video wacht" : "video's wachten"} op jou`}</p>
-                  <p className="text-sm text-violet-800">Keur scripts en eindversies één voor één, met grote knoppen. Swipen of pijltjestoetsen gaat ook.</p>
-                </div>
-                <Button disabled={queue.length === 0 || !flowReady} onClick={() => setReviewing(true)} className="min-h-11">
-                  <CheckCircle2 className="h-4 w-4" aria-hidden /> Start met keuren
-                </Button>
-              </div>
-              <AnalysisSection state={analysis.state} studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />
+              <Notices studioId={studio.id} onOpen={chooseTab} />
+              {flowError ??
+                (!flowReady ? (
+                  loading
+                ) : (
+                  <>
+                    <h2 className="text-sm font-semibold">🚀 Klaar voor YouTube ({flowReady.items.filter((i) => (i.flow === "ready" || i.flow === "uploading") && (!channel || i.channelId === channel)).length})</h2>
+                    <VideoQueue state={flowReady} flows={["ready", "uploading"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} empty="Niets klaar om te versturen. Een video komt hier zodra je de eindversie hebt goedgekeurd." />
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3">
+                      <div>
+                        <p className="font-semibold text-violet-900">👀 Te keuren ({queue.length})</p>
+                        <p className="text-sm text-violet-800">{queue.length ? "Eén voor één, met grote knoppen. Swipen of pijltjestoetsen gaat ook." : "Er wacht niets op je keuring."}</p>
+                      </div>
+                      <Button disabled={queue.length === 0} onClick={() => setReviewing(true)} className="min-h-11">
+                        <CheckCircle2 className="h-4 w-4" aria-hidden /> Start met keuren
+                      </Button>
+                    </div>
+                    {queue.length > 0 && <AnalysisSection mode="review" showVideo={(id) => flowReady.items.some((i) => i.videoId === id && i.flow === "review" && (!channel || i.channelId === channel))} state={analysis.state} studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />}
+                    {flowReady.items.some((i) => i.flow === "failed") && <h2 className="text-sm font-semibold">❌ Mislukt ({flowReady.items.filter((i) => i.flow === "failed" && (!channel || i.channelId === channel)).length})</h2>}
+                    <FailedList state={flowReady} channel={channel} act={act} />
+                  </>
+                ))}
               {reviewing && flowReady && (
                 <ReviewMode
                   studioId={studio.id}
@@ -405,31 +427,21 @@ export default function YouTubeStudioPage() {
             </>
           )}
 
-          {tab === "ready" &&
-            (flowError ??
-              (!flowReady ? (
-                loading
-              ) : (
-                <VideoQueue state={flowReady} flows={["ready", "uploading"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} empty="Er staat nu niets klaar voor YouTube. Een video komt hier zodra je de eindversie hebt goedgekeurd." />
-              )))}
-
-          {tab === "live" && (
+          {tab === "scheduled" && (
             <>
-              {flowError ?? (!flowReady ? loading : <VideoQueue state={flowReady} flows={["live"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} empty="Nog niets op YouTube." />)}
+              {flowError ?? (!flowReady ? loading : <VideoQueue state={flowReady} flows={["scheduled"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} empty="Niets ingepland. Bij Klaar voor YouTube kies je een tijdstip; YouTube zet de video dan zelf openbaar." />)}
               <Fold id="live.calendar" title="Contentkalender" intro="Wat wanneer online gaat.">
-                <ContentCalendar studioId={studio.id} onOpen={() => chooseTab("ready")} />
-              </Fold>
-              <Fold id="live.all" title="Alle publicaties" intro="Overzicht van alles wat naar YouTube is gegaan of gaat.">
-                <PublicationsOverview studioId={studio.id} onOpen={() => chooseTab("ready")} />
+                <ContentCalendar studioId={studio.id} onOpen={() => chooseTab("action")} />
               </Fold>
             </>
           )}
+
+          {tab === "live" && (flowError ?? (!flowReady ? loading : <LiveList state={flowReady} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} />))}
 
           {tab === "insights" && (
             <>
               <StudioTips studioId={studio.id} tips={learning.tips} state={learning.state} onChanged={learning.refresh} />
               <ViralInsights studioId={studio.id} channels={channelsNow} channel={channel} prefs={learning.prefs} onPrefs={learning.refresh} />
-              <Notices studioId={studio.id} onOpen={chooseTab} />
               <StatsCenter studioId={studio.id} workerOnline={workerOnline} />
               <Fold id="insights.today" title="Vandaag in de Studio">
                 <TodayOverview overview={overviewFrom(db, analysis.state, workerOnline)} onOpen={chooseTab} />
@@ -470,6 +482,7 @@ export default function YouTubeStudioPage() {
         <>
           <ChannelCard studioId={studio.id} onError={setError} />
           <StudioPreferences prefs={learning.prefs} channels={channelsNow} onChanged={learning.refresh} />
+          {flowReady && <ArchivedList state={flowReady} act={act} />}
           <PrivateTermsSettings studioId={studio.id} onError={setError} />
           <Section title="Werker op de pc" intro="De werker doet het zware werk op de pc van Milan: bestanden ontvangen, FFmpeg en later montage en uploaden. Hij werkt alleen als de pc aanstaat.">
             {health === undefined ? (

@@ -3,7 +3,15 @@
 import { Rocket } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Channel } from "@/lib/youtube/channels";
-import { countFlow, FLOW, type Flow, type FlowItem } from "@/lib/youtube/flow";
+import { countFlow, type Flow, type FlowItem } from "@/lib/youtube/flow";
+
+/** The same order as the tabs: what needs Milan, what is being made, what is planned, what is live. */
+const CHIPS: { key: string; label: string; dot: string; keys: Flow[] }[] = [
+  { key: "action", label: "Te keuren of mislukt", dot: "bg-violet-500", keys: ["review", "failed"] },
+  { key: "production", label: "In productie", dot: "bg-slate-400", keys: ["production"] },
+  { key: "scheduled", label: "Ingepland", dot: "bg-sky-500", keys: ["scheduled"] },
+  { key: "live", label: "Live", dot: "bg-emerald-500", keys: ["live"] },
+];
 
 /**
  * Always visible at the top (fase 1.1 and 1.3): "🚀 X klaar voor YouTube", the count per status and a filter per
@@ -50,12 +58,12 @@ export function StudioTopBar({ items, channels, channel, onChannel, onOpen }: { 
         </button>
         {/* Fixed widths and tabular numbers: the bar keeps its size when a number changes. */}
         <ul className="hidden flex-wrap gap-1 text-xs sm:flex" aria-label="Aantal video's per status">
-          {FLOW.filter((f) => f.key !== "ready").map((f) => (
+          {CHIPS.map((f) => (
             <li key={f.key}>
-              <button type="button" onClick={() => onOpen(f.key)} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50">
+              <button type="button" onClick={() => onOpen(f.keys[0])} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 hover:bg-slate-50">
                 <span aria-hidden className={`h-2 w-2 rounded-full ${f.dot}`} />
                 {f.label}
-                <span className="inline-block min-w-[1.25rem] text-right font-semibold tabular-nums">{counts ? counts[f.key] : "–"}</span>
+                <span className="inline-block min-w-[1.25rem] text-right font-semibold tabular-nums">{counts ? f.keys.reduce((n, k) => n + counts[k], 0) : "–"}</span>
               </button>
             </li>
           ))}

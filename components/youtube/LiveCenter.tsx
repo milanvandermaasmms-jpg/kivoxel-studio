@@ -103,7 +103,6 @@ export function LiveCenter({ studioId, analysis, workerOnline, act, onOpenPipeli
           <NotesZone steps={steps} liveColumns={liveColumns} />
         </>
       )}
-      <RenderQueue jobs={jobs ?? []} titleOf={titleOf} onPick={setChosen} now={now} />
     </div>
   );
 }
@@ -367,34 +366,5 @@ function NotesZone({ steps, liveColumns }: { steps: Activity[]; liveColumns: boo
         )}
       </Section>
     </>
-  );
-}
-
-function RenderQueue({ jobs, titleOf, onPick, now }: { jobs: LiveJob[]; titleOf: (id: string) => string; onPick: (id: string) => void; now: number }) {
-  // One line per video: its newest montage step (jobs come newest first). Fase 1.4: the order is the time the step was
-  // made and never the status, so a line does not jump to another place when its montage starts or finishes.
-  const sorted = jobs.filter((j, i) => j.step === "render" && j.video_id && jobs.findIndex((x) => x.step === "render" && x.video_id === j.video_id) === i).slice(0, 10);
-  const label: Record<string, string> = { running: "Bezig", queued: "Wacht", done: "Klaar", failed: "Mislukt", cancelled: "Geannuleerd" };
-  return (
-    <Section title="Renderwachtrij" intro="De laatste montages, nieuwste bovenaan. De werker maakt één montage tegelijk.">
-      {sorted.length === 0 ? (
-        <p className="text-sm text-slate-500">Nog geen montages.</p>
-      ) : (
-        <ol className="divide-y divide-slate-100">
-          {sorted.map((j) => (
-            <li key={j.video_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-              <button type="button" onClick={() => onPick(j.video_id!)} className="min-w-0 flex-1 truncate text-left hover:underline">
-                {titleOf(j.video_id!)}
-              </button>
-              <span className={`text-xs ${j.status === "failed" ? "text-red-700" : j.status === "running" ? "text-cyan-700" : "text-slate-600"}`}>
-                {label[j.status]}
-                {j.status === "running" && j.progress != null ? ` · ${Math.round(Number(j.progress) * 100)}%` : ""}
-                {j.status === "queued" ? ` · ${shortDuration(now - Date.parse(j.created_at))}` : ""}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </Section>
   );
 }
