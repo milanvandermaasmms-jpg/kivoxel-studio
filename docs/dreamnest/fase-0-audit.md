@@ -64,5 +64,14 @@ Uitkomst van de basismeting staat in §7.
 - Migratie `052_dreamnest_core.sql` (`dn_episodes`, `dn_render_jobs` met claim-functie), via je klembord.
 - Rooktest + `tsc` + `build` opnieuw; werker pas herstarten na jouw akkoord.
 
+## 6b. Gebouwd na GO (13-11-2026)
+- `lib/dreamnest/core.ts`: flag (`FEATURE_DREAMNEST`, alleen precies "true"), voorrangsregel, render in stukken van 2 min, budgetplafond. Getest.
+- `worker/dreamnest/lane.ts`: eigen rij via `claim_dn_job`, pakt alleen werk als de KIVOXEL-hoofdrij stil is, ook tussen stappen. Alleen de teststap `dn_ping`. Blijft stil zolang migratie 052 er niet is.
+- **Gedeelde code (vooraf gemeld, §3):** `worker/queue.ts` geeft één extra alleen-lezen-functie `mainBusy()`; `worker/index.ts` start de Dreamnest-rij alleen met de flag aan. Flag uit = exact als voorheen.
+- `supabase/migrations/052_dreamnest_core.sql`: `dn_episodes`, `dn_render_jobs`, `claim_dn_job`. Alleen nieuw, niets aan `yt_*`. Privacycontrole uitgebreid (14 checks).
+- `app/dreamnest/page.tsx`: fase-overzicht achter inloggen; zonder flag een 404. Geen link in het KIVOXEL-scherm.
+- Browser (poort 3201/3202, los van jouw 3200): flag aan → pagina bestaat; flag uit → 404.
+- Controle: `tsc` ✅ · `npm test` ✅ 53 bestanden, 363 tests · `build` ✅. Kosten: € 0.
+
 ## 7. Basismeting (main + rooktest)
 13-11-2026 op `feature/dreamnest`: `npx tsc --noEmit` ✅ · `npm test` ✅ 51 bestanden, 352 tests (incl. 4 rooktests) · `npm run build` ✅. Geen browsercontrole nodig: er is niets aan de app veranderd. Kosten tot nu toe: € 0.

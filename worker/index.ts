@@ -22,6 +22,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
+import { dreamnestEnabled } from "../lib/dreamnest/core.ts";
+import { createDreamnestLane } from "./dreamnest/lane.ts";
 
 const VERSION = "63.2";
 
@@ -129,6 +131,11 @@ const statsSync = youtube.configured && supabaseUrl && serviceKey ? createStatsS
 // Fase 3.1: reference videos in the niche through the linked YouTube account (only quota, no money).
 const research = youtube.configured ? createResearch({ yt: youtube }) : null;
 const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, workerName, store, log, ai, montage, undefined, publisher, research) : null;
+// Dreamnest: only with FEATURE_DREAMNEST=true in worker/.env.local. Own queue (dn_render_jobs); KIVOXEL goes first.
+const dreamnest =
+  queue && dreamnestEnabled(env)
+    ? createDreamnestLane({ db: createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } }), workerName, log, kivoxelBusy: queue.mainBusy })
+    : null;
 
 // Inbox folder (fase 2): KIVOXEL/inbox in the user's home folder unless KIVOXEL_INBOX_DIR says otherwise. KIVOXEL_INBOX=0 switches it off.
 const inboxDir = env.KIVOXEL_INBOX_DIR || join(homedir(), "KIVOXEL", "inbox");
@@ -182,6 +189,10 @@ server.listen(port, "127.0.0.1", () => {
     void youtube.status().then((s) => s.connected && statsSync?.start());
   });
   queue?.start();
+  if (dreamnest) {
+    log("Dreamnest: aan (eigen wachtrij, KIVOXEL gaat voor)");
+    dreamnest.start();
+  }
   if (inbox) {
     log(`Inbox-map: ${inboxDir} (zet hier een opname neer; de werker pakt hem op zodra het kopiëren klaar is)`);
     inbox.start();

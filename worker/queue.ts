@@ -1169,5 +1169,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (timer) clearInterval(timer);
     },
     poke: () => void Promise.all([tick(), tickFast()]),
+    /** Dreamnest (only with FEATURE_DREAMNEST=true) asks this before each step: KIVOXEL goes first. Read-only. */
+    mainBusy: () => busy,
   };
 }

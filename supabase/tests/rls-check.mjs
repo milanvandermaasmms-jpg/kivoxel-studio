@@ -885,6 +885,29 @@ if (hasMigration("046")) {
     await rejects("a video on YouTube can never be archived", MILAN, "update public.yt_videos set status='archived' where id=$1", [v]);
     await noneAffected("a stranger cannot archive", STRANGER, "update public.yt_videos set status='archived'");
   }
+  // ---------- Dreamnest core (migration 052) ----------
+  if (hasMigration("052")) {
+    const ep = await one(MILAN, "insert into public.dn_episodes(studio_id,channel_id,title,is_test) values($1,$2,'Testaflevering',true) returning id", [hh, def]);
+    ok("admin makes a Dreamnest episode", (await one(NATASJA, "select count(*)::int from public.dn_episodes where studio_id=$1", [hh])) === 1);
+    await as(MILAN, "update public.dn_episodes set duration_min=90, budget_cents=500 where id=$1", [ep]);
+    ok("admin sets duration and budget", (await one(MILAN, "select duration_min from public.dn_episodes where id=$1", [ep])) === 90);
+    await rejects("the app cannot write what was spent", MILAN, "update public.dn_episodes set spent_cents=0 where id=$1", [ep]);
+    await rejects("an odd duration is refused", MILAN, "update public.dn_episodes set duration_min=45 where id=$1", [ep]);
+    await rejects("a new episode cannot start with costs", MILAN, "insert into public.dn_episodes(studio_id,channel_id,spent_cents) values($1,$2,100)", [hh, def]);
+    ok("a stranger sees no episodes", (await one(STRANGER, "select count(*)::int from public.dn_episodes")) === 0);
+    await rejects("a stranger cannot make an episode", STRANGER, "insert into public.dn_episodes(studio_id,channel_id) values($1,$2)", [hh, def]);
+    await noneAffected("a child cannot change an episode", CHILD, "update public.dn_episodes set title='x'");
+    await as(MILAN, "insert into public.dn_render_jobs(studio_id,episode_id,step,idempotency_key) values($1,$2,'dn_ping','ping-1')", [hh, ep]);
+    ok("admin queues a Dreamnest step", (await one(MILAN, "select status from public.dn_render_jobs where idempotency_key='ping-1'")) === "queued");
+    await rejects("the app cannot queue a running step", MILAN, "insert into public.dn_render_jobs(studio_id,episode_id,step,idempotency_key,status) values($1,$2,'dn_ping','ping-2','running')", [hh, ep]);
+    await rejects("a KIVOXEL step cannot go in the Dreamnest queue", MILAN, "insert into public.dn_render_jobs(studio_id,episode_id,step,idempotency_key) values($1,$2,'render','ping-3')", [hh, ep]);
+    await rejects("the app cannot claim a Dreamnest step", MILAN, "select * from public.claim_dn_job('pc', null, 30)");
+    const claimed = (await db.query("select step, status, attempts from public.claim_dn_job('pc-test', array['dn_ping'], 30)")).rows[0];
+    ok("the worker claims a Dreamnest step", claimed?.step === "dn_ping" && claimed.status === "running" && claimed.attempts === 1);
+    ok("the KIVOXEL queue never sees Dreamnest work", (await db.query("select count(*)::int as n from public.claim_yt_job('pc-test', array['dn_ping'], 30)")).rows[0].n === 0);
+    await noneAffected("the app cannot finish a running step", MILAN, "update public.dn_render_jobs set status='cancelled' where idempotency_key='ping-1'");
+    ok("a stranger sees no Dreamnest queue", (await one(STRANGER, "select count(*)::int from public.dn_render_jobs")) === 0);
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 
