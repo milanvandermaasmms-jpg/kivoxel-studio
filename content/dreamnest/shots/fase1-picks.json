@@ -1,0 +1,57 @@
+{
+  "chosen_by": "Milan",
+  "date": "2026-11-13",
+  "note": "Bestanden staan op de pc in <data>/dreamnest/",
+  "picks": [
+    {
+      "shot": "b01-welcome-exterior",
+      "variant": 2,
+      "file": "keyframes/huiskamer-01/b01-welcome-exterior.png"
+    },
+    {
+      "shot": "b02-lumi-rocking-chair",
+      "variant": 1,
+      "file": "keyframes/huiskamer-01/b02-lumi-rocking-chair.png"
+    },
+    {
+      "shot": "b03-pip-arrives",
+      "variant": 1,
+      "file": "keyframes/huiskamer-01/b03-pip-arrives.png"
+    },
+    {
+      "shot": "b04-tea",
+      "variant": 1,
+      "file": "keyframes/huiskamer-01/b04-tea.png"
+    },
+    {
+      "shot": "b05-mo-by-fire",
+      "variant": 2,
+      "file": "keyframes/huiskamer-01/b05-mo-by-fire.png"
+    },
+    {
+      "shot": "b06-window-momo",
+      "variant": 1,
+      "file": "keyframes/huiskamer-01/b06-window-momo.png"
+    },
+    {
+      "shot": "b07-lumi-yawn",
+      "variant": 2,
+      "file": "keyframes/huiskamer-01/b07-lumi-yawn.png"
+    },
+    {
+      "shot": "b08-blanket-together",
+      "variant": 2,
+      "file": "keyframes/huiskamer-01/b08-blanket-together.png"
+    },
+    {
+      "shot": "b09-lumi-falls-asleep",
+      "variant": 2,
+      "file": "keyframes/huiskamer-01/b09-lumi-falls-asleep.png"
+    },
+    {
+      "shot": "b10-sleep-loop-base",
+      "variant": 2,
+      "file": "keyframes/huiskamer-01/b10-sleep-loop-base.png"
+    }
+  ]
+}
