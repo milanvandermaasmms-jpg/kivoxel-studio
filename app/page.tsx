@@ -20,6 +20,7 @@ import { UploadCard } from "@/components/youtube/UploadCard";
 import { ReviewMode } from "@/components/youtube/ReviewMode";
 import { StudioContext } from "@/components/youtube/StudioContext";
 import { StudioPreferences, StudioTips } from "@/components/youtube/StudioTips";
+import { ViralInsights } from "@/components/youtube/ViralInsights";
 import { hiddenFolds } from "@/lib/youtube/learning";
 import { setPreference, track, useLearning } from "@/lib/youtube/learningData";
 import { StudioTopBar } from "@/components/youtube/StudioTopBar";
@@ -412,6 +413,7 @@ export default function YouTubeStudioPage() {
           {tab === "insights" && (
             <>
               <StudioTips studioId={studio.id} tips={learning.tips} state={learning.state} onChanged={learning.refresh} />
+              <ViralInsights studioId={studio.id} channels={channelsNow} channel={channel} prefs={learning.prefs} onPrefs={learning.refresh} />
               <Notices studioId={studio.id} onOpen={chooseTab} />
               <StatsCenter studioId={studio.id} workerOnline={workerOnline} />
               <Fold id="insights.today" title="Vandaag in de Studio">

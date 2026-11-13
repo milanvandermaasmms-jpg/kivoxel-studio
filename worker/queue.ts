@@ -30,6 +30,8 @@ import { applyHook, parseHooks } from "../lib/youtube/hooks.ts";
 import { STEP_MILESTONE, STEP_PHASE, stepNotes } from "../lib/youtube/live.ts";
 import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type SuggestInput } from "../lib/youtube/suggest.ts";
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
+import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
+import type { Research } from "./research.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName, renderSize, segmentOverlays, srtFileName, type VoiceClip } from "../lib/youtube/render.ts";
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
@@ -116,7 +118,7 @@ const fromRow = (r: MomentRow): Moment => ({
 
 const NO_KEY = "Analysedienst nog te verbinden: zet GEMINI_API_KEY in worker/.env.local en start de werker opnieuw. Alleen testdata wordt nu verwerkt.";
 
-export function createQueue(url: string, serviceKey: string, workerName: string, store: Store, log: (msg: string) => void, ai: Ai | null = null, montage: Montage | null = null, client?: SupabaseClient, publisher: Publisher | null = null) {
+export function createQueue(url: string, serviceKey: string, workerName: string, store: Store, log: (msg: string) => void, ai: Ai | null = null, montage: Montage | null = null, client?: SupabaseClient, publisher: Publisher | null = null, research: Research | null = null) {
   const db: SupabaseClient = client ?? createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   let timer: NodeJS.Timeout | null = null;
   let busy = false;
@@ -636,6 +638,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await lv.event("error", `Thumbnails mislukt: ${e instanceof Error ? e.message : String(e)}`);
       }
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
+      // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
+      await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
       return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length };
     } finally {
       await rm(tmp, { recursive: true, force: true });
@@ -882,9 +886,148 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
   }
 
+  /**
+   * Fase 3.2: the Viral-check of the newest montage of a video. Rules on measured facts always (free); Gemini listens to
+   * the voice-over only for test videos (fixed answer, free) or when paid processing is on (within the monthly cap).
+   */
+  async function viral(job: Job, lv: Live) {
+    if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
+    type VideoRow = { id: string; format: Format; language: "en" | "nl"; is_test: boolean; channel_id: string | null; recording_id: string | null };
+    const video = await db.from("yt_videos").select("id, format, language, is_test, channel_id, recording_id").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    if (video.error) throw new Error(video.error.message);
+    type RenderRow = { id: string; script_id: string; file_name: string; duration_ms: number; width: number; height: number; voice_name: string | null };
+    const render = await db.from("yt_renders").select("id, script_id, file_name, duration_ms, width, height, voice_name").eq("video_id", video.data.id).order("created_at", { ascending: false }).limit(1).maybeSingle<RenderRow>();
+    if (render.error) throw new Error(render.error.message);
+    if (!render.data) throw new Error("Deze video heeft nog geen montage");
+    type ScriptRow = { id: string; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; hooks?: unknown; loop_line?: string | null; chosen_hook?: number | null };
+    const script = await db.from("yt_scripts").select("*").eq("id", render.data.script_id).single<ScriptRow>();
+    if (script.error) throw new Error(script.error.message);
+    const kind = video.data.format === "C" ? "long" : "short";
+
+    // The cut as it was rendered: the chosen hook can move the opening (cold open).
+    const linked = await db.from("yt_video_moments").select("position, yt_moments(start_ms, end_ms, peak_ms)").eq("video_id", video.data.id).order("position").limit(1).returns<Array<{ yt_moments: { start_ms: number; end_ms: number; peak_ms: number | null } }>>();
+    const main = linked.data?.[0]?.yt_moments ?? null;
+    const hooks = parseHooks(script.data.hooks);
+    const chosen = typeof script.data.chosen_hook === "number" ? (hooks[script.data.chosen_hook] ?? null) : null;
+    const cut = applyHook(script.data, chosen, main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null);
+
+    const [channel, settings, others, refs] = await Promise.all([
+      video.data.channel_id ? db.from("yt_channels").select("language, audience").eq("id", video.data.channel_id).maybeSingle<{ language: "en" | "nl"; audience: string | null }>() : Promise.resolve({ data: null }),
+      db.from("yt_settings").select("speaking_rate").eq("studio_id", job.studio_id).maybeSingle<{ speaking_rate: number | null }>(),
+      video.data.channel_id ? db.from("yt_videos").select("id").eq("channel_id", video.data.channel_id).neq("id", video.data.id).eq("is_test", false).returns<{ id: string }[]>() : Promise.resolve({ data: [] as { id: string }[] }),
+      db.from("yt_reference_videos").select("title, tags, duration_s, is_short, published_at, views, ratio, hook").eq("studio_id", job.studio_id).eq("channel_id", video.data.channel_id ?? "").returns<ReferenceVideo[]>(),
+    ]);
+    const otherIds = (others.data ?? []).map((v) => v.id);
+    const prev = otherIds.length ? await db.from("yt_renders").select("voice_name").in("video_id", otherIds.slice(0, 100)).not("voice_name", "is", null).order("created_at", { ascending: false }).limit(10).returns<{ voice_name: string }[]>() : { data: [] };
+
+    // Dead parts of the recording (the free FFmpeg signal pass, cached on this pc).
+    let dead = null;
+    let peaks = null;
+    if (ai?.signals && video.data.recording_id) {
+      try {
+        const rec = await db.from("yt_recordings").select("fingerprint, duration_ms").eq("id", video.data.recording_id).single<{ fingerprint: string; duration_ms: number | null }>();
+        if (rec.data?.duration_ms) {
+          const local = await store.get(rec.data.fingerprint);
+          if (!local) throw new Error("de opname staat niet op deze pc");
+          const t = buildTimeline(await ai.signals(local.file, rec.data.fingerprint, rec.data.duration_ms, { signal: lv.signal }));
+          dead = t.dead;
+          peaks = t.peaks;
+        }
+      } catch (e) {
+        await lv.event("log", `Saaie stukken niet gemeten: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const input = {
+      kind,
+      language: channel.data?.language ?? video.data.language,
+      audience: channel.data?.audience ?? null,
+      hook: cut.hook,
+      lines: cut.lines,
+      loopLine: script.data.loop_line ?? null,
+      segments: cut.segments,
+      durationMs: render.data.duration_ms,
+      width: render.data.width,
+      height: render.data.height,
+      voiceName: render.data.voice_name,
+      speakingRate: settings.data?.speaking_rate != null ? Number(settings.data.speaking_rate) : null,
+      previousVoices: (prev.data ?? []).map((r) => r.voice_name),
+      dead,
+      peaks,
+    } as const;
+    const reference = summarizeReference(refs.data ?? [], kind);
+
+    // The listening check (fase 3: Milan chose "ook luistercheck"): Gemini hears the real voice-over.
+    let listen: ListenResult | null = null;
+    let source: "ai" | "rules" | "test" = "rules";
+    if (video.data.is_test) {
+      listen = testListen();
+      source = "test";
+    } else if (ai && montage && (await paidEnabled(job.studio_id))) {
+      await lv.phase("Luisteren naar de voice-over", null);
+      const audio = join(montage.tmpDir, `luister-${job.id}.mp3`);
+      try {
+        await montage.run(listenAudioArgs(join(montage.rendersDir, render.data.file_name), audio), montage.tmpDir, 3 * 60_000, { signal: lv.signal });
+        await reserve(job, 2);
+        const rules = buildViral({ ...input, segments: [...input.segments] }, null, reference).parts;
+        const { json } = await paid(job, () => ai.gemini.analyseFile(audio, "audio/mpeg", listenPrompt({ ...input, segments: [...input.segments] }, rules)));
+        const parsed = parseListen(json, render.data.duration_ms);
+        if ("error" in parsed) await lv.event("error", `Luistercheck onbruikbaar (${parsed.error}); score alleen op regels`);
+        else {
+          listen = parsed;
+          source = "ai";
+        }
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        await lv.event("error", `Luistercheck mislukt: ${e instanceof Error ? e.message : String(e)}; score alleen op regels`);
+      } finally {
+        await rm(audio, { force: true });
+      }
+    } else await lv.event("note", "Luistercheck overgeslagen: betaalde verwerking staat uit (score alleen op regels, gratis)");
+
+    const result = buildViral({ ...input, segments: [...input.segments] }, listen, reference);
+    const insert = await db.from("yt_viral_checks").insert({ studio_id: job.studio_id, video_id: video.data.id, render_id: render.data.id, script_id: script.data.id, overall: result.overall, result, source, model: source === "ai" ? ai?.gemini.model : null, is_test: video.data.is_test });
+    if (insert.error) throw new Error(insert.error.message);
+    return { overall: result.overall, source, voice: result.parts.voice.score, script: result.parts.script.score, gameplay: result.parts.gameplay.score };
+  }
+
+  /** Fase 3.1: the best performing recent videos for the search terms of one channel. Only quota, no money. */
+  async function reference(job: Job) {
+    if (!research) throw new Error("YouTube is niet gekoppeld op deze pc; referentievideo's ophalen kan niet");
+    const channelId = typeof job.payload?.channel_id === "string" ? job.payload.channel_id : null;
+    if (!channelId) throw new Error("Geen kanaal opgegeven");
+    const ch = await db.from("yt_channels").select("language").eq("id", channelId).single<{ language: "en" | "nl" }>();
+    if (ch.error) throw new Error(ch.error.message);
+    const pref = await db.from("studio_preferences").select("value").eq("studio_id", job.studio_id).eq("channel_id", channelId).eq("key", "reference_queries").maybeSingle<{ value: unknown }>();
+    const queries = Array.isArray(pref.data?.value) && pref.data.value.length ? (pref.data.value as string[]).slice(0, 3) : defaultQueries(ch.data.language);
+    let saved = 0;
+    for (const query of queries) {
+      const found = (await research.search(query, ch.data.language)).filter((v) => v.views > 0).sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0)).slice(0, 20);
+      if (!found.length) continue;
+      const del = await db.from("yt_reference_videos").delete().eq("studio_id", job.studio_id).eq("channel_id", channelId).eq("query", query);
+      if (del.error) throw new Error(del.error.message);
+      const ins = await db.from("yt_reference_videos").insert(found.map((v) => ({ studio_id: job.studio_id, channel_id: channelId, query, ...v, fetched_at: new Date().toISOString() })));
+      if (ins.error) throw new Error(ins.error.message);
+      saved += found.length;
+    }
+    return { queries, saved };
+  }
+
+  /** Once a week per active channel: queue a reference step (only while YouTube is linked on this pc). */
+  async function scheduleReference() {
+    if (!research) return;
+    const chans = await db.from("yt_channels").select("id, studio_id").eq("status", "active").returns<{ id: string; studio_id: string }[]>();
+    for (const c of chans.data ?? []) {
+      const last = await db.from("yt_reference_videos").select("fetched_at").eq("channel_id", c.id).order("fetched_at", { ascending: false }).limit(1).maybeSingle<{ fetched_at: string }>();
+      if (last.error) return; // before migration 050
+      if (last.data && Date.now() - Date.parse(last.data.fetched_at) < 7 * 86_400_000) continue;
+      const week = Math.floor(Date.now() / (7 * 86_400_000));
+      await queueStep(c.studio_id, { step: "reference", idempotency_key: `reference:${c.id}:${week}`, payload: { channel_id: c.id } }).catch((e) => log(`Referentievideo's niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
+    }
+  }
+
   const handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { intake, analyse, script, ...(montage ? { render } : {}), ...(publisher ? { upload, publish } : {}) };
   /** Short steps that must not wait behind a montage of many minutes: they run in their own lane, next to the main one. */
-  const fastHandlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { suggest };
+  const fastHandlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { suggest, viral, reference };
 
   async function finish(job: Job, outcome: { result: unknown } | { error: string }) {
     const failed = "error" in outcome;
@@ -988,10 +1131,14 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       void Promise.resolve(db.rpc("prune_studio_events", { p_days: 180 })).catch(() => undefined);
       void recover().then(() => Promise.all([tick(), tickFast()]));
       timer = setInterval(() => void Promise.all([tick(), tickFast()]), intervalMs);
+      // Fase 3.1: reference videos once a week (checked at start and every 6 hours).
+      void scheduleReference().catch(() => undefined);
+      setInterval(() => void scheduleReference().catch(() => undefined), 6 * 60 * 60_000);
     },
     recover,
     tick,
     tickFast,
+    scheduleReference,
     stop() {
       if (timer) clearInterval(timer);
     },

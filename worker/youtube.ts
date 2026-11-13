@@ -58,7 +58,7 @@ export function decrypt(key: Buffer, data: string): string {
 /** Quota resets at midnight Pacific Time; the day key follows that clock. */
 export const quotaDay = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 /** Costs in units (determine_quota_cost, 12-11-2026). Uploads have their own bucket of 100 per day. */
-export const QUOTA_COST: Record<string, number> = { "channels.list": 1, "videos.list": 1, "playlistItems.list": 1, "videos.update": 50, "thumbnails.set": 50, "captions.insert": 400 };
+export const QUOTA_COST: Record<string, number> = { "channels.list": 1, "videos.list": 1, "playlistItems.list": 1, "videos.update": 50, "thumbnails.set": 50, "captions.insert": 400, "search.list": 100 };
 export const QUOTA_DAILY = 10_000;
 export const UPLOADS_DAILY = 100;
 

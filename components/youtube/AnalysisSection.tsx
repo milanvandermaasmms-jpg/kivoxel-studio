@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
 import { createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
+import { ViralCard } from "@/components/youtube/ViralCard";
 import { Editor } from "@/components/youtube/Editor";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { DEFAULT_BLUR_REGIONS, type Region } from "@/lib/youtube/render";
@@ -418,7 +419,7 @@ function VideoCard({ video, moments, scripts, montage, act, studioId, workerOnli
           )}
         </div>
       )}
-      <MontageBlock video={video} approved={approved ?? null} montage={montage} act={act} studioId={studioId} workerOnline={workerOnline} privacyFlags={[...new Set(used.flatMap((m) => m.privacy_flags))]} onWatch={onWatch} repeats={repeats} />
+      <MontageBlock video={video} approved={approved ?? null} scripts={scripts} montage={montage} act={act} studioId={studioId} workerOnline={workerOnline} privacyFlags={[...new Set(used.flatMap((m) => m.privacy_flags))]} onWatch={onWatch} repeats={repeats} />
     </details>
   );
 }
@@ -506,7 +507,7 @@ function ReviewBlock({ video, blockers, checks, act, qc, repeats, firstFrame }: 
 }
 
 /** Montage of the approved script: the button queues it for the worker; the preview plays straight from the pc. */
-function MontageBlock({ video, approved, montage, act, studioId, workerOnline, privacyFlags, onWatch, repeats }: { video: DbVideo; approved: DbScript | null; montage: MontageState; act: Act; studioId: string; workerOnline: boolean; privacyFlags: PrivacyFlag[]; onWatch?: (videoId: string) => void; repeats?: Repetition[] }) {
+function MontageBlock({ video, approved, scripts, montage, act, studioId, workerOnline, privacyFlags, onWatch, repeats }: { video: DbVideo; approved: DbScript | null; scripts: DbScript[]; montage: MontageState; act: Act; studioId: string; workerOnline: boolean; privacyFlags: PrivacyFlag[]; onWatch?: (videoId: string) => void; repeats?: Repetition[] }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [broken, setBroken] = useState<string | null>(null);
   if (montage === null) return <p className="mt-3 border-t border-slate-200 pt-2 text-xs text-slate-500">Montage komt er met migratie 030 (nog niet uitgevoerd).</p>;
@@ -562,6 +563,7 @@ function MontageBlock({ video, approved, montage, act, studioId, workerOnline, p
           ))}
         </ul>
       )}
+      {renders.length > 0 && <ViralCard studioId={studioId} videoId={video.id} scripts={scripts} approved={approved} act={act} />}
       <ReviewBlock video={video} blockers={reviewBlockers({ approvedScriptId: approved?.id ?? null, latestRender: renders[0] ?? null, renderBusy: !!busy, privacyFlags })} checks={reviewChecks(privacyFlags)} act={act} qc={renders[0]?.qc?.items ?? null} repeats={repeats ?? []} firstFrame={renders[0] && workerOnline ? { file: renders[0].file_name, firstLine: approved?.hooks?.[approved.chosen_hook ?? -1]?.first_line ?? approved?.hook ?? "" } : null} />
       {["approved", "scheduled", "published"].includes(video.status) && (
         <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">

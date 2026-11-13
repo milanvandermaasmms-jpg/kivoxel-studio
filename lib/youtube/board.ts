@@ -67,10 +67,14 @@ export function videoStage(video: Pick<BoardVideo, "id" | "status">, scripts: Bo
   return "concept";
 }
 
+const ADVISORY = ["suggest", "viral", "reference"];
+
 /** Newest job per step and target; a failed one is a reason the project is stuck. */
 function failedJobs(jobs: BoardJob[]): string[] {
   const newest = new Map<string, BoardJob>();
   for (const j of jobs) {
+    // Helpers (suggestions, Viral-check, reference videos) never block a video: their errors show where they are used.
+    if (ADVISORY.includes(j.step)) continue;
     const key = `${j.step}:${j.video_id ?? j.recording_id ?? ""}`;
     const seen = newest.get(key);
     if (!seen || seen.created_at <= j.created_at) newest.set(key, j);

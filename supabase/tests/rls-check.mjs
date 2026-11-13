@@ -858,6 +858,21 @@ if (hasMigration("046")) {
     await as(MILAN, "delete from public.studio_preferences where studio_id=$1 and channel_id is null", [hh]);
     ok("admin deletes a preference", (await one(MILAN, "select count(*)::int from public.studio_preferences where studio_id=$1", [hh])) === 1);
   }
+  // ---------- Viral-check (migration 050) ----------
+  if (hasMigration("050")) {
+    await sys("insert into public.yt_viral_checks(studio_id,video_id,overall,result,source) values($1,$2,7.5,'{\"version\":1}','rules') returning id", [hh, vid]);
+    await sys("insert into public.yt_reference_videos(studio_id,channel_id,query,youtube_video_id,title,views) values($1,$2,'minecraft shorts','abc123def45','Test',10) returning id", [hh, def]);
+    ok("admin reads the Viral-score", Number(await one(MILAN, "select overall from public.yt_viral_checks where video_id=$1", [vid])) === 7.5);
+    ok("admin reads reference videos", (await one(NATASJA, "select count(*)::int from public.yt_reference_videos where studio_id=$1", [hh])) === 1);
+    await rejects("the app cannot write a score itself", MILAN, "insert into public.yt_viral_checks(studio_id,video_id,overall,result,source) values($1,$2,10,'{}','ai')", [hh, vid]);
+    await noneAffected("the app cannot change a score", MILAN, "update public.yt_viral_checks set overall=10");
+    await rejects("the app cannot add reference videos", MILAN, "insert into public.yt_reference_videos(studio_id,query,youtube_video_id) values($1,'x','abc123def45')", [hh]);
+    ok("a stranger sees no scores", (await one(STRANGER, "select count(*)::int from public.yt_viral_checks")) === 0);
+    ok("a child sees no reference videos", (await one(CHILD, "select count(*)::int from public.yt_reference_videos")) === 0);
+    ok("a score outside 1-10 is refused", await sys("insert into public.yt_viral_checks(studio_id,video_id,overall,result,source) values($1,$2,11,'{}','rules') returning id", [hh, vid]).then(() => false, () => true));
+    await as(MILAN, "insert into public.yt_jobs(studio_id,video_id,step,idempotency_key) values($1,$2,'viral','viral-test')", [hh, vid]);
+    ok("admin can ask for a Viral-check", (await one(MILAN, "select count(*)::int from public.yt_jobs where idempotency_key='viral-test'")) === 1);
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 
