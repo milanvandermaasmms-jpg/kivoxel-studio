@@ -64,3 +64,17 @@ export function applyHook(
   }
   return { topLine: hook.overlay, hook: hook.first_line, lines, segments, targetMs };
 }
+
+/** A Short opening that wastes the first seconds: a greeting or setup, or too long to say in about 2 seconds. */
+export function weakOpening(line: string): string | null {
+  const t = line.trim().toLowerCase();
+  if (/^(hey|hi|hello|yo|welcome|what'?s up|today|so[ ,]|in this (video|short)|let'?s|did you know|have you ever)/.test(t)) return "begint met een begroeting of aanloop";
+  const words = t.split(/\s+/).filter(Boolean).length;
+  if (words > 9) return `${words} woorden: te lang voor de eerste 2 seconden`;
+  return null;
+}
+
+/** For a Short the first hook is chosen by default: strong openings first, weak ones after (order kept otherwise). */
+export function rankShortHooks(hooks: Hook[]): Hook[] {
+  return [...hooks.filter((h) => !weakOpening(h.first_line)), ...hooks.filter((h) => weakOpening(h.first_line))];
+}

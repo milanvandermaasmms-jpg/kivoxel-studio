@@ -542,6 +542,23 @@ const FORMAT_RULES: Record<Format, string> = {
   C: "Format C, long survival story (horizontal). Cold open with the most exciting moment, then name the goal(s) before 30 s, then tell it from the beginning (\"It all started...\"), one short chapter per moment. Give the first payoff before 0:45, end every chapter with a re-hook (\"But then...\"), and end with a teaser for the next episode.",
 };
 
+/**
+ * The narrator's voice (14-11-2026, Milan): the viewers are kids, so the voice-over is an excited gaming buddy, not a
+ * calm documentary voice. The excitement is about what really happens on screen; nothing is invented.
+ */
+export const NARRATOR_VOICE = [
+  "Audience: kids who love Minecraft (about 8-12 years old). Narrate like their most excited gaming buddy: high energy, warm and friendly, real reactions to what happens.",
+  "Use short punchy sentences, simple words and exclamation marks where the action is; talk to the viewer (\"Look at that!\", \"Watch out!\", \"No way!\"), and let the energy rise toward every payoff.",
+  "Vary the rhythm: a quick burst in the action, one short quieter line before a big moment, then the reaction. Never flat, never sarcastic, never mean, no swearing, nothing gory; no fake hype about things that are not on screen.",
+];
+
+/** Shorts live or die in the first seconds: what the first line, the overlay and the first second must do. */
+export const SHORT_OPENING = [
+  "The first 2 seconds decide whether a kid keeps watching. The very first spoken words start at 0 ms and are the threat or the find itself, as an exclamation (for example \"Three creepers. One heart!\").",
+  "Never open with a greeting, \"in this video\", \"today\", \"so\", a question about the viewer's day, or any setup: the first line is at most 7 words and can be said in under 2 seconds.",
+  "Every hook's first_line follows this rule too, and its overlay is at most 4 words. Put the strongest hook first.",
+];
+
 /** Instructions for the script writer. Every story element must come from the moments (research 6.5: no template text). */
 /** For one part of a story told in parts: what the part before ended with and what the next part starts with. */
 export type SeriesContext = { part: SeriesPart; previous: Moment[]; next: Moment[] };
@@ -567,6 +584,8 @@ export function scriptPrompt(format: Format, promise: string | null, moments: Mo
   return [
     `You write narration for a faceless Minecraft (PS5, Bedrock) YouTube channel, in ${language === "en" ? "English" : "Dutch"}.`,
     FORMAT_RULES[format],
+    ...NARRATOR_VOICE,
+    ...(format === "C" ? [] : SHORT_OPENING),
     ...(series ? seriesRules(series) : []),
     promise ? `Viewer promise: ${promise}` : "",
     "What happens on screen (from the analysis; use only this, invent nothing, never mention real names, gamertags or the player's age):",
