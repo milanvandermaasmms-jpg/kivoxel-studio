@@ -249,12 +249,16 @@ async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, to
     await writeFile(list, files.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
     const start = need[0].globalS;
     const part = join(out, `preview-${k}.mp4`);
-    await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `[0:v]trim=start=${(from - start).toFixed(3)}:duration=${len},setpts=PTS-STARTPTS,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${len - 1}:d=1[v];[1:a]afade=t=in:d=1,afade=t=out:st=${len - 1}:d=1[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
+    // Every piece decoded and joined by the concat filter, then cut by frame number (a copy-join of the pieces gave
+    // frames with doubled timestamps: the preview started in the wrong place and blinked).
+    const startFrame = Math.round((from - start) * FPS), endFrame = Math.round((from - start + len) * FPS);
+    await ff(["-y", "-v", "error", ...files.flatMap((f) => ["-i", f]), "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `${files.map((_, i) => `[${i}:v]`).join("")}concat=n=${files.length}:v=1:a=0,setpts=N/${FPS}/TB,trim=start_frame=${startFrame}:end_frame=${endFrame},setpts=N/${FPS}/TB,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${len - 1}:d=1[v];[${files.length}:a]afade=t=in:d=1,afade=t=out:st=${len - 1}:d=1[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
     parts.push(part);
   }
   const list = join(out, "preview-all.txt");
   await writeFile(list, parts.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
-  await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", join(out, "preview.mp4")]);
+  // One encode over the four parts (the concat filter keeps the clock exact; a copy-join broke the timestamps).
+  await ff(["-y", "-v", "error", ...parts.flatMap((f) => ["-i", f]), "-filter_complex", `${parts.map((_, i) => `[${i}:v][${i}:a]`).join("")}concat=n=${parts.length}:v=1:a=1[v][a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
   log(`Preview (alleen de benodigde stukken): ${join(out, "preview.mp4")}`);
 }
 
