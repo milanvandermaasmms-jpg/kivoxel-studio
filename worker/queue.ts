@@ -12,10 +12,13 @@ import {
   MAX_ANALYSIS_MS,
   parseAnalysis,
   parseScript,
+  parseSeriesKey,
   planVideos,
+  seriesTitles,
+  type SeriesContext,
   scriptPrompt,
   testMoments,
-  TARGET,
+  targetFor,
   testScript,
   type Format,
   type Moment,
@@ -348,6 +351,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   async function analyse(job: Job, lv: Live = NO_LIVE) {
     const row = await recordingRow(job);
     if (row.status !== "ready" || !row.duration_ms) throw new Error("De intake van deze opname is nog niet klaar");
+    const durationMs = row.duration_ms;
+    // Plan again from the moments already found (free, no new analysis): for example to tell a long recording in parts.
+    if (job.payload?.replan === true) {
+      const stored = await db.from("yt_moments").select(MOMENT_COLUMNS).eq("recording_id", row.id).eq("studio_id", job.studio_id).order("start_ms").returns<MomentRow[]>();
+      if (stored.error) throw new Error(stored.error.message);
+      if (!stored.data.length) throw new Error("Deze opname heeft nog geen momenten: analyseer hem eerst");
+      const moments = stored.data.map(fromRow);
+      const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
+      return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source: "replan", rejected: [] as string[] };
+    }
     const { moments: found, rejected } = row.is_test ? { moments: testMoments(row.duration_ms), rejected: [] as string[] } : await aiMoments(job, { ...row, duration_ms: row.duration_ms }, lv);
     const source = row.is_test ? "test" : "ai";
     const rows = found.map((m) => ({
@@ -387,10 +400,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     }
 
-    const plans = planVideos(moments, row.duration_ms, (m) => m.id ?? `${m.kind}:${m.startMs}`);
+    const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
+    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected };
+  }
+
+  /** Plans the videos of a recording and queues a script per video; returns how many videos were planned. */
+  async function planAndQueue(job: Job, recordingId: string, isTest: boolean, durationMs: number, moments: Moment[]): Promise<number> {
+    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`);
+    // Parts that already exist stay as they are: a new analysis must not start a second, differently cut series.
+    if (plans.some((p) => p.part)) {
+      const parts = await db.from("yt_videos").select("id").eq("studio_id", job.studio_id).eq("recording_id", recordingId).like("plan_key", `${recordingId}:C:part:%`).neq("status", "archived").limit(1).returns<{ id: string }[]>();
+      if (parts.error) throw new Error(parts.error.message);
+      if (parts.data.length) plans = plans.filter((p) => !p.part);
+    }
     for (const plan of plans) {
-      const planKey = `${row.id}:${plan.planKey}`;
-      const insert = await db.from("yt_videos").upsert({ studio_id: job.studio_id, recording_id: row.id, format: plan.format, plan_key: planKey, promise: plan.promise, is_test: row.is_test }, { onConflict: "studio_id,plan_key", ignoreDuplicates: true });
+      const planKey = `${recordingId}:${plan.planKey}`;
+      const insert = await db.from("yt_videos").upsert({ studio_id: job.studio_id, recording_id: recordingId, format: plan.format, plan_key: planKey, promise: plan.promise, is_test: isTest }, { onConflict: "studio_id,plan_key", ignoreDuplicates: true });
       if (insert.error) throw new Error(insert.error.message);
       const video = await db.from("yt_videos").select("id").eq("studio_id", job.studio_id).eq("plan_key", planKey).single<{ id: string }>();
       if (video.error) throw new Error(video.error.message);
@@ -399,7 +424,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (linked.error) throw new Error(linked.error.message);
       await queueStep(job.studio_id, { video_id: video.data.id, step: "script", idempotency_key: `script:${video.data.id}:v1`, payload: { version: 1 } });
     }
-    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos: plans.length, source, rejected };
+    return plans.length;
   }
 
   /** Fase C: Milan's comment on the newest earlier version, so the new version changes only what he asks. */
@@ -416,8 +441,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
     const version = Number(job.payload?.version ?? 1);
     if (!Number.isInteger(version) || version < 1) throw new Error("Ongeldige versie");
-    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null };
-    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null };
+    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     const linked = await db.from("yt_video_moments").select(`position, yt_moments(${MOMENT_COLUMNS})`).eq("video_id", video.data.id).order("position").returns<Array<{ position: number; yt_moments: MomentRow }>>();
     if (linked.error) throw new Error(linked.error.message);
@@ -425,18 +450,28 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (!moments.length) throw new Error("Deze video heeft geen momenten");
     // The length of the recording lets the plan take build-up and outcome from just outside the moment.
     const rec = video.data.recording_id ? await db.from("yt_recordings").select("duration_ms").eq("id", video.data.recording_id).maybeSingle<{ duration_ms: number | null }>() : null;
-    const plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined);
+    // One part of a story told in parts: its range comes from the plan key, the neighbours from the recording's other moments.
+    const part = video.data.format === "C" ? parseSeriesKey(video.data.plan_key) : null;
+    let series: SeriesContext | undefined;
+    if (part && video.data.recording_id) {
+      const all = await db.from("yt_moments").select(MOMENT_COLUMNS).eq("recording_id", video.data.recording_id).eq("studio_id", job.studio_id).order("start_ms").returns<MomentRow[]>();
+      if (all.error) throw new Error(all.error.message);
+      const others = all.data.map(fromRow);
+      series = { part, previous: others.filter((m) => m.peakMs < part.startMs).slice(-2), next: others.filter((m) => m.peakMs >= part.endMs).slice(0, 2) };
+    }
+    const plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
     if (video.data.is_test) draft = testScript(plan, moments);
     else {
       if (!ai) throw new Error(NO_KEY);
       await reserve(job, 1);
       const feedback = await previousFeedback(job, video.data.id, version);
-      const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined)));
+      const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series)));
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
       draft = parsed.draft;
     }
+    if (part && draft.titles) draft = { ...draft, titles: seriesTitles(draft.titles, part) };
     const row = {
       studio_id: job.studio_id,
       video_id: video.data.id,
@@ -476,8 +511,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     type ScriptRow = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; hooks?: unknown; loop_line?: string | null; chosen_hook?: number | null };
     const s = await db.from("yt_scripts").select("*").eq("id", scriptId).eq("studio_id", job.studio_id).single<ScriptRow>();
     if (s.error) throw new Error(s.error.message);
-    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string };
-    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null };
+    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     if (!video.data.recording_id) throw new Error("De opname van deze video is verwijderd");
     const rec = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).single<{ fingerprint: string }>();
@@ -605,7 +640,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const items: QcItem[] = qcChecklist(measured.probe, log, {
             format: video.data.format,
             expected: size,
-            targetMs: { min: TARGET[video.data.format].minMs, max: TARGET[video.data.format].maxMs },
+            targetMs: { min: targetFor(video.data.format, video.data.plan_key).minMs, max: targetFor(video.data.format, video.data.plan_key).maxMs },
             firstActionMs: firstActionMs(cut.segments, moments),
             hasVoice: voice.length > 0,
             captionsInSafeZone: true,
