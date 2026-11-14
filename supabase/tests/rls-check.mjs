@@ -982,6 +982,28 @@ if (hasMigration("046")) {
     await as(MILAN, "delete from public.ivar_conversations where id=$1", [conv]);
     ok("deleting a conversation removes its messages", (await one(MILAN, "select count(*)::int from public.ivar_messages")) === 0);
   }
+  // ---------- Ivar insights (migration 055) ----------
+  if (hasMigration("055")) {
+    const ins = (title, week = "2026-W46") => db.query("insert into public.ivar_insights(studio_id,channel_id,kind,title,body,week) values($1,$2,'trend',$3,'b',$4) returning id", [hh, def, title, week]).then((r) => r.rows[0].id);
+    const i1 = await ins("Creepers in caves");
+    let dup = false;
+    try {
+      await ins("Creepers in caves");
+    } catch {
+      dup = true;
+    }
+    ok("the same insight twice in one week is refused", dup);
+    ok("admin sees the insights", (await one(MILAN, "select count(*)::int from public.ivar_insights")) === 1);
+    ok("a stranger sees no insights", (await one(STRANGER, "select count(*)::int from public.ivar_insights")) === 0);
+    await as(MILAN, "update public.ivar_insights set status='accepted' where id=$1", [i1]);
+    ok("admin accepts an insight", (await one(MILAN, "select status from public.ivar_insights where id=$1", [i1])) === "accepted");
+    await rejects("the app cannot rewrite what Ivar found", MILAN, "update public.ivar_insights set body='nep' where id=$1", [i1]);
+    await rejects("the app cannot invent insights", MILAN, "insert into public.ivar_insights(studio_id,channel_id,kind,title,body,week) values($1,$2,'tip','x','y','2026-W46')", [hh, def]);
+    await as(MILAN, "insert into public.yt_jobs(studio_id,step,idempotency_key) values($1,'insight','insight-test')", [hh]);
+    ok("the insight step fits in the queue", (await one(MILAN, "select step from public.yt_jobs where idempotency_key='insight-test'")) === "insight");
+    await as(MILAN, "delete from public.ivar_insights where id=$1", [i1]);
+    ok("admin deletes an insight", (await one(MILAN, "select count(*)::int from public.ivar_insights")) === 0);
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 

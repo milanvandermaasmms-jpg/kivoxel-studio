@@ -602,6 +602,140 @@ async function preparePublish(env: ToolEnv, a: { video_id: string }) {
   return { ready: problems.length === 0, problems, note: "Ivar publiceert niet zelf. Milan controleert en klikt in het publicatiescherm." };
 }
 
+// ---------- wider view ----------
+
+async function overview(env: ToolEnv) {
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const soon = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const [chans, vids, recs, failed, pubs, moments] = await Promise.all([
+    env.db.from("yt_channels").select(CHANNEL_COLUMNS).eq("studio_id", env.studioId).returns<ChannelRow[]>(),
+    env.db.from("yt_videos").select("id, channel_id, status, youtube_video_id").eq("studio_id", env.studioId).neq("status", "archived").limit(2000).returns<{ id: string; channel_id: string | null; status: string; youtube_video_id: string | null }[]>(),
+    env.db.from("yt_recordings").select("id, channel_id, status, label").eq("studio_id", env.studioId).eq("status", "ready").limit(500).returns<{ id: string; channel_id: string | null; status: string; label: string }[]>(),
+    env.db.from("yt_jobs").select("id, step, error").eq("studio_id", env.studioId).eq("status", "failed").neq("step", "assistant").gte("created_at", since).limit(20).returns<{ id: string; step: string; error: string | null }[]>(),
+    env.db.from("yt_publications").select("title, status, publish_at, channel_id").eq("studio_id", env.studioId).in("status", ["queued", "uploading", "processing", "uploaded", "scheduled"]).lte("publish_at", soon).limit(30).returns<{ title: string; status: string; publish_at: string | null; channel_id: string }[]>(),
+    env.db.from("yt_moments").select("recording_id").eq("studio_id", env.studioId).limit(5000).returns<{ recording_id: string }[]>(),
+  ]);
+  const analysed = new Set((moments.data ?? []).map((m) => m.recording_id));
+  const list = (must(chans, "De kanalen") ?? []).filter((c) => !env.channel || c.id === env.channel.id);
+  const per = list.map((c) => {
+    const mine = (vids.data ?? []).filter((v) => v.channel_id === c.id);
+    const count = (s: string[]) => mine.filter((v) => s.includes(v.status)).length;
+    return {
+      channel: c.is_default ? "KIVOXEL" : c.name,
+      te_keuren: count(["scripted", "review"]),
+      montage_bezig: count(["rendering"]),
+      klaar_voor_youtube: count(["approved"]),
+      ingepland: count(["scheduled"]),
+      live: mine.filter((v) => v.youtube_video_id).length,
+      mislukt: count(["failed"]),
+      opnames_zonder_analyse: (recs.data ?? []).filter((r) => r.channel_id === c.id && !analysed.has(r.id)).map((r) => r.label).slice(0, 10),
+      komende_week: (pubs.data ?? []).filter((p) => p.channel_id === c.id).map((p) => ({ title: p.title, status: p.status, at: p.publish_at })),
+    };
+  });
+  return { channels: per, failed_steps_last_week: (failed.data ?? []).map((j) => ({ id: j.id, step: j.step, error: j.error })) };
+}
+
+async function costs(env: ToolEnv) {
+  const now = new Date();
+  const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+  const [settings, rows] = await Promise.all([
+    env.db.from("yt_settings").select("paid_processing_enabled, monthly_cap_cents").eq("studio_id", env.studioId).maybeSingle<{ paid_processing_enabled: boolean; monthly_cap_cents: number }>(),
+    env.db.from("yt_costs").select("amount_cents, category, service, is_estimate, currency").eq("studio_id", env.studioId).gte("incurred_on", month).limit(5000).returns<{ amount_cents: number; category: string; service: string; is_estimate: boolean; currency: string }[]>(),
+  ]);
+  const eur = (rows.data ?? []).filter((r) => r.currency === "EUR");
+  const sum = (f: (r: (typeof eur)[number]) => boolean) => eur.filter(f).reduce((s, r) => s + r.amount_cents, 0);
+  const total = sum(() => true);
+  const cap = settings.data?.monthly_cap_cents ?? 0;
+  return {
+    month,
+    paid_processing: settings.data?.paid_processing_enabled === true,
+    cap_cents: cap,
+    spent_cents: total,
+    left_cents: Math.max(0, cap - total),
+    ivar_cents: sum((r) => /Ivar/.test(r.service)),
+    analysis_other_cents: sum((r) => r.category === "analysis" && !/Ivar/.test(r.service)),
+    other_cents: sum((r) => r.category !== "analysis"),
+    still_estimates: eur.filter((r) => r.is_estimate).length,
+    note: "Bedragen in eurocenten. Schattingen worden na de stap vervangen door het echte bedrag.",
+  };
+}
+
+async function schedule(env: ToolEnv, a: { days?: number }) {
+  const until = new Date(Date.now() + (a.days ?? 14) * 86_400_000).toISOString();
+  let q = env.db.from("yt_publications").select("title, status, visibility, publish_at, channel_id").eq("studio_id", env.studioId).not("publish_at", "is", null).lte("publish_at", until).neq("status", "draft");
+  if (env.channel) q = q.eq("channel_id", env.channel.id);
+  const pubs = must(await q.order("publish_at").limit(40).returns<{ title: string; status: string; visibility: string; publish_at: string; channel_id: string }[]>(), "De planning") ?? [];
+  let dn: unknown[] = [];
+  if (env.dreamnest) {
+    let d = env.db.from("dn_publications").select("title, status, kind, publish_at, channel_id").eq("studio_id", env.studioId).not("publish_at", "is", null).lte("publish_at", until);
+    if (env.channel) d = d.eq("channel_id", env.channel.id);
+    dn = (await d.order("publish_at").limit(40).returns<unknown[]>()).data ?? [];
+  }
+  const slots = env.channel ? ((await env.db.from("yt_channels").select("publish_slots").eq("id", env.channel.id).maybeSingle<{ publish_slots: string[] | null }>()).data?.publish_slots ?? []) : [];
+  return { kivoxel: pubs, dreamnest: dn, fixed_times: slots, note: pubs.length + dn.length ? null : "Er staat in deze periode niets gepland." };
+}
+
+async function listIdeas(env: ToolEnv, a: { status?: string }) {
+  const ch = requireChannel(env);
+  let q = env.db.from("ivar_ideas").select("id, title, premise, status, created_at").eq("studio_id", env.studioId).eq("channel_id", ch.id);
+  if (a.status) q = q.eq("status", a.status);
+  return (must(await q.order("created_at", { ascending: false }).limit(25).returns<{ id: string; title: string; premise: string; status: string; created_at: string }[]>(), "De ideeën") ?? []).map((i) => ({ ...i, premise: i.premise.slice(0, 200) }));
+}
+
+async function getInsights(env: ToolEnv, a: { kind?: string }) {
+  const ch = requireChannel(env);
+  let q = env.db.from("ivar_insights").select("id, kind, title, body, suggestion, evidence, confidence, status, week").eq("studio_id", env.studioId).eq("channel_id", ch.id).neq("status", "dismissed");
+  if (a.kind) q = q.eq("kind", a.kind);
+  const rows = must(await q.order("created_at", { ascending: false }).limit(12).returns<Record<string, unknown>[]>(), "De inzichten") ?? [];
+  const last = await env.db.from("yt_jobs").select("status, finished_at, result, error").eq("studio_id", env.studioId).eq("step", "insight").eq("channel_id", ch.id).order("created_at", { ascending: false }).limit(1).maybeSingle<{ status: string; finished_at: string | null; result: unknown; error: string | null }>();
+  return { channel: ch.name, insights: rows, last_run: last.data ?? "Nog nooit gedraaid (gebeurt wekelijks vanzelf zodra betaalde verwerking aan staat)." };
+}
+
+async function refreshInsights(env: ToolEnv) {
+  const ch = requireChannel(env);
+  if (!(await paidEnabled(env))) return { started: false, blocked: "Betaalde verwerking staat uit (Instellingen > Analyse)." };
+  const running = must(await env.db.from("yt_jobs").select("id").eq("studio_id", env.studioId).eq("step", "insight").eq("channel_id", ch.id).in("status", ["queued", "running"]).limit(1).returns<{ id: string }[]>(), "De wachtrij");
+  if (running?.length) {
+    taskCard(env, running[0].id, "Trends en leren");
+    return { started: false, already_running: true };
+  }
+  env.cards.push({ type: "confirm", action: "insights", targetId: ch.id, label: `Trends en lessen voor ${ch.name}`, text: "Ivar bekijkt de referentievideo's in de niche, onze cijfers en jouw keuzes, en schrijft een paar inzichten met bewijs.", estimateCents: 2, estimate: true });
+  return { started: false, needs_confirmation: true, estimate_cents: 2 };
+}
+
+async function regenerateScript(env: ToolEnv, a: { video_id: string; note: string }) {
+  const v = await video(env, a.video_id);
+  if (v.youtube_video_id) fail("Deze video staat al op YouTube.");
+  const running = await activeJob(env, "video_id", v.id, "script");
+  if (running) {
+    taskCard(env, running.id, "Script schrijven");
+    return { started: false, already_running: true };
+  }
+  const max = must(await env.db.from("yt_scripts").select("version").eq("video_id", v.id).order("version", { ascending: false }).limit(1).maybeSingle<{ version: number }>(), "De scriptversie");
+  const version = (max?.version ?? 0) + 1;
+  if (v.is_test) {
+    const job = await queueJob(env, { video_id: v.id, step: "script", idempotency_key: `script:${v.id}:v${version}`, payload: { version, note: a.note } });
+    taskCard(env, job.id, "Script schrijven (testdata, gratis)");
+    return { started: !job.existed, version };
+  }
+  env.cards.push({ type: "confirm", action: "script", targetId: v.id, label: `Nieuw script (versie ${version}) voor "${videoLabel(v)}"`, text: `Aanwijzing: ${a.note}`, estimateCents: 1, estimate: true, note: a.note, version });
+  return { started: false, needs_confirmation: true, version, estimate_cents: 1 };
+}
+
+async function approveScript(env: ToolEnv, a: { video_id: string; version?: number }) {
+  const v = await video(env, a.video_id);
+  if (v.youtube_video_id) fail("Deze video staat al op YouTube.");
+  let q = env.db.from("yt_scripts").select("id, version, status").eq("video_id", v.id).eq("studio_id", env.studioId);
+  q = a.version ? q.eq("version", a.version) : q.order("version", { ascending: false }).limit(1);
+  const s = must(await q.maybeSingle<{ id: string; version: number; status: string }>(), "Het script");
+  if (!s) fail(a.version ? `Versie ${a.version} bestaat niet.` : "Er is nog geen script.");
+  if (s!.status === "approved") return { approved: true, version: s!.version, note: "Was al goedgekeurd." };
+  must(await env.db.from("yt_scripts").update({ status: "draft" }).eq("video_id", v.id).eq("status", "approved"), "Vorige goedkeuring");
+  must(await env.db.from("yt_scripts").update({ status: "approved" }).eq("id", s!.id), "Goedkeuren");
+  await env.db.from("yt_videos").update({ status: "scripted" }).eq("id", v.id).in("status", ["review", "approved"]);
+  return { approved: true, version: s!.version, note: "Goedgekeurd. Een bestaande montage moet opnieuw; vraag 'start de montage' als je die nu wilt." };
+}
+
 type Handler = (env: ToolEnv, args: never) => Promise<unknown>;
 const HANDLERS: Record<string, Handler> = {
   list_channels: listChannels,
@@ -626,6 +760,14 @@ const HANDLERS: Record<string, Handler> = {
   cancel_task: cancelTask as Handler,
   retry_task: retryTask as Handler,
   prepare_publish: preparePublish as Handler,
+  get_studio_overview: overview,
+  get_costs: costs,
+  get_schedule: schedule as Handler,
+  list_ideas: listIdeas as Handler,
+  get_insights: getInsights as Handler,
+  refresh_insights: refreshInsights,
+  regenerate_script: regenerateScript as Handler,
+  approve_script: approveScript as Handler,
 };
 export const HANDLER_NAMES = Object.keys(HANDLERS);
 
@@ -652,6 +794,14 @@ const SUMMARY: Record<string, string> = {
   cancel_task: "Stap annuleren",
   retry_task: "Stap opnieuw",
   prepare_publish: "Publicatie gecontroleerd",
+  get_studio_overview: "Studio-overzicht bekeken",
+  get_costs: "Kosten bekeken",
+  get_schedule: "Planning bekeken",
+  list_ideas: "Ideeën bekeken",
+  get_insights: "Inzichten gelezen",
+  refresh_insights: "Trends en lessen",
+  regenerate_script: "Nieuw script",
+  approve_script: "Script goedgekeurd",
 };
 export const STATUS_NOTE: Record<string, string> = {
   list_channels: "Bekijkt de kanalen",
@@ -665,6 +815,10 @@ export const STATUS_NOTE: Record<string, string> = {
   start_render: "Zet de montage klaar",
   start_analysis: "Bekijkt de analyse",
   propose_edit: "Maakt een editvoorstel",
+  get_studio_overview: "Bekijkt de studio",
+  get_insights: "Leest de trends",
+  get_costs: "Bekijkt de kosten",
+  get_schedule: "Bekijkt de planning",
 };
 
 /** Runs one tool call from the model. Never throws: the model always gets a structured answer. */

@@ -30,7 +30,7 @@ import { createIvarLane } from "./ivar/lane.ts";
 import { createIvarModel } from "./ivar/model.ts";
 import { DEFAULT_MODEL } from "./gemini.ts";
 
-const VERSION = "64.0";
+const VERSION = "65.0";
 
 function loadEnv(file: string) {
   if (!existsSync(file)) return;
@@ -156,6 +156,7 @@ const ivar = queue
       workerName,
       log,
       model: env.GEMINI_API_KEY ? createIvarModel(env.GEMINI_API_KEY, env.GEMINI_MODEL || DEFAULT_MODEL) : null,
+      json: ai?.gemini ?? null,
       poke: () => queue.poke(),
       dreamnest: dreamnestEnabled(env),
     })

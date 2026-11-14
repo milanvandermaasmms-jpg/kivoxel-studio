@@ -3,7 +3,7 @@
 // running or done is read live from the database, never from the chat text.
 import { AlertTriangle, Check, CircleSlash, ExternalLink, Loader2, RotateCcw, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { queueAnalysis, queueSeries } from "@/lib/youtube/analysisData";
+import { queueAnalysis, queueSeries, regenerateScript } from "@/lib/youtube/analysisData";
 import { requestViral } from "@/lib/youtube/viralData";
 import { createEpisode } from "@/lib/dreamnest/data";
 import { WORKER_URL } from "@/lib/youtube/protocol";
@@ -331,8 +331,17 @@ function ConfirmCard({ card, ctx }: { card: Extract<Card, { type: "confirm" }>; 
   const go = () =>
     a.run(async () => {
       const r =
-        card.action === "series" ? await queueSeries(ctx.studioId, card.targetId) : card.action === "quality" ? (await requestViral(ctx.studioId, card.targetId), "queued") : await queueAnalysis(ctx.studioId, card.targetId, card.action === "analyse_again");
-      await data.logClick(ctx.studioId, ctx.conversationId, card.action === "quality" ? "start_quality_check" : "start_analysis", `${card.label} bevestigd${card.estimateCents !== null ? ` (± ${euro(card.estimateCents)})` : ""}`);
+        card.action === "series"
+          ? await queueSeries(ctx.studioId, card.targetId)
+          : card.action === "quality"
+            ? (await requestViral(ctx.studioId, card.targetId), "queued")
+            : card.action === "insights"
+              ? (await data.queueInsights(ctx.studioId, card.targetId), "queued")
+              : card.action === "script"
+                ? (await regenerateScript(ctx.studioId, card.targetId, card.version ?? 1, card.note), "queued")
+                : await queueAnalysis(ctx.studioId, card.targetId, card.action === "analyse_again");
+      const tool = { quality: "start_quality_check", insights: "refresh_insights", script: "regenerate_script" }[card.action as string] ?? "start_analysis";
+      await data.logClick(ctx.studioId, ctx.conversationId, tool, `${card.label} bevestigd${card.estimateCents !== null ? ` (± ${euro(card.estimateCents)})` : ""}`);
       void data.pokeWorker();
       setDone(r === "exists" ? "Stond al in de wachtrij." : "In de wachtrij gezet. Volg het bij In productie of vraag Ivar naar de voortgang.");
     });

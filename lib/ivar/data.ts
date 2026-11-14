@@ -201,3 +201,33 @@ export async function projectOptions(studioId: string, channelId: string, dreamn
     ...(vids.data ?? []).map((v) => ({ kind: "video" as const, id: v.id, label: (v.title || named.get(v.id) || v.promise || (v.format === "C" ? "Lange video" : "Short")).slice(0, 80), sub: v.format === "C" ? "Lange video" : "Short" })),
   ];
 }
+
+// ---------- insights (migration 055) ----------
+
+export type InsightRow = { id: string; channel_id: string; kind: "trend" | "learning" | "tip"; title: string; body: string; suggestion: string | null; evidence: string[]; confidence: "low" | "medium" | "high"; status: "new" | "seen" | "accepted" | "dismissed"; week: string; created_at: string };
+export async function loadInsights(studioId: string, channelId: string | null): Promise<InsightRow[]> {
+  let q = supabase.from("ivar_insights").select("id, channel_id, kind, title, body, suggestion, evidence, confidence, status, week, created_at").eq("studio_id", studioId).neq("status", "dismissed");
+  if (channelId) q = q.eq("channel_id", channelId);
+  const { data, error } = await q.order("created_at", { ascending: false }).limit(40).returns<InsightRow[]>();
+  if (error) throw err(error);
+  return data ?? [];
+}
+export async function setInsightStatus(ids: string[], status: InsightRow["status"]): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase.from("ivar_insights").update({ status }).in("id", ids);
+  if (error) throw err(error);
+}
+export async function deleteInsight(id: string): Promise<void> {
+  const { error } = await supabase.from("ivar_insights").delete().eq("id", id);
+  if (error) throw err(error);
+}
+/** "Nu vernieuwen": the same weekly step, now (± 2 cent within the monthly cap). */
+export async function queueInsights(studioId: string, channelId: string): Promise<void> {
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, channel_id: channelId, step: "insight", idempotency_key: `insight:${channelId}:manual:${new Date().toISOString().slice(0, 16)}`, payload: { channel_id: channelId }, max_attempts: 2 });
+  if (error && error.code !== "23505") throw err(error);
+  void pokeWorker();
+}
+export async function lastInsightRun(studioId: string, channelId: string): Promise<{ status: string; finished_at: string | null; error: string | null; result: { skipped?: string; saved?: number } | null } | null> {
+  const { data } = await supabase.from("yt_jobs").select("status, finished_at, error, result").eq("studio_id", studioId).eq("step", "insight").eq("channel_id", channelId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  return (data as never) ?? null;
+}

@@ -2,7 +2,7 @@
 // Ivar — Studio Assistant: always reachable from the shared shell (bottom right) on every studio page. The panel keeps
 // its conversation while navigating; minimising never stops a task. Answers come from the worker on the pc through the
 // normal queue (yt_jobs, step 'assistant'); this file only shows them and calls real, permission-checked functions.
-import { Brain, ChevronRight, History, Loader2, Maximize2, MessageSquarePlus, Minimize2, Minus, Pencil, RotateCcw, Search, Send, Square, Trash2, X } from "lucide-react";
+import { Brain, ChevronRight, Lightbulb, History, Loader2, Maximize2, MessageSquarePlus, Minimize2, Minus, Pencil, RotateCcw, Search, Send, Square, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStudio } from "@/lib/studio";
 import { supabase } from "@/lib/supabase";
@@ -15,6 +15,7 @@ import { suggestions, type ProjectState } from "@/lib/ivar/suggest";
 import { launcherSignal, taskView, type JobRow, type LauncherSignal } from "@/lib/ivar/tasks";
 import { clientKey, sameTarget, scopeOf, scopeTrail, type Card, type ChannelKind, type Conversation, type Idea, type MemoryItem, type Message, type Revision, type Scope } from "@/lib/ivar/types";
 import { IvarCard, TaskCard, type CardCtx, type CardLive } from "./IvarCards";
+import { InsightsView } from "./IvarInsights";
 
 type ChannelInfo = { id: string; name: string; is_default: boolean; slug: string | null; safety_profile: string | null; status: string };
 const displayName = (c: ChannelInfo | undefined | null) => (c ? (c.is_default ? "KIVOXEL" : c.name) : null);
@@ -74,7 +75,8 @@ function IvarShell({ studioId }: { studioId: string }) {
   const page = usePageContext();
   const [open, setOpenState] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [view, setView] = useState<"chat" | "history" | "memory" | "scope">("chat");
+  const [view, setView] = useState<"chat" | "history" | "memory" | "scope" | "insights">("chat");
+  const [newInsights, setNewInsights] = useState(0);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [convId, setConvIdState] = useState<string | null>(null);
   const [conv, setConv] = useState<Conversation | null>(null);
@@ -252,6 +254,21 @@ function IvarShell({ studioId }: { studioId: string }) {
     };
   }, [open, expanded, mobile]);
 
+  // New weekly insights (Ivar found them on his own): a quiet green dot, never a pop-up.
+  const countInsights = useCallback(() => {
+    void supabase
+      .from("ivar_insights")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", studioId)
+      .eq("status", "new")
+      .then(({ count }) => setNewInsights(count ?? 0));
+  }, [studioId]);
+  useEffect(() => {
+    countInsights();
+    const id = setInterval(() => pageVisible() && countInsights(), 5 * 60_000);
+    return () => clearInterval(id);
+  }, [countInsights]);
+
   // ---------- launcher signal ----------
   const signal: LauncherSignal = useMemo(
     () =>
@@ -262,6 +279,7 @@ function IvarShell({ studioId }: { studioId: string }) {
       ),
     [live.jobs, messages, seenAt],
   );
+  const shownSignal: LauncherSignal = signal === "idle" && newInsights > 0 ? "ready" : signal;
 
   // ---------- keyboard ----------
   useEffect(() => {
@@ -288,7 +306,7 @@ function IvarShell({ studioId }: { studioId: string }) {
   const sendRef = useRef<((text: string) => Promise<boolean>) | null>(null);
 
   const panelStyle: React.CSSProperties = mobile ? { height: vvh ? `${vvh}px` : "100dvh" } : {};
-  const statusText = signal === "busy" ? "taak bezig" : signal === "ready" ? "resultaat klaar" : signal === "attention" ? "heeft aandacht nodig" : "";
+  const statusText = shownSignal === "busy" ? "taak bezig" : shownSignal === "ready" ? (signal === "idle" ? `${newInsights} nieuwe inzichten` : "resultaat klaar") : shownSignal === "attention" ? "heeft aandacht nodig" : "";
 
   return (
     <>
@@ -303,9 +321,9 @@ function IvarShell({ studioId }: { studioId: string }) {
           style={{ right: "max(1rem, env(safe-area-inset-right))", bottom: "max(1rem, env(safe-area-inset-bottom))" }}
         >
           <Avatar size={40} />
-          {signal !== "idle" && (
-            <span aria-hidden className={`absolute right-0.5 top-0.5 h-3.5 w-3.5 rounded-full border-2 border-surface ${signal === "busy" ? "bg-violet-500" : signal === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}>
-              {signal === "busy" && <span className="absolute inset-[-4px] rounded-full border-2 border-violet-400/60 border-t-transparent motion-safe:animate-spin [animation-duration:2.4s]" />}
+          {shownSignal !== "idle" && (
+            <span aria-hidden className={`absolute right-0.5 top-0.5 h-3.5 w-3.5 rounded-full border-2 border-surface ${shownSignal === "busy" ? "bg-violet-500" : shownSignal === "ready" ? "bg-emerald-500" : "bg-amber-500"}`}>
+              {shownSignal === "busy" && <span className="absolute inset-[-4px] rounded-full border-2 border-violet-400/60 border-t-transparent motion-safe:animate-spin [animation-duration:2.4s]" />}
             </span>
           )}
         </button>
@@ -333,6 +351,12 @@ function IvarShell({ studioId }: { studioId: string }) {
             <h2 className="ml-1 min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">Ivar — Studio Assistant</h2>
             <IconButton label="Gesprekken" onClick={() => setView(view === "history" ? "chat" : "history")} active={view === "history"}>
               <History className="h-4 w-4" />
+            </IconButton>
+            <IconButton label={newInsights ? `Inzichten (${newInsights} nieuw)` : "Inzichten en trends"} onClick={() => setView(view === "insights" ? "chat" : "insights")} active={view === "insights"}>
+              <span className="relative">
+                <Lightbulb className="h-4 w-4" />
+                {newInsights > 0 && <span aria-hidden className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-emerald-500" />}
+              </span>
             </IconButton>
             <IconButton label="Geheugen" onClick={() => setView(view === "memory" ? "chat" : "memory")} active={view === "memory"}>
               <Brain className="h-4 w-4" />
@@ -367,6 +391,18 @@ function IvarShell({ studioId }: { studioId: string }) {
           )}
 
           {view === "history" && <HistoryView studioId={studioId} channels={channels} currentChannel={page.channelId} active={convId} onOpen={(id) => (setConvId(id), setView("chat"))} onDeleted={(id) => id === convId && newConversation()} />}
+          {view === "insights" && (
+            <InsightsView
+              studioId={studioId}
+              channelId={scope.channelId}
+              channelName={scope.channelName ?? null}
+              onSeen={countInsights}
+              onAsk={(text) => {
+                setView("chat");
+                setTimeout(() => void sendRef.current?.(text), 50);
+              }}
+            />
+          )}
           {view === "memory" && <MemoryView studioId={studioId} channels={channels} scope={scope} />}
           {view === "scope" && (
             <ScopeView

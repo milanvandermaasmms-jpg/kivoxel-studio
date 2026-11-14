@@ -4,7 +4,7 @@
 export type Intent = "action" | "progress" | "brainstorm" | "question";
 
 const ACTION = [
-  /\b(maak|maken|start|begin|render|renderen|monteer|analyseer|analyseren|zet|pas\b.*\btoe|verander|wijzig|herschrijf|kort\b.*\bin|korter|langer|annuleer|stop de|probeer\b.*\bopnieuw|vertel\b.*\bin delen|sla\b.*\bop|bewaar|onthoud|plan|verwijder|knip|haal\b.*\bweg|controleer|check)\b/i,
+  /\b(keur|goedkeuren|schrijf|zoek|vernieuw|maak|maken|start|begin|render|renderen|monteer|analyseer|analyseren|zet|pas\b.*\btoe|verander|wijzig|herschrijf|kort\b.*\bin|korter|langer|annuleer|stop de|probeer\b.*\bopnieuw|vertel\b.*\bin delen|sla\b.*\bop|bewaar|onthoud|plan|verwijder|knip|haal\b.*\bweg|controleer|check)\b/i,
   /\b(make|create|start|render|analy[sz]e|apply|change|rewrite|shorten|cancel|retry|save|remember|cut|trim|check)\b/i,
 ];
 const PROGRESS = /\b(waar is|hoe ver|hoe lang nog|status|voortgang|al klaar|is .* klaar|bezig met|loopt er)\b|\bprogress\b/i;

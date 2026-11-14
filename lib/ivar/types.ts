@@ -94,7 +94,7 @@ export type Card =
   | { type: "concept"; ideaId: string; channelId: string; channelKind: ChannelKind; title: string; premise: string; opening: string; sourceMaterial: string; shorts: string[] }
   | { type: "render"; videoId: string; renderId: string; fileName: string; durationMs: number; width: number; height: number; createdAt: string; checks: { label: string; ok: boolean | null }[]; voice: string | null }
   | { type: "task"; queue: "yt" | "dn"; jobId: string; label: string }
-  | { type: "confirm"; action: "analyse" | "analyse_again" | "series" | "quality"; targetId: string; label: string; text: string; estimateCents: number | null; estimate: boolean }
+  | { type: "confirm"; action: "analyse" | "analyse_again" | "series" | "quality" | "insights" | "script"; targetId: string; label: string; text: string; estimateCents: number | null; estimate: boolean; note?: string; version?: number }
   | { type: "edit"; videoId: string; scriptId: string; version: number; removedMs: number; cuts: [number, number][]; note: string }
   | { type: "script"; videoId: string; scriptId: string; version: number; changed: number; note: string }
   | { type: "memory"; content: string; channelId: string | null; projectKind: ProjectKind | null; projectId: string | null; question: string; saved: boolean }

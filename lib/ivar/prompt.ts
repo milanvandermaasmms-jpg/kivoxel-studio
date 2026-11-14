@@ -11,6 +11,8 @@ export type PromptContext = {
   page: string | null;
   memory: { scope: string; content: string }[];
   tasks: string[];
+  /** Ivar's own weekly insights for this channel (advice with evidence, not a preference). */
+  insights?: string[];
   intent: Intent;
   today: string;
 };
@@ -41,6 +43,7 @@ export function systemPrompt(c: PromptContext): string {
     "- Geheugen: alleen blijvende voorkeuren (schrijfstijl, taal, stem, visuele identiteit). Een brainstormidee is geen voorkeur. Twijfel je of iets voor het hele kanaal geldt, gebruik save_memory met confirmed=false.",
     "- Kanalen nooit mengen: gegevens van het ene kanaal gebruik je niet voor het andere.",
     `- Niet beschikbaar (zeg dat eerlijk): ${NOT_AVAILABLE.join("; ")}.`,
+    "- Trends en advies: gebruik get_insights (wekelijkse trends uit echte YouTube-referentievideo's en lessen uit Milans keuzes). Noem de bron en hoe zeker het is. Bij \"wat moet ik vandaag doen?\": get_studio_overview.",
     "- Houd antwoorden kort (meestal onder 150 woorden). Gebruik tijdcodes als m:ss.",
     "",
     `Kanalen: ${c.channels.map((ch) => `${ch.name} (${ch.kind}${ch.status !== "active" ? `, ${ch.status}` : ""})`).join(", ") || "geen"}.`,
@@ -51,6 +54,7 @@ export function systemPrompt(c: PromptContext): string {
   if (c.project) lines.push("", `Geopend project (${c.project.kind}, id ${c.project.id}): ${c.project.label}`, c.project.summary);
   if (c.memory.length) lines.push("", "Vastgelegde voorkeuren (geheugen):", ...c.memory.map((m) => `- [${m.scope}] ${m.content}`));
   if (c.tasks.length) lines.push("", "Lopende stappen:", ...c.tasks.map((t) => `- ${t}`));
+  if (c.insights?.length) lines.push("", "Ivars eigen inzichten van de laatste weken (advies met bewijs, gebruik ze als het past, noem dat het een inzicht is):", ...c.insights.map((t) => `- ${t}`));
   lines.push(
     "",
     c.intent === "brainstorm"

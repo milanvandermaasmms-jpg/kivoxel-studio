@@ -11,6 +11,7 @@ import { taskView, type JobRow } from "../../lib/ivar/tasks.ts";
 import type { Card, ProjectKind } from "../../lib/ivar/types.ts";
 import { CHANNEL_COLUMNS, channelKind, memoryFor, readProject, runTool, STATUS_NOTE, type ChannelRow, type ToolEnv } from "./tools.ts";
 import type { IvarModel, Turn } from "./model.ts";
+import { runInsight, scheduleInsights, type JsonModel } from "./insights.ts";
 
 type Job = { id: string; studio_id: string; step: string; attempts: number; max_attempts: number; payload: Record<string, unknown> | null };
 type ConvRow = { id: string; studio_id: string; channel_id: string | null; project_kind: ProjectKind | null; project_id: string | null; project_label: string | null };
@@ -49,7 +50,7 @@ export function cardNote(c: Card): string {
   }
 }
 
-export function createIvarLane(opts: { db: SupabaseClient; workerName: string; log: (msg: string) => void; model: IvarModel | null; poke?: () => void; dreamnest: boolean; intervalMs?: number }) {
+export function createIvarLane(opts: { db: SupabaseClient; workerName: string; log: (msg: string) => void; model: IvarModel | null; json?: JsonModel | null; poke?: () => void; dreamnest: boolean; intervalMs?: number }) {
   const { db, workerName, log, model } = opts;
   let busy = false;
   let timer: NodeJS.Timeout | null = null;
@@ -66,6 +67,12 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
     const { data } = await db.from("yt_costs").select("id, amount_cents, is_estimate").eq("job_id", job.id).eq("category", "analysis").maybeSingle<{ id: string; amount_cents: number; is_estimate: boolean }>();
     if (!data) return;
     await db.from("yt_costs").update({ amount_cents: data.is_estimate ? cents : data.amount_cents + cents, is_estimate: false, description: `Ivar: ${usage.inputTokens} invoer- en ${usage.outputTokens} uitvoertokens` }).eq("id", data.id);
+  }
+
+  /** What Ivar found in the last weeks for this channel: advice, shown as such (not a preference). */
+  async function recentInsights(channelId: string): Promise<string[]> {
+    const r = await db.from("ivar_insights").select("kind, title, suggestion, status, week").eq("channel_id", channelId).neq("status", "dismissed").order("created_at", { ascending: false }).limit(6).returns<{ kind: string; title: string; suggestion: string | null; status: string; week: string }[]>();
+    return (r.data ?? []).map((i) => `[${i.kind}, ${i.week}${i.status === "accepted" ? ", door Milan omarmd" : ""}] ${i.title}${i.suggestion ? ` → ${i.suggestion}` : ""}`);
   }
 
   async function context(env: ToolEnv, conv: ConvRow, scope: Record<string, unknown>, channels: ChannelRow[]): Promise<PromptContext> {
@@ -93,6 +100,7 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
         const t = taskView(j, "yt");
         return `${t.name}: ${t.statusLabel}${t.percent !== null ? ` (${t.percent}%)` : ""} (id ${j.id})`;
       }),
+      insights: env.channel ? await recentInsights(env.channel.id) : [],
       intent: env.intent,
       today: new Date().toLocaleDateString("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "long", day: "numeric", month: "long", year: "numeric" }),
     };
@@ -221,10 +229,22 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
     try {
       await sweep().catch((e) => log(`Ivar: opruimen mislukt: ${e instanceof Error ? e.message : String(e)}`));
       for (;;) {
-        const { data, error } = await db.rpc("claim_yt_job", { p_worker: workerName, p_steps: ["assistant"] });
+        const { data, error } = await db.rpc("claim_yt_job", { p_worker: workerName, p_steps: ["assistant", "insight"] });
         if (error) return log(`Ivar: wachtrij niet bereikbaar: ${error.message}`);
         const job = (data as Job[] | null)?.[0];
         if (!job) return;
+        if (job.step === "insight") {
+          log(`Ivar zoekt trends en leert (${job.id})`);
+          try {
+            const result = await runInsight(db, opts.json ?? null, job);
+            await finishJob(job, { status: "done", result, error: null });
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            const again = job.attempts < job.max_attempts && !/betaalde verwerking|maandplafond|GEMINI_API_KEY/i.test(message);
+            await finishJob(job, again ? { status: "queued", error: message.slice(0, 500), finished_at: null } : { status: "failed", error: message.slice(0, 500) });
+          }
+          continue;
+        }
         log(`Ivar beantwoordt een bericht (${job.id})`);
         try {
           await answer(job);
@@ -242,7 +262,12 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
     start() {
       void tick();
       timer = setInterval(() => void tick(), opts.intervalMs ?? 3000);
+      // On his own: once a week per channel trends and lessons (checked a minute after start and every 6 hours).
+      const plan = () => void scheduleInsights(db, log).then((n) => n && (log(`Ivar: ${n} kanaal/kanalen ingepland voor trends en leren`), void tick())).catch(() => undefined);
+      setTimeout(plan, 60_000);
+      setInterval(plan, 6 * 3_600_000);
     },
+    scheduleInsights: () => scheduleInsights(db, log),
     stop() {
       if (timer) clearInterval(timer);
     },

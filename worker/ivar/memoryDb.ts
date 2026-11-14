@@ -71,6 +71,7 @@ export function memoryDb(tables: Tables = {}, rpcs: Record<string, RpcFn> = {}) 
       upsert: (v: Row | Row[]) => ((op = "insert"), (values = v), chain),
       eq: (c: string, v: unknown) => (preds.push((r) => r[c] === v), chain),
       neq: (c: string, v: unknown) => (preds.push((r) => r[c] !== v), chain),
+      not: (c: string, op: string, v: unknown) => (preds.push((r) => (op === "is" && v === null ? r[c] != null : r[c] !== v)), chain),
       in: (c: string, v: unknown[]) => (preds.push((r) => v.includes(r[c])), chain),
       is: (c: string, v: unknown) => (preds.push((r) => (v === null ? r[c] == null : r[c] === v)), chain),
       lte: (c: string, v: unknown) => (preds.push((r) => String(r[c]) <= String(v)), chain),

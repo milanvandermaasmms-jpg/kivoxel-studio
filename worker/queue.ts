@@ -35,6 +35,8 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
+import { nicheQueries } from "../lib/ivar/insights.ts";
+import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName, renderSize, segmentOverlays, srtFileName, type VoiceClip } from "../lib/youtube/render.ts";
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
@@ -1049,10 +1051,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (!research) throw new Error("YouTube is niet gekoppeld op deze pc; referentievideo's ophalen kan niet");
     const channelId = typeof job.payload?.channel_id === "string" ? job.payload.channel_id : null;
     if (!channelId) throw new Error("Geen kanaal opgegeven");
-    const ch = await db.from("yt_channels").select("language").eq("id", channelId).single<{ language: "en" | "nl" }>();
+    const ch = await db.from("yt_channels").select("language, is_default, slug, safety_profile").eq("id", channelId).single<{ language: "en" | "nl"; is_default: boolean; slug: string | null; safety_profile: string | null }>();
     if (ch.error) throw new Error(ch.error.message);
     const pref = await db.from("studio_preferences").select("value").eq("studio_id", job.studio_id).eq("channel_id", channelId).eq("key", "reference_queries").maybeSingle<{ value: unknown }>();
-    const queries = Array.isArray(pref.data?.value) && pref.data.value.length ? (pref.data.value as string[]).slice(0, 3) : defaultQueries(ch.data.language);
+    const queries = Array.isArray(pref.data?.value) && pref.data.value.length ? (pref.data.value as string[]).slice(0, 3) : (nicheQueries(isDreamnestChannel({ id: channelId, ...ch.data }) ? "dreamnest" : "kivoxel", ch.data.language) ?? defaultQueries(ch.data.language));
     let saved = 0;
     for (const query of queries) {
       const found = (await research.search(query, ch.data.language)).filter((v) => v.views > 0).sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0)).slice(0, 20);

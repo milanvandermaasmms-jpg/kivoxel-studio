@@ -53,6 +53,18 @@ Conceptwijzigingen gaan via `ivar_revisions`: de knoppen *Als concept toepassen*
 `ivar_apply_revision` / `ivar_revert_revision` aan. Die weigeren als het concept intussen door iemand anders is
 gewijzigd, of als de video al op YouTube staat.
 
+## Zelfstandig leren en trends (migratie 055)
+
+- Ivar draait in de werker op de pc, los van Claude: zolang de werker aan staat, beantwoordt hij berichten (ook vanaf je telefoon) en doet hij zijn weekronde.
+- **Elke week per actief kanaal** zet de werker zelf een stap `insight` klaar (alleen met betaalde verwerking aan, ± 2 cent per kanaal). Ivar bekijkt:
+  - **trends**: de best scorende recente YouTube-video's in de niche (wekelijkse referentievideo's via de YouTube Data API; Dreamnest gebruikt nu eigen slaapzoektermen);
+  - **onze cijfers**: beste en zwakste eigen video's per dag online;
+  - **jouw keuzes**: toegepaste en teruggedraaide titels, gemaakte en laten vallen ideeën, afkeur-notities.
+- Hij schrijft hooguit 6 inzichten (trend, geleerd, tip), elk met bewijs en zekerheid, zonder beloftes. Te weinig data: gratis overgeslagen.
+- In Ivar onder het lampje: **Onthouden** maakt van een les een vaste voorkeur; **Maak er een idee van** laat Ivar een concept uitwerken; **Niet nuttig** wijst af (ook dat leert hij: hij herhaalt het niet). Een groen bolletje op de knop = nieuwe inzichten, geen pop-up.
+- In gesprekken gebruikt Ivar de inzichten van de laatste weken als advies (en zegt dat erbij).
+- Extra tools: `get_studio_overview` ("wat moet ik vandaag doen?"), `get_costs`, `get_schedule`, `list_ideas`, `get_insights`, `refresh_insights` (kostenkaart), `regenerate_script` (kostenkaart), `approve_script` (alleen op verzoek).
+
 ## Database (migratie 054)
 
 - `ivar_conversations`, `ivar_messages`: gesprekken per studio, kanaal en project. Berichten alleen via `ivar_send`
