@@ -13,6 +13,7 @@ import type { Channel } from "@/lib/youtube/channels";
 import type { WorkerHealth } from "@/lib/youtube/protocol";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { pageVisible } from "@/lib/visible";
+import { usePublishPageContext } from "@/lib/ivar/pageContext";
 
 const STATE_LABEL = { todo: "Nog niet gedaan", queued: "In de wachtrij", running: "Bezig", done: "Klaar", failed: "Mislukt" } as const;
 const STATE_TONE = { todo: "bg-slate-100 text-slate-600", queued: "bg-sky-50 text-sky-800", running: "bg-amber-50 text-amber-900", done: "bg-emerald-50 text-emerald-800", failed: "bg-red-50 text-red-800" } as const;
@@ -64,6 +65,8 @@ export function DreamnestStudio({ channel, channels, studioId, isAdmin, health, 
   };
 
   const episode = episodes?.find((e) => e.id === selected) ?? null;
+  // Ivar: the Dreamnest channel and the episode that is open.
+  usePublishPageContext({ channelId: channel.id, channelName: channel.name, projectKind: episode ? "episode" : null, projectId: episode?.id ?? null, projectLabel: episode ? episode.title || "Zonder titel" : null, page: "Afleveringen" });
   const workerReady = !!health?.dreamnest;
 
   return (

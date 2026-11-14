@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Button, Field, inputClass } from "@/components/ui/Dialog";
 import { isPublicPath } from "@/lib/publicPages";
 import { StudioProvider, useMembership } from "@/lib/studio";
+import { Ivar } from "@/components/ivar/Ivar";
 import { friendlyError, isSupabaseConfigured, supabase } from "@/lib/supabase";
 
 const Centered = ({ children }: { children: React.ReactNode }) => <div className="flex min-h-screen items-center justify-center px-4 py-8">{children}</div>;
@@ -82,7 +83,7 @@ function MemberGate({ userId, email, children }: { userId: string; email: string
   }
   return (
     <StudioProvider value={{ me: state.me, studio: state.studio, email, isAdmin: true, reload }}>
-      <div className="min-h-screen px-3 py-4 sm:px-6">
+      <div className="min-h-screen px-3 pb-24 pt-4 sm:px-6">
         <div className="mx-auto mb-3 flex max-w-6xl items-center justify-between text-xs text-slate-500">
           <span>
             Ingelogd als {state.me.display_name} ({email})
@@ -93,6 +94,7 @@ function MemberGate({ userId, email, children }: { userId: string; email: string
         </div>
         {children}
       </div>
+      <Ivar />
     </StudioProvider>
   );
 }

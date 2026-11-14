@@ -929,6 +929,59 @@ if (hasMigration("046")) {
     await as(MILAN, "insert into public.dn_render_jobs(studio_id,episode_id,step,idempotency_key,payload) values($1,$2,'dn_publish','pub-1',$3)", [hh, ep, { publication_id: pub }]);
     ok("admin queues the publish step", (await one(MILAN, "select step from public.dn_render_jobs where idempotency_key='pub-1'")) === "dn_publish");
   }
+  // ---------- Ivar — Studio Assistant (migration 054) ----------
+  if (hasMigration("054")) {
+    const conv = await one(MILAN, "insert into public.ivar_conversations(studio_id,channel_id) values($1,$2) returning id", [hh, def]);
+    ok("admin starts an Ivar conversation", !!conv);
+    await rejects("a stranger cannot start one in this studio", STRANGER, "insert into public.ivar_conversations(studio_id) values($1)", [hh]);
+    ok("a stranger sees no conversations", (await one(STRANGER, "select count(*)::int from public.ivar_conversations")) === 0);
+    const sent = await one(MILAN, "select public.ivar_send($1,'Maak drie titels','key-abc-123',$2)", [conv, { channel: "KIVOXEL" }]);
+    ok("sending gives a message, a reply and one assistant step", !!sent.message_id && !!sent.reply_id && !!sent.job_id && sent.duplicate === false);
+    ok("the step is in the normal queue", (await one(MILAN, "select step||':'||status from public.yt_jobs where id=$1", [sent.job_id])) === "assistant:queued");
+    const again = await one(MILAN, "select public.ivar_send($1,'Maak drie titels','key-abc-123','{}')", [conv]);
+    ok("the same send twice gives the same message (no second paid step)", again.duplicate === true && again.job_id === sent.job_id && (await one(MILAN, "select count(*)::int from public.yt_jobs where step='assistant'")) === 1);
+    await rejects("a second question waits while Ivar is busy", MILAN, "select public.ivar_send($1,'Nog iets','key-def-456','{}')", [conv]);
+    ok("the conversation gets its title from the first message", (await one(MILAN, "select title from public.ivar_conversations where id=$1", [conv])) === "Maak drie titels");
+    await rejects("a stranger cannot send in this conversation", STRANGER, "select public.ivar_send($1,'x','key-xyz-789','{}')", [conv]);
+    ok("a stranger sees no messages", (await one(STRANGER, "select count(*)::int from public.ivar_messages")) === 0);
+    await rejects("the app cannot write Ivar's answer itself", MILAN, "update public.ivar_messages set content='nep', status='done' where id=$1", [sent.reply_id]);
+    await rejects("the app cannot add a message past the RPC", MILAN, "insert into public.ivar_messages(studio_id,conversation_id,role,content) values($1,$2,'assistant','nep')", [hh, conv]);
+    ok("stopping a waiting answer cancels only that step", (await one(MILAN, "select public.ivar_stop($1)", [sent.reply_id])) === "stopped" && (await one(MILAN, "select status from public.yt_jobs where id=$1", [sent.job_id])) === "cancelled");
+    await as(MILAN, "select public.ivar_retry($1)", [sent.reply_id]);
+    ok("retry puts the same step back (no new paid step)", (await one(MILAN, "select status||':'||(select count(*) from public.yt_jobs where step='assistant') from public.yt_jobs where id=$1", [sent.job_id])) === "queued:1");
+    await rejects("a stranger cannot stop an answer", STRANGER, "select public.ivar_stop($1)", [sent.reply_id]);
+    // Memory: Milan's own notes; Ivar's come from the worker.
+    await as(MILAN, "insert into public.ivar_memory(studio_id,channel_id,content) values($1,$2,'Engelse voice-over, enthousiast')", [hh, def]);
+    ok("memory is stored per channel", (await one(MILAN, "select scope from public.ivar_memory where studio_id=$1", [hh])) === "channel");
+    await rejects("the app cannot pretend Ivar wrote a memory", MILAN, "insert into public.ivar_memory(studio_id,content,source) values($1,'x','ivar')", [hh]);
+    ok("a stranger sees no memory", (await one(STRANGER, "select count(*)::int from public.ivar_memory")) === 0);
+    // Concept changes: applied only on the version Ivar saw, always reversible.
+    const rec = await one(MILAN, "insert into public.yt_recordings(studio_id,label,original_name,size_bytes,fingerprint,channel_id) values($1,'Ivar','i.mp4',1,$2,$3) returning id", [hh, "5".repeat(63) + "4", def]);
+    const vid = await one(MILAN, "insert into public.yt_videos(studio_id,recording_id,format,title,channel_id) values($1,$2,'A','Oud',$3) returning id", [hh, rec, def]);
+    const grp = "11111111-0000-0000-0000-000000000054";
+    const rev = (title) => db.query("insert into public.ivar_revisions(studio_id,channel_id,video_id,target,target_id,field,before_value,after_value,group_id) values($1,$2,$3,'video',$3,'title','\"Oud\"',$4,$5) returning id", [hh, def, vid, JSON.stringify(title), grp]).then((r) => r.rows[0].id);
+    const [r1, r2] = [await rev("Nieuw 1"), await rev("Nieuw 2")];
+    await as(MILAN, "select public.ivar_apply_revision($1)", [r1]);
+    ok("applying a title proposal changes the title", (await one(MILAN, "select title from public.yt_videos where id=$1", [vid])) === "Nieuw 1");
+    await as(MILAN, "select public.ivar_apply_revision($1)", [r2]);
+    ok("another option of the same proposal replaces it", (await one(MILAN, "select title from public.yt_videos where id=$1", [vid])) === "Nieuw 2" && (await one(MILAN, "select status from public.ivar_revisions where id=$1", [r1])) === "superseded");
+    await as(MILAN, "select public.ivar_revert_revision($1)", [r2]);
+    ok("undo puts the original title back", (await one(MILAN, "select title from public.yt_videos where id=$1", [vid])) === "Oud");
+    await as(MILAN, "update public.yt_videos set title='Met de hand' where id=$1", [vid]);
+    await rejects("a proposal on an outdated version is refused", MILAN, "select public.ivar_apply_revision($1)", [r1]);
+    ok("and the hand-made title stays", (await one(MILAN, "select title from public.yt_videos where id=$1", [vid])) === "Met de hand");
+    await rejects("a stranger cannot apply a proposal", STRANGER, "select public.ivar_apply_revision($1)", [r2]);
+    await rejects("the app cannot call the field writer directly", MILAN, "select public.ivar_set_field('video',$1,'title','\"x\"')", [vid]);
+    await db.query("update public.yt_videos set youtube_video_id='ivartest123' where id=$1", [vid]);
+    const r3 = await db.query("insert into public.ivar_revisions(studio_id,video_id,target,target_id,field,before_value,after_value) values($1,$2,'video',$2,'title','\"Met de hand\"','\"Na upload\"') returning id", [hh, vid]).then((r) => r.rows[0].id);
+    await rejects("a video on YouTube is never changed by Ivar", MILAN, "select public.ivar_apply_revision($1)", [r3]);
+    ok("a stranger sees no proposals or Ivar log", (await one(STRANGER, "select ((select count(*) from public.ivar_revisions)+(select count(*) from public.ivar_actions))::int")) === 0);
+    await rejects("the app cannot write Ivar's log as Ivar", MILAN, "insert into public.ivar_actions(studio_id,tool,ok,summary) values($1,'start_render',true,'nep')", [hh]);
+    await as(MILAN, "insert into public.ivar_actions(studio_id,actor,tool,ok,summary) values($1,'milan','apply_revision',true,'Titel toegepast')", [hh]);
+    ok("Milan's own clicks are logged", (await one(MILAN, "select count(*)::int from public.ivar_actions where actor='milan'")) === 1);
+    await as(MILAN, "delete from public.ivar_conversations where id=$1", [conv]);
+    ok("deleting a conversation removes its messages", (await one(MILAN, "select count(*)::int from public.ivar_messages")) === 0);
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 

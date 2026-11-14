@@ -26,8 +26,11 @@ import { dreamnestEnabled } from "../lib/dreamnest/core.ts";
 import { createDreamnestLane } from "./dreamnest/lane.ts";
 import { createDnHandlers } from "./dreamnest/steps.ts";
 import { createDnPublish } from "./dreamnest/publish.ts";
+import { createIvarLane } from "./ivar/lane.ts";
+import { createIvarModel } from "./ivar/model.ts";
+import { DEFAULT_MODEL } from "./gemini.ts";
 
-const VERSION = "63.2";
+const VERSION = "64.0";
 
 function loadEnv(file: string) {
   if (!existsSync(file)) return;
@@ -146,6 +149,18 @@ const dreamnest =
       })()
     : null;
 
+// Ivar — Studio Assistant: answers are the step 'assistant' in the same queue, in their own lane next to the montage.
+const ivar = queue
+  ? createIvarLane({
+      db: createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } }),
+      workerName,
+      log,
+      model: env.GEMINI_API_KEY ? createIvarModel(env.GEMINI_API_KEY, env.GEMINI_MODEL || DEFAULT_MODEL) : null,
+      poke: () => queue.poke(),
+      dreamnest: dreamnestEnabled(env),
+    })
+  : null;
+
 // Inbox folder (fase 2): KIVOXEL/inbox in the user's home folder unless KIVOXEL_INBOX_DIR says otherwise. KIVOXEL_INBOX=0 switches it off.
 const inboxDir = env.KIVOXEL_INBOX_DIR || join(homedir(), "KIVOXEL", "inbox");
 const registrar = supabaseUrl && serviceKey ? createRegistrar(createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })) : null;
@@ -178,6 +193,11 @@ const server = createWorkerServer({
   youtube: { ...youtubeLink, refresh: statsSync ? async () => ((await youtube.status()).connected ? statsSync.sync(true) : "YouTube is niet gekoppeld") : undefined },
   log,
   // Local mode: no queue, so run the intake straight away. Queue mode: the dashboard queues the step.
+  // Ivar (and the dashboard) may wake the queue right after putting a step in; it only checks the queue sooner.
+  poke: () => {
+    queue?.poke();
+    ivar?.poke();
+  },
   onReceived: (fp) => {
     if (queue) queue.poke();
     else void store.intake(fp).then((r) => log(r.intakeError ? `Intake mislukt: ${r.intakeError}` : `Intake klaar: ${r.label}`));
@@ -199,6 +219,10 @@ server.listen(port, "127.0.0.1", () => {
     void youtube.status().then((s) => s.connected && statsSync?.start());
   });
   queue?.start();
+  if (ivar) {
+    ivar.start();
+    log(env.GEMINI_API_KEY ? "Ivar: aan (antwoorden via Gemini, binnen het maandplafond)" : "Ivar: zonder Gemini-sleutel (antwoordt met een duidelijke melding)");
+  }
   if (dreamnest) {
     log("Dreamnest: aan (eigen wachtrij, KIVOXEL gaat voor)");
     dreamnest.start();

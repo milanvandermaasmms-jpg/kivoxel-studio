@@ -28,6 +28,7 @@ import { hiddenFolds } from "@/lib/youtube/learning";
 import { setPreference, track, useLearning } from "@/lib/youtube/learningData";
 import { ChannelSwitcher, StudioTopBar } from "@/components/youtube/StudioTopBar";
 import { DreamnestStudio } from "@/components/dreamnest/DreamnestStudio";
+import { IVAR_OPEN_EVENT, usePublishPageContext } from "@/lib/ivar/pageContext";
 import { findChannel, isDreamnestChannel } from "@/lib/studioRoutes";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
 import { reviewQueue } from "@/lib/youtube/board";
@@ -183,7 +184,6 @@ export function StudioApp({ route }: { route?: string } = {}) {
     };
   }, [refresh, isAdmin]);
 
-  if (!isAdmin) return <p className="py-16 text-center text-sm text-slate-500">YouTube Studio is alleen voor beheerders.</p>;
 
   const dbReady = db?.ready === true;
   const dbRecordings = db?.ready ? db.recordings : [];
@@ -243,6 +243,35 @@ export function StudioApp({ route }: { route?: string } = {}) {
       }),
   };
 
+  // Ivar (fase 14.2): what Milan looks at. Dreamnest publishes its own (episode) context.
+  const openVideo = details ?? (reviewing ? reviewStart : null);
+  const openItem = openVideo ? flowReady?.items.find((i) => i.videoId === openVideo) : null;
+  const ivarChannel = channelsNow.find((c) => c.id === channel) ?? null;
+  usePublishPageContext(
+    dn
+      ? null
+      : {
+          channelId: ivarChannel?.id ?? null,
+          channelName: ivarChannel ? (ivarChannel.is_default ? "KIVOXEL" : ivarChannel.name) : null,
+          projectKind: openItem ? "video" : null,
+          projectId: openItem?.videoId ?? null,
+          projectLabel: openItem?.title ?? null,
+          page: TABS.find((t) => t.key === tab)?.label ?? null,
+        },
+  );
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<{ videoId?: string }>).detail?.videoId;
+      if (!id) return;
+      chooseTab("action");
+      setDetails(id);
+    };
+    window.addEventListener(IVAR_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(IVAR_OPEN_EVENT, onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!isAdmin) return <p className="py-16 text-center text-sm text-slate-500">YouTube Studio is alleen voor beheerders.</p>;
   return (
     <StudioContext.Provider value={studioContext}>
     <div className="studio mx-auto max-w-6xl space-y-4" data-channel={dn ? "dreamnest" : undefined}>

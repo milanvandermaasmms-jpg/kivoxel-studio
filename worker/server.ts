@@ -45,6 +45,8 @@ export type ServerOptions = {
   dreamnestDir?: string;
   /** YouTube connection (fase D1); without it the /youtube addresses answer 404. */
   youtube?: YouTubeRoutes;
+  /** Ivar: check the queue now (POST /poke, only from the dashboard). Starts nothing by itself. */
+  poke?: () => void;
 };
 
 /** What the server needs from the YouTube connection; index.ts wires it to worker/youtube.ts and Supabase. */
@@ -84,7 +86,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -115,6 +117,11 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
     try {
       if (req.method === "GET" && url.pathname === "/health") return send(200, health());
       if (req.method === "GET" && url.pathname === "/recordings") return send(200, await store.list());
+      if (req.method === "POST" && url.pathname === "/poke" && poke) {
+        if (!origin) return send(403, { error: "Alleen via het dashboard" });
+        poke();
+        return send(200, { ok: true });
+      }
 
       // Montage previews. The dashboard asks with crossorigin, so the Origin check above applies; without Origin no preview,
       // so another website cannot show Milan's footage by guessing an address.
