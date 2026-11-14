@@ -18,6 +18,7 @@ import { renderOverlay } from "./overlay.ts";
 import { renderFolder } from "../../lib/dreamnest/steps.ts";
 import { judgeVideo, parseBlack, perMinute } from "../../lib/dreamnest/videoqc.ts";
 import { findTool } from "../ffmpeg.ts";
+import { lockFolder, waitForKivoxel as waitKivoxelFirst } from "./kivoxelFirst.ts";
 import { makeIr, planScore, renderScorePiece } from "./audio/score.ts";
 import { parseAllSsim, parseLuma } from "./measure.ts";
 
@@ -62,18 +63,8 @@ function ff(args: string[]): Promise<string> {
 }
 const probeDur = (f: string) => Number(execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f]).toString());
 
-/** KIVOXEL goes first: wait while an FFmpeg runs that is not ours (we run one at a time and only call this in between). */
-async function waitForKivoxel() {
-  for (let waited = 0; ; waited++) {
-    let busy = false;
-    try {
-      busy = /ffmpeg\.exe/i.test(execFileSync("tasklist", ["/FI", "IMAGENAME eq ffmpeg.exe", "/FO", "CSV", "/NH"], { windowsHide: true }).toString());
-    } catch {}
-    if (!busy) return;
-    if (waited % 10 === 0) log("KIVOXEL gebruikt FFmpeg: Dreamnest wacht even...");
-    await new Promise((r) => setTimeout(r, 30_000));
-  }
-}
+/** KIVOXEL goes first: waits only for FFmpeg that is not Dreamnest's own (worker/dreamnest/kivoxelFirst.ts). */
+const waitForKivoxel = () => waitKivoxelFirst(log);
 
 // ---------- 1. Clips: only the calm part, anti-jitter, loops slower ----------
 const CLIPS = readdirClips();
@@ -264,6 +255,8 @@ async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, to
 
 // ---------- Run ----------
 await mkdir(assetsDir, { recursive: true });
+// One montage per folder (a Studio run and a preview at the same time wrote over each other's files).
+lockFolder(out, previewOnly ? "montage of preview" : "montage");
 await mkdir(piecesDir, { recursive: true });
 await mkdir(audioDir, { recursive: true });
 const final = join(out, `dreamnest-${minutes}min.mp4`);
