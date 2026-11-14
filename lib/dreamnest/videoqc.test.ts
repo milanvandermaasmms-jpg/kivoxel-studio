@@ -21,6 +21,13 @@ describe("video QC per minute", () => {
     expect(p).toMatch(/harde knip bij 0:30/);
     expect(p).toMatch(/onrustig/);
   });
+  it("allows gentle movement in the story but not in the sleep part", () => {
+    const { luma, steps } = calm(fps * 120);
+    steps.fill(0.985);
+    const rows = perMinute(luma, steps, fps, (m) => (m < 1 ? 0.98 : 0.99));
+    expect(rows[0].problems).toEqual([]);
+    expect(rows[1].problems.join()).toMatch(/onrustig/);
+  });
   it("checks length, resolution, fps and black frames", () => {
     const ok = judgeVideo({ durationS: 3600, width: 1920, height: 1080, fps: 24 }, [], 3600, [{ start: 3560, end: 3600 }]);
     expect(ok.ok).toBe(true);

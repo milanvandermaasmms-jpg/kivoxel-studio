@@ -8,9 +8,9 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).p
 /**
  * luma: average brightness per frame (0-255); steps: SSIM between each frame and the next.
  * Rules per minute: no flash (jump > 25), nothing brighter than 200, no hard cut (step < 0.6),
- * calm (the 10% biggest steps still >= 0.99 alike), and the light never changes faster than 3/255 per second.
+ * calm (the 10% biggest steps still >= calmMin alike: 0.98 in the story, where gentle movement belongs, 0.99 later), and the light never changes faster than 3/255 per second.
  */
-export function perMinute(luma: number[], steps: number[], fps: number): MinuteRow[] {
+export function perMinute(luma: number[], steps: number[], fps: number, calmMin: (minute: number) => number = () => 0.99): MinuteRow[] {
   const per = Math.round(60 * fps);
   const rows: MinuteRow[] = [];
   for (let m = 0; m * per < luma.length; m++) {
@@ -29,7 +29,7 @@ export function perMinute(luma: number[], steps: number[], fps: number): MinuteR
     if (maxJump > 25) problems.push(`flits bij ${fmt(m * 60 + jumpAt / fps)}`);
     if (lumaMax > 200) problems.push("te fel");
     if (minStep < 0.6) problems.push(`harde knip bij ${fmt(m * 60 + S.indexOf(minStep) / fps)}`);
-    if (calmP10 < 0.99) problems.push(`onrustig (${(calmP10 * 100).toFixed(1)}%)`);
+    if (calmP10 < calmMin(m)) problems.push(`onrustig (${(calmP10 * 100).toFixed(1)}%)`);
     // Light drift: compare averages one second apart.
     for (let i = Math.round(fps); i < L.length; i += Math.round(fps)) {
       const a = avg(L.slice(i - Math.round(fps), i)), b = avg(L.slice(i, i + Math.round(fps)));

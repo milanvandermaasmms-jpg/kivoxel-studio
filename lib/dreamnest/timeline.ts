@@ -23,7 +23,8 @@ export function buildTimeline(assets: Asset[], totalMin: number, seed = 1): Segm
     t += lengthS - xfadeS;
   };
   const order = ["b01-welcome-exterior", "b02-lumi-rocking-chair", "b03-pip-arrives", "b04-tea", "b05-mo-by-fire", "b06-window-momo", "b07-lumi-yawn", "b08-blanket-together", "b09-lumi-falls-asleep"];
-  push(`story-${order[0]}`, 33, "welcome", 3);
+  // Welcome -> first room: a longer 6 s cross-fade, from outside (dark) to inside (warm light).
+  push(`story-${order[0]}`, 36, "welcome", 6);
   // Every keyframe moves the clock by its length minus one 3 s cross-fade, so add that back.
   const storyEach = (PARTS.storyEnd - t) / (order.length - 1) + 3;
   for (const k of order.slice(1)) {

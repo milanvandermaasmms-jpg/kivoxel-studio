@@ -25,8 +25,8 @@ describe("timeline of a 60 minute episode", () => {
     for (const s of sleep) expect(s.lengthS).toBeLessThanOrEqual(480);
     for (let i = 1; i < segs.length; i++) expect(segs[i].asset).not.toBe(segs[i - 1].asset);
   });
-  it("uses slow cross-fades: 3 s in the story, 5 s later", () => {
-    for (const s of segs.slice(0, -1)) expect(s.xfadeS).toBe(s.part === "welcome" || s.part === "story" ? 3 : 5);
+  it("uses slow cross-fades: 6 s after the welcome, 3 s in the story, 5 s later", () => {
+    for (const s of segs.slice(0, -1)) expect(s.xfadeS).toBe(s.part === "welcome" ? 6 : s.part === "story" ? 3 : 5);
   });
 });
 

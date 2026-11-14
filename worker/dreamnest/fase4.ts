@@ -5,6 +5,7 @@
 // - Resumable: every piece is kept with a .ok marker; run it again and it continues where it stopped.
 // Output on this pc: <WORKER_DATA_DIR>/dreamnest/fase4/<minutes>min/ (dreamnest-<minutes>min.mp4, qc.json, qc.html, preview.mp4).
 import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { constants, homedir, setPriority } from "node:os";
@@ -38,6 +39,8 @@ const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
 const log = (m: string) => console.log(`[${new Date().toLocaleTimeString("nl-NL")}] ${m}`);
 const ENC = ["-c:v", "libx264", "-preset", "faster", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "24", "-g", "48", "-profile:v", "high", "-an"];
 const FPS = 24;
+/** Each frame against the next, matched by frame number (never by timestamp, which proved unreliable). */
+const STEPS = `setpts=N/${24}/TB,split[x][y];[y]trim=start_frame=1,setpts=N/${24}/TB[b];[x][b]ssim=stats_file=-:shortest=1`;
 /** Every clip is brought to this average brightness (0-255) before the dim curve; the clips are around 70-85. */
 const LUMA_TARGET = 78;
 
@@ -78,12 +81,19 @@ async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }
     await waitForKivoxel();
     const norm = "settb=AVTB,fps=24,setpts=PTS-STARTPTS";
     const tmp = `${dst}.tmp.mp4`;
-    if (c.kind === "story") {
+    const still = join(base, "keyframes", "huiskamer-01", `${c.id.replace(/^story-/, "")}.png`);
+    if (c.id === "story-b01-welcome-exterior" && existsSync(still)) {
+      // Welcome: our own slow dolly-in on the chosen keyframe (2% per 10 s, megaprompt §4). Upscaled first so the
+      // zoom does not wobble on whole pixels.
+      const n = 36 * FPS;
+      await ff(["-y", "-v", "error", "-loop", "1", "-i", still, "-vf", `scale=7680:-2,zoompan=z='1+${(0.07 / n).toFixed(7)}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=24,setsar=1`, "-frames:v", String(n), ...ENC, tmp]);
+      log(`${c.id}: welkomstbeeld met langzame dolly-in (36 s)`);
+    } else if (c.kind === "story") {
       // The own-scene part: until the picture looks more like the next scene than like its own start, never past a cut.
       const vs = (pick: string) => ff(["-i", c.file, "-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2[a];[1:v]${norm},scale=480:-2,${pick},loop=loop=-1:size=1,setpts=N/${FPS}/TB[b];[a][b]ssim=stats_file=-:shortest=1`, "-f", "null", "-"]).then(parseAllSsim);
       const vsFirst = await vs("trim=end_frame=1");
       const vsLast = await vs("reverse,trim=end_frame=1");
-      const steps = parseAllSsim(await ff(["-i", c.file, "-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2[a];[1:v]${norm},scale=480:-2,trim=start_frame=1,setpts=PTS-STARTPTS[b];[a][b]ssim=stats_file=-:shortest=1`, "-f", "null", "-"]));
+      const steps = parseAllSsim(await ff(["-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2,${STEPS}`, "-f", "null", "-"]));
       const endS = calmEndFrame(vsFirst, vsLast, steps, Math.round(2.5 * FPS)) / FPS;
       // Slower (0.6×, soft frame blending), then ping-pong (forward, backward) into a seamless loop; then anti-jitter.
       await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end=${endS.toFixed(3)},setpts=(PTS-STARTPTS)/0.6,framerate=fps=24,split[f][r];[r]reverse[rr];[f][rr]concat=n=2:v=1,tmix=frames=3:weights='1 2 1'[v]`, "-map", "[v]", ...ENC, tmp]);
@@ -98,7 +108,7 @@ async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }
     const luma = parseLuma(await ff(["-i", tmp, "-vf", "scale=320:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"]));
     const mean = luma.reduce((s, x) => s + x, 0) / Math.max(1, luma.length);
     const k = Math.max(0.8, Math.min(1.25, (LUMA_TARGET - 16) / Math.max(1, mean - 16)));
-    await ff(["-y", "-v", "error", "-i", tmp, "-vf", `lutyuv=y='clip((val-16)*${k.toFixed(4)}+16,16,235)'`, ...ENC, dst]);
+    await ff(["-y", "-v", "error", "-i", tmp, "-vf", `deflicker=size=48:mode=am,lutyuv=y='clip((val-16)*${k.toFixed(4)}+16,16,235)'`, ...ENC, dst]);
     await rm(tmp, { force: true });
     log(`${c.id}: helderheid ${mean.toFixed(0)} → ${(16 + (mean - 16) * k).toFixed(0)}`);
     await writeFile(`${dst}.ok`, "");
@@ -109,7 +119,8 @@ async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }
 // ---------- 2. Render the pieces ----------
 const frames = (p: Piece) => Math.round((p.globalS + p.lengthS) * FPS) - Math.round(p.globalS * FPS);
 async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number) {
-  const dst = join(piecesDir, `${p.id}.mp4`);
+  // The file name carries a fingerprint of everything that makes the piece, so a changed timeline never reuses an old piece.
+  const dst = join(piecesDir, `${p.id}-${createHash("sha1").update(JSON.stringify({ p, totalS, v: 2 })).digest("hex").slice(0, 10)}.mp4`);
   if (existsSync(`${dst}.ok`)) return dst;
   await waitForKivoxel();
   const dim = dimFilter(p.globalS, p.lengthS, totalS);
@@ -160,8 +171,9 @@ async function qc(file: string, totalS: number) {
   const [n, d] = info.streams[0].r_frame_rate.split("/").map(Number);
   const probe = { durationS: Number(info.format.duration), width: info.streams[0].width, height: info.streams[0].height, fps: n / (d || 1) };
   const luma = parseLuma(await ff(["-i", file, "-an", "-vf", "scale=320:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-,blackdetect=d=2:pic_th=0.98", "-f", "null", "-"]).then((t) => (blackText = t, t)));
-  const steps = parseAllSsim(await ff(["-i", file, "-i", file, "-an", "-filter_complex", "[0:v]scale=320:-2[a];[1:v]scale=320:-2,trim=start_frame=1,setpts=PTS-STARTPTS[b];[a][b]ssim=stats_file=-:shortest=1", "-f", "null", "-"]));
-  const minutesQc = perMinute(luma, steps, FPS);
+  const steps = parseAllSsim(await ff(["-i", file, "-an", "-filter_complex", `[0:v]scale=320:-2,${STEPS}`, "-f", "null", "-"]));
+  // Gentle movement belongs in the story (p10 >= 98%); the sleep part must be calmer (>= 99%).
+  const minutesQc = perMinute(luma, steps, FPS, (m) => (m * 60 < PARTS.storyEnd ? 0.98 : 0.99));
   const video = judgeVideo(probe, minutesQc, totalS, parseBlack(blackText));
   log("Controle: geluid per deel...");
   const parts = [
@@ -214,7 +226,11 @@ if (!qcOnly) {
     }
   }
   await writeFile(join(out, "pieces.txt"), files.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
-  await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", join(out, "pieces.txt"), "-c", "copy", join(out, "video.mp4")]);
+  // Join as one continuous H.264 stream and number the frames again at exactly 24 per second. Joining the mp4 pieces
+  // directly left gaps in the timestamps (the player then holds and jumps: visible as judder).
+  await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", join(out, "pieces.txt"), "-c", "copy", "-bsf:v", "h264_mp4toannexb", "-f", "h264", join(out, "video.h264")]);
+  await ff(["-y", "-v", "error", "-fflags", "+genpts", "-r", String(FPS), "-i", join(out, "video.h264"), "-c", "copy", join(out, "video.mp4")]);
+  await rm(join(out, "video.h264"), { force: true });
   await ff(["-y", "-v", "error", "-i", join(out, "video.mp4"), "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", final]);
   log(`Render klaar in ${Math.round((Date.now() - started) / 60000)} min: ${final}`);
 }

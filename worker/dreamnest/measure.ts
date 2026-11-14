@@ -23,7 +23,7 @@ export async function measureClip(ffmpeg: string, ffprobe: string, file: string,
   const luma = parseLuma(await run(ffmpeg, ["-hide_banner", "-i", file, "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"]));
   let seamSsim: number | null = null;
   // Every frame against the next one (at 480 px, fast enough): the median is a normal step, the minimum shows a hard cut.
-  const steps = parseAllSsim(await run(ffmpeg, ["-hide_banner", "-i", file, "-i", file, "-filter_complex", "[0:v]scale=480:-2[a];[1:v]scale=480:-2,trim=start_frame=1,setpts=PTS-STARTPTS[b];[a][b]ssim=stats_file=-", "-f", "null", "-"]));
+  const steps = parseAllSsim(await run(ffmpeg, ["-hide_banner", "-i", file, "-filter_complex", "[0:v]scale=480:-2,setpts=N/24/TB,split[x][y];[y]trim=start_frame=1,setpts=N/24/TB[b];[x][b]ssim=stats_file=-:shortest=1", "-f", "null", "-"]));
   const stepSsim = median(steps);
   const minStepSsim = steps.length ? Math.min(...steps) : null;
   if (loop) {
