@@ -203,7 +203,84 @@ export const isUsable = (m: Pick<Moment, "hasContext" | "hasPayoff">) => m.hasCo
 
 const overlap = (a: Moment, b: Moment) => Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
 
-export type PlannedVideo = { planKey: string; format: Format; moments: Moment[]; promise: string };
+export type PlannedVideo = { planKey: string; format: Format; moments: Moment[]; promise: string; /** Set for one part of a long recording told in full (Deel 1..N). */ part?: SeriesPart };
+
+/**
+ * A long recording is told in full, as consecutive long videos (parts): together they cover the recording from the
+ * first to the last second, without overlap and without gaps. Each part is about SERIES_PART_MS of footage and ends at
+ * a natural story break: in the quiet stretch between two moments, never in the middle of one.
+ */
+export const SERIES_MIN_MS = 15 * 60_000;
+export const SERIES_PART_MS = 7.5 * 60_000;
+export const MIN_PART_MS = 3 * 60_000;
+export type SeriesPart = { index: number; count: number; startMs: number; endMs: number };
+
+/** "C:part:2/5:448000-901000": stable per part, and the script step reads the part's range back from it. */
+export const seriesKey = (p: SeriesPart) => `C:part:${p.index + 1}/${p.count}:${p.startMs}-${p.endMs}`;
+export function parseSeriesKey(planKey: string | null | undefined): SeriesPart | null {
+  const m = /(?:^|:)C:part:(\d+)\/(\d+):(\d+)-(\d+)$/.exec(planKey ?? "");
+  if (!m) return null;
+  const [index, count, startMs, endMs] = [Number(m[1]) - 1, Number(m[2]), Number(m[3]), Number(m[4])];
+  return index >= 0 && index < count && endMs > startMs ? { index, count, startMs, endMs } : null;
+}
+
+/** Where a part may end: just before the build-up of the next moment, in the quiet stretch after the previous one. */
+function storyBreaks(moments: Moment[]): { at: number; gap: number }[] {
+  const sorted = [...moments].sort((a, b) => a.startMs - b.startMs);
+  const out: { at: number; gap: number }[] = [];
+  let reach = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    reach = Math.max(reach, sorted[i - 1].endMs);
+    const b = sorted[i];
+    if (b.startMs <= reach) continue;
+    const lo = Math.min(b.startMs, reach + 5000);
+    out.push({ at: Math.max(lo, Math.min(b.startMs, b.peakMs - CHAPTER_BEFORE_MS)), gap: b.startMs - reach });
+  }
+  return out;
+}
+
+/** Splits a recording into parts at story breaks; every part holds at least one moment. One part when it is short. */
+export function seriesParts(moments: Moment[], durationMs: number): SeriesPart[] {
+  const whole = [{ index: 0, count: 1, startMs: 0, endMs: durationMs }];
+  if (durationMs < SERIES_MIN_MS || !moments.length) return whole;
+  const wanted = Math.max(2, Math.round(durationMs / SERIES_PART_MS));
+  const partMs = durationMs / wanted;
+  const breaks = storyBreaks(moments);
+  const cuts: number[] = [];
+  for (let k = 1; k < wanted; k++) {
+    const ideal = k * partMs;
+    const prev = cuts[cuts.length - 1] ?? 0;
+    const fits = breaks.filter((b) => b.at >= prev + MIN_PART_MS && b.at <= durationMs - MIN_PART_MS && Math.abs(b.at - ideal) <= 0.35 * partMs);
+    // Close to the even split, but a longer quiet stretch (a real break in the story) may pull the cut a little.
+    const best = fits.sort((a, b) => Math.abs(a.at - ideal) - Math.min(a.gap, 120_000) / 2 - (Math.abs(b.at - ideal) - Math.min(b.gap, 120_000) / 2) || a.at - b.at)[0];
+    if (best) cuts.push(best.at);
+  }
+  // A part without any moment has nothing to tell: it joins the part before it.
+  const bounds = [0, ...cuts, durationMs];
+  const kept: number[] = [0];
+  for (let i = 1; i < bounds.length; i++) {
+    const start = kept[kept.length - 1];
+    const end = bounds[i];
+    const last = i === bounds.length - 1;
+    const has = moments.some((m) => m.peakMs >= start && (last ? m.peakMs <= end : m.peakMs < end));
+    if (has || last) kept.push(end);
+  }
+  // The last part had no moment: it joins the one before as well.
+  if (kept.length > 2 && !moments.some((m) => m.peakMs >= kept[kept.length - 2])) kept.splice(kept.length - 2, 1);
+  const count = kept.length - 1;
+  if (count < 2) return whole;
+  return kept.slice(0, -1).map((startMs, index) => ({ index, count, startMs, endMs: kept[index + 1] }));
+}
+
+/** The moments whose peak lies in the part (the last part includes the very end). */
+export const momentsInPart = (moments: Moment[], p: SeriesPart) =>
+  moments.filter((m) => m.peakMs >= p.startMs && (p.index === p.count - 1 ? m.peakMs <= p.endMs : m.peakMs < p.endMs)).sort((a, b) => a.startMs - b.startMs);
+
+/** Every title of a part says which part it is, so viewers find the parts in order. */
+export function seriesTitles(titles: string[], p: SeriesPart): string[] {
+  const tag = ` (Part ${p.index + 1})`;
+  return titles.map((t) => (/\bpart\s*\d/i.test(t) ? t : `${t.slice(0, 100 - tag.length).trimEnd()}${tag}`));
+}
 
 const PROMISE: Record<Format, string> = {
   A: "Je ziet in 20 seconden of hij het overleeft.",
@@ -231,6 +308,13 @@ export function planVideos(moments: Moment[], durationMs: number, key: (m: Momen
     plans.push({ planKey: `${m.suggestedFormat}:${key(m)}`, format: m.suggestedFormat, moments: [m], promise: PROMISE[m.suggestedFormat] });
   }
   if (durationMs >= MIN_LONG_RECORDING_MS && usable.length >= MIN_LONG_MOMENTS) {
+    // A long recording: the whole story, in parts. All moments of a part are linked (also the less usable ones),
+    // so the montage knows every privacy flag in its footage.
+    const parts = seriesParts(moments, durationMs);
+    if (parts.length > 1) {
+      for (const part of parts) plans.push({ planKey: seriesKey(part), format: "C", moments: momentsInPart(moments, part), promise: `Deel ${part.index + 1} van ${part.count}: ${PROMISE.C}`, part });
+      return plans;
+    }
     const story = [...usable].sort((a, b) => b.score - a.score).slice(0, MAX_LONG_MOMENTS).sort((a, b) => a.startMs - b.startMs);
     plans.push({ planKey: "C", format: "C", moments: story, promise: PROMISE.C });
   }
@@ -256,6 +340,15 @@ export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
   B: { minMs: 30_000, maxMs: 45_000 },
   C: { minMs: 8 * 60_000, maxMs: 15 * 60_000 },
 };
+/** One part of a recording told in full: about 7.5 minutes of footage plus the cold open. */
+export const PART_TARGET = { minMs: 5 * 60_000, maxMs: 15 * 60_000 };
+/** The target length of a video: a part of a story told in parts has its own. */
+export const targetFor = (format: Format, planKey?: string | null) => (format === "C" && parseSeriesKey(planKey) ? PART_TARGET : TARGET[format]);
+/** "Deel 2 van 5" for a part, null for any other video. */
+export function partLabel(planKey: string | null | undefined): string | null {
+  const p = parseSeriesKey(planKey);
+  return p ? `Deel ${p.index + 1} van ${p.count}` : null;
+}
 
 /** Builds the segment list; speeds up a piece when it does not fit its slot (at most 2x, so it stays readable). */
 function assemble(parts: Array<Omit<Segment, "out_start_ms" | "speed"> & { slotMs?: number }>): Segment[] {
@@ -287,9 +380,34 @@ export const MAX_LONG_MOMENTS = 7;
  * Builds the edit plan. `durationMs` (length of the recording) lets the plan take build-up and outcome from just outside
  * the moment the analysis reported, so a Short reaches its target length; without it the plan stays inside the moment.
  */
-export function buildEditPlan(format: Format, moments: Moment[], durationMs = Number.POSITIVE_INFINITY): EditPlan {
+export function buildEditPlan(format: Format, moments: Moment[], durationMs = Number.POSITIVE_INFINITY, part?: SeriesPart | null): EditPlan {
   const warnings: string[] = [];
   let segments: Segment[];
+  if (format === "C" && part) {
+    // One part of the whole story: every second of its footage, in order, one chapter per moment. Only the cold open
+    // (the best moment of this part, 15 s) is shown twice, as a teaser.
+    const ordered = momentsInPart(moments, part);
+    if (!ordered.length) warnings.push("Dit deel heeft geen momenten.");
+    const best = [...ordered].sort((a, b) => Number(isUsable(b)) - Number(isUsable(a)) || b.score - a.score)[0];
+    const starts = ordered.map((m, i) => {
+      if (i === 0) return part.startMs;
+      const prevEnd = Math.max(...ordered.slice(0, i).map((p) => p.endMs));
+      return Math.max(part.startMs, Math.min(m.startMs, Math.max(prevEnd, m.peakMs - CHAPTER_BEFORE_MS)));
+    });
+    for (let i = 1; i < starts.length; i++) starts[i] = Math.max(starts[i], starts[i - 1]);
+    const chapters = ordered.length
+      ? ordered.map((m, i) => ({ part: "chapter" as const, src_start_ms: starts[i], src_end_ms: i === ordered.length - 1 ? part.endMs : starts[i + 1], effects: ["captions", "day_label"], note: `Hoofdstuk ${i + 1}: ${KIND_LABEL[m.kind]}` }))
+      : [{ part: "chapter" as const, src_start_ms: part.startMs, src_end_ms: part.endMs, effects: ["captions"], note: "Het verhaal gaat verder" }];
+    const recap = part.index > 0 ? ", daarna in één zin wat er in het vorige deel gebeurde" : "";
+    segments = assemble([
+      ...(best ? [{ part: "cold_open" as const, src_start_ms: Math.max(part.startMs, best.peakMs - 7500), src_end_ms: Math.min(part.endMs, best.peakMs + 7500), effects: ["captions"], note: `Het spannendste moment van deel ${part.index + 1}${recap}` }] : []),
+      ...chapters,
+    ]);
+    const targetMs = outLength(segments);
+    if (segments.length && targetMs < PART_TARGET.minMs) warnings.push(`Korter dan de richtlengte van een deel (${formatTimecode(targetMs)}, richtlengte ${formatTimecode(PART_TARGET.minMs)}-${formatTimecode(PART_TARGET.maxMs)}).`);
+    if (targetMs > PART_TARGET.maxMs) warnings.push(`Langer dan de richtlengte van een deel (${formatTimecode(targetMs)}).`);
+    return { segments, targetMs, warnings };
+  }
   if (format === "A" || format === "B") {
     const m = moments[0];
     if (!m) return { segments: [], targetMs: 0, warnings: ["Geen moment gekozen."] };
@@ -425,10 +543,31 @@ const FORMAT_RULES: Record<Format, string> = {
 };
 
 /** Instructions for the script writer. Every story element must come from the moments (research 6.5: no template text). */
-export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl", feedback?: ScriptFeedback): string {
+/** For one part of a story told in parts: what the part before ended with and what the next part starts with. */
+export type SeriesContext = { part: SeriesPart; previous: Moment[]; next: Moment[] };
+
+function seriesRules(s: SeriesContext): string[] {
+  const n = s.part.index + 1;
+  const say = (ms: Moment[]) => ms.map((m) => `${KIND_LABEL[m.kind]}: ${m.reason}`).join(" ");
+  return [
+    `This video is part ${n} of ${s.part.count} of ONE continuous survival story. Together the parts tell the whole recording from beginning to end; this part covers ${formatTimecode(s.part.startMs)}-${formatTimecode(s.part.endMs)} of it. Narrate everything in this part, also the calmer travel in between the moments.`,
+    n > 1 && s.previous.length
+      ? `Right after the cold open, recap part ${n - 1} in one or two sentences ("In part ${n - 1}..."). Part ${n - 1} ended with: ${say(s.previous)}`
+      : n > 1
+        ? `Right after the cold open, say in one sentence that this continues from part ${n - 1}.`
+        : `This is the first part: no recap, start the story at the beginning.`,
+    n < s.part.count
+      ? `End with a teaser for part ${n + 1} instead of a generic one${s.next.length ? `; it starts with: ${say(s.next)}` : ""}. Do not reveal how it ends.`
+      : `This is the last part: finish the story (show how it ends) and invite viewers who missed it to start at part 1.`,
+    `Every title ends with " (Part ${n})".`,
+  ];
+}
+
+export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl", feedback?: ScriptFeedback, series?: SeriesContext): string {
   return [
     `You write narration for a faceless Minecraft (PS5, Bedrock) YouTube channel, in ${language === "en" ? "English" : "Dutch"}.`,
     FORMAT_RULES[format],
+    ...(series ? seriesRules(series) : []),
     promise ? `Viewer promise: ${promise}` : "",
     "What happens on screen (from the analysis; use only this, invent nothing, never mention real names, gamertags or the player's age):",
     ...moments.map((m) => `- ${formatTimecode(m.startMs)}-${formatTimecode(m.endMs)} ${m.kind}: ${m.reason}${m.payoffNote ? ` Outcome: ${m.payoffNote}` : ""}`),

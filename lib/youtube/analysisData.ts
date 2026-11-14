@@ -25,7 +25,7 @@ export type DbMoment = {
   source: "ai" | "test" | "manual";
   is_test: boolean;
 };
-export type DbVideo = { id: string; recording_id: string | null; format: Format; status: string; language: "en" | "nl"; promise: string | null; is_test: boolean; created_at: string; yt_video_moments: { moment_id: string; position: number }[]; /** Migration 031. */ review_note?: string | null };
+export type DbVideo = { id: string; recording_id: string | null; format: Format; /** Migration 009; "<recording>:C:part:2/5:<start>-<end>" for a part. */ plan_key?: string | null; status: string; language: "en" | "nl"; promise: string | null; is_test: boolean; created_at: string; yt_video_moments: { moment_id: string; position: number }[]; /** Migration 031. */ review_note?: string | null };
 export type DbScript = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; source: string; status: "draft" | "approved" | "rejected"; is_test: boolean; created_at: string; /** Migration 035. */ hooks?: Hook[]; loop_line?: string | null; chosen_hook?: number | null; /** Migration 047. */ titles?: string[]; feedback?: string | null };
 export type DbRecordingInfo = { id: string; label: string; status: string; is_test: boolean; duration_ms: number | null };
 
@@ -170,6 +170,17 @@ export async function queueAnalysis(studioId: string, recordingId: string, again
   // Again (fase C): a new analysis after an earlier one, for example after a better worker. One per minute at most.
   const key = again ? `analyse:${recordingId}:again:${new Date().toISOString().slice(0, 16)}` : `analyse:${recordingId}`;
   const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "analyse", idempotency_key: key });
+  if (error?.code === "23505") return "exists";
+  if (error) throw new Error(friendlyError(error.message));
+  return "queued";
+}
+
+/**
+ * Tells a long recording in full, as parts (Deel 1..N), from the moments already found: no new analysis. The worker
+ * plans the parts and writes a script per part (one small Gemini text call each). Shorts stay as they are.
+ */
+export async function queueSeries(studioId: string, recordingId: string): Promise<"queued" | "exists"> {
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "analyse", idempotency_key: `analyse:${recordingId}:parts:${new Date().toISOString().slice(0, 16)}`, payload: { replan: true } });
   if (error?.code === "23505") return "exists";
   if (error) throw new Error(friendlyError(error.message));
   return "queued";

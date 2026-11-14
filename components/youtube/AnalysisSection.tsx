@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
-import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, PRIVACY_LABEL, TARGET, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
-import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
+import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, partLabel, PRIVACY_LABEL, SERIES_MIN_MS, SERIES_PART_MS, targetFor, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
+import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, queueSeries, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { ViralCard } from "@/components/youtube/ViralCard";
 import { pageVisible } from "@/lib/visible";
 import { Editor } from "@/components/youtube/Editor";
@@ -140,6 +140,12 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                           {job === "done" && !r.is_test && state.settings?.paid_processing_enabled && analysisService && (
                             <Button variant="ghost" className="px-2 py-0.5 text-xs" onClick={() => void act(() => queueAnalysis(studioId, r.id, true))}>
                               Opnieuw analyseren (± {euros(estimateAnalysisCents(r.duration_ms ?? 0))})
+                            </Button>
+                          )}
+                          {/* A long recording told in full: parts from the moments already found, one script (± 1 cent) per part. */}
+                          {job === "done" && !r.is_test && (r.duration_ms ?? 0) >= SERIES_MIN_MS && state.settings?.paid_processing_enabled && analysisService && !state.videos.some((v) => v.recording_id === r.id && v.status !== "archived" && partLabel(v.plan_key)) && (
+                            <Button variant="secondary" className="px-2 py-0.5 text-xs" onClick={() => void act(() => queueSeries(studioId, r.id))}>
+                              Hele verhaal in ± {Math.max(2, Math.round((r.duration_ms ?? 0) / SERIES_PART_MS))} delen (scripts ± {euros(Math.max(2, Math.round((r.duration_ms ?? 0) / SERIES_PART_MS)))})
                             </Button>
                           )}
                         </span>
@@ -319,7 +325,8 @@ function VideoCard({ compact = false, video, moments, scripts, montage, act, stu
   // Always show the newest version, so a regenerated script can be read and approved; say which one is approved.
   const script = scripts[0];
   const approved = scripts.find((s) => s.status === "approved");
-  const target = TARGET[video.format];
+  const target = targetFor(video.format, video.plan_key);
+  const part = partLabel(video.plan_key);
   const used = [...video.yt_video_moments].sort((a, b) => a.position - b.position).map((l) => moments.find((m) => m.id === l.moment_id)).filter((m): m is DbMoment => !!m);
   const nextVersion = (scripts[0]?.version ?? 0) + 1;
   const waits = video.status === "review" || script?.status === "draft";
@@ -329,6 +336,7 @@ function VideoCard({ compact = false, video, moments, scripts, montage, act, stu
       <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-2 [&::-webkit-details-marker]:hidden">
         <p className="font-medium">
           <span aria-hidden className="mr-1 inline-block text-slate-400 transition-transform group-open:rotate-90">▸</span>
+          {part && <span className="mr-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">{part}</span>}
           {script?.top_line ?? `Format ${video.format}: ${format?.name}`} <span className="text-xs font-normal text-slate-500">· {format?.kind} · {VIDEO_STATUS[video.status] ?? video.status}</span>
           {video.is_test && <TestBadge />}
         </p>
