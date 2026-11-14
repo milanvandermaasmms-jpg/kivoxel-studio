@@ -1,12 +1,38 @@
 // Recordings on Milan's pc: resumable uploads, duplicate detection and the local list.
 // Raw recordings never leave this pc; Supabase only gets the facts about the file.
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, openAsBlob } from "node:fs";
-import { copyFile, mkdir, readFile, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { copyFile, mkdir, open, readFile, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { computeFingerprint } from "../lib/youtube/fingerprint.ts";
+
+/**
+ * A Blob-like view on a file that reads at real file positions. fs.openAsBlob read the wrong bytes beyond 4 GB
+ * (found 14-11-2026 with a 4.8 GB recording: every upload above 4 GB was refused as damaged).
+ */
+export async function diskBlob(path: string): Promise<Blob> {
+  const size = (await stat(path)).size;
+  const slice = (start: number, end: number) => ({
+    async arrayBuffer() {
+      const fh = await open(path, "r");
+      try {
+        const buf = Buffer.alloc(Math.max(0, end - start));
+        let done = 0;
+        while (done < buf.length) {
+          const { bytesRead } = await fh.read(buf, done, buf.length - done, start + done);
+          if (!bytesRead) break;
+          done += bytesRead;
+        }
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + done) as ArrayBuffer;
+      } finally {
+        await fh.close();
+      }
+    },
+  });
+  return { size, slice } as unknown as Blob;
+}
 import {
   isFingerprint,
   MAX_CHUNK_SIZE,
@@ -155,7 +181,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
       const received = (await sizeOf(part)) ?? 0;
       if (received !== pending.size) throw new StoreError(409, "Nog niet alles is ontvangen", received);
 
-      if ((await computeFingerprint(await openAsBlob(part))) !== fp) {
+      if ((await computeFingerprint(await diskBlob(part))) !== fp) {
         await rm(part, { force: true });
         await rm(pendingFile(fp), { force: true });
         throw new StoreError(422, "Het bestand kwam beschadigd aan. Upload het opnieuw.");
@@ -199,7 +225,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
     const cleanLabel = label.trim().slice(0, 200) || "Opname";
     const size = (await stat(source)).size;
     if (size <= 0 || size > MAX_RECORDING_SIZE) throw new StoreError(400, "Ongeldige bestandsgrootte");
-    const fp = await computeFingerprint(await openAsBlob(source));
+    const fp = await computeFingerprint(await diskBlob(source));
     return locked(fp, async () => {
       const index = await readIndex();
       const done = index.find((r) => r.fingerprint === fp);

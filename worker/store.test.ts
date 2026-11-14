@@ -119,3 +119,23 @@ describe("worker server", () => {
     }
   });
 });
+
+describe("fingerprint from disk (fix 14-11-2026: openAsBlob read wrong bytes above 4 GB)", () => {
+  it("reads exactly the same bytes as the browser File would", async () => {
+    const { diskBlob } = await import("./store.ts");
+    const { computeFingerprint } = await import("../lib/youtube/fingerprint.ts");
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "fp-"));
+    try {
+      const data = Buffer.alloc(40 * 1024 * 1024);
+      for (let i = 0; i < data.length; i += 4096) data.writeUInt32LE(i, i);
+      const file = join(dir, "x.webm");
+      await writeFile(file, data);
+      expect(await computeFingerprint(await diskBlob(file))).toBe(await computeFingerprint(new Blob([data])));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
