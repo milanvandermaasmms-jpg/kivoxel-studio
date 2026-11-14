@@ -21,3 +21,9 @@ Startpunt: branch `feature/ivar` = `feature/dreamnest` (37f8be8). Lees eerst `do
 - Let op: `scriptPrompt`, `FORMAT_RULES` en de stemsnelheid zijn ook door een andere sessie aangepast; voeg alleen een blok toe en verander niets aan hun regels.
 
 Kosten Gemini: ± 1-3 cent extra per kanaal per week. Migratie: waarschijnlijk geen (alles past in bestaande tabellen); anders eerst plan aan Milan.
+
+## 4. Onderzoek: stem, tempo, enthousiasme en verhaal van goed lopende video's (Milans vraag, 14-11-2026)
+- Bron: de best scorende recente Shorts en lange video's in de niche (`yt_reference_videos`, hoge views per abonnee).
+- Gemini kan openbare YouTube-video's direct bekijken via hun URL (geen download): per video meten wat de verteller doet: woorden per seconde, energie (1-10), toonhoogte/variatie, pauzes, eerste zin (hook) en wanneer die valt, verhaalopbouw (probleem → spanning → afloop), ondertitelstijl, lengte.
+- Opslaan als inzichten (kind `trend`, met bewijs per video) en een samenvatting "zo klinken de winnaars" per kanaal, die later meegaat in script en stem (zie punt 3). Kosten: ± 1 cent per video, binnen het maandplafond; eerst een kostenkaart.
+- Nooit kopiëren: alleen patronen gebruiken, in onze eigen stem en met onze eigen gameplay.
