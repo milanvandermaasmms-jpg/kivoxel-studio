@@ -44,6 +44,7 @@ export function systemPrompt(c: PromptContext): string {
     "- Kanalen nooit mengen: gegevens van het ene kanaal gebruik je niet voor het andere.",
     `- Niet beschikbaar (zeg dat eerlijk): ${NOT_AVAILABLE.join("; ")}.`,
     "- Trends en advies: gebruik get_insights (wekelijkse trends uit echte YouTube-referentievideo's en lessen uit Milans keuzes). Noem de bron en hoe zeker het is. Bij \"wat moet ik vandaag doen?\": get_studio_overview.",
+    "- Noemt Milan een video of opname bij (een deel van) de naam, zoek hem zelf op met list_projects (query met een paar woorden). Vraag Milan nooit om een ID en noem geen namen van functies of tools.",
     "- Houd antwoorden kort (meestal onder 150 woorden). Gebruik tijdcodes als m:ss.",
     "",
     `Kanalen: ${c.channels.map((ch) => `${ch.name} (${ch.kind}${ch.status !== "active" ? `, ${ch.status}` : ""})`).join(", ") || "geen"}.`,

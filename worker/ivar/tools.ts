@@ -130,13 +130,27 @@ async function listProjects(env: ToolEnv, a: { query?: string; limit?: number })
   }
   let rq = env.db.from("yt_recordings").select(RECORDING_COLUMNS).eq("studio_id", env.studioId).eq("channel_id", ch.id);
   if (like) rq = rq.ilike("label", like);
-  let vq = env.db.from("yt_videos").select(VIDEO_COLUMNS).eq("studio_id", env.studioId).eq("channel_id", ch.id).neq("status", "archived");
-  if (like) vq = vq.or(`title.ilike.${like.replace(/[,()]/g, " ")},promise.ilike.${like.replace(/[,()]/g, " ")}`);
-  const [recs, vids] = await Promise.all([rq.order("created_at", { ascending: false }).limit(limit).returns<RecordingRow[]>(), vq.order("created_at", { ascending: false }).limit(limit * 2).returns<VideoRow[]>()]);
+  // Videos are found by the title the studio shows (working title, publication, script title, top line), not only the working title.
+  const vq = env.db.from("yt_videos").select(VIDEO_COLUMNS).eq("studio_id", env.studioId).eq("channel_id", ch.id).neq("status", "archived");
+  const [recs, all] = await Promise.all([rq.order("created_at", { ascending: false }).limit(limit).returns<RecordingRow[]>(), vq.order("created_at", { ascending: false }).limit(200).returns<VideoRow[]>()]);
+  const allVids = must(all, "De video's") ?? [];
+  const ids = allVids.map((v) => v.id);
+  const [scripts, pubs] = ids.length
+    ? await Promise.all([
+        env.db.from("yt_scripts").select("video_id, version, titles, top_line, status").in("video_id", ids).neq("status", "rejected").order("version", { ascending: false }).returns<{ video_id: string; titles: string[] | null; top_line: string | null }[]>(),
+        env.db.from("yt_publications").select("video_id, title").in("video_id", ids).returns<{ video_id: string; title: string }[]>(),
+      ])
+    : [{ data: [] }, { data: [] }];
+  const named = new Map<string, string>();
+  for (const p of pubs.data ?? []) if (p.title) named.set(p.video_id, p.title);
+  for (const s of scripts.data ?? []) if (!named.has(s.video_id) && (s.titles?.[0] || s.top_line)) named.set(s.video_id, (s.titles?.[0] ?? s.top_line)!);
+  const words = (a.query ?? "").toLowerCase().split(/\s+/).filter((w) => w.length > 1);
+  const hit = (v: VideoRow) => !words.length || words.every((w) => `${v.title ?? ""} ${named.get(v.id) ?? ""} ${v.promise ?? ""} ${partLabel(v.plan_key) ?? ""}`.toLowerCase().includes(w));
+  const vids = { data: allVids.filter(hit).slice(0, limit * 2), error: null };
   return {
     channel: ch.name,
     recordings: (must(recs, "De opnames") ?? []).map((r) => ({ kind: "recording", id: r.id, label: r.label, status: r.status, length: r.duration_ms ? formatTimecode(r.duration_ms) : null, test: r.is_test })),
-    videos: (must(vids, "De video's") ?? []).map((v) => ({ kind: "video", id: v.id, label: videoLabel(v), type: FORMAT_LABEL[v.format], status: v.status, recording_id: v.recording_id, on_youtube: !!v.youtube_video_id })),
+    videos: vids.data.map((v) => ({ kind: "video", id: v.id, label: videoLabel(v, named.get(v.id)), type: FORMAT_LABEL[v.format], status: v.status, recording_id: v.recording_id, on_youtube: !!v.youtube_video_id })),
   };
 }
 

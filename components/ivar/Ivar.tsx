@@ -468,7 +468,11 @@ function IconButton({ label, onClick, children, active }: { label: string; onCli
 /** Plain text with **bold** and "- " bullets; nothing else is interpreted (no HTML from the model). */
 function Rich({ text }: { text: string }) {
   const blocks = text.split(/\n{2,}/);
-  const inline = (s: string) => s.split(/(\*\*[^*]+\*\*)/g).map((p, i) => (p.startsWith("**") && p.endsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : <span key={i}>{p}</span>));
+  const inline = (s: string) =>
+    s
+      .replace(/`([^`]+)`/g, "$1")
+      .split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g)
+      .map((p, i) => (p.startsWith("**") && p.endsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : p.length > 2 && p.startsWith("*") && p.endsWith("*") ? <em key={i}>{p.slice(1, -1)}</em> : <span key={i}>{p}</span>));
   return (
     <>
       {blocks.map((b, i) => {
