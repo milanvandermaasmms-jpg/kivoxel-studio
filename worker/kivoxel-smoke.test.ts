@@ -135,5 +135,10 @@ describe("KIVOXEL smoke test", () => {
     await createQueue("http://x", "k", "pc-smoke", {} as Store, () => {}, null, null, wrong.db, publisher("UCdreamnest")).tick();
     expect(sent).toEqual([]);
     expect(JSON.stringify(wrong.calls.filter((c) => c.op === "update"))).toMatch(/ander kanaal dan KIVOXEL/);
+    // As on Milan's pc today: KIVOXEL's row has no YouTube channel ID yet, the tokens are there -> uploads keep working.
+    sent.length = 0;
+    const legacy = fakeDb({ ...rows, yt_channels: { id: "c1", name: "KIVOXEL", youtube_channel_id: null, is_default: true } }, [[job("upload", { payload: { publication_id: "p1" } })]]);
+    await createQueue("http://x", "k", "pc-smoke", {} as Store, () => {}, null, null, legacy.db, publisher("UC6zZPLDaBan9Jr8WpEhbdwA")).tick();
+    expect(sent).toEqual(["upload"]);
   });
 });

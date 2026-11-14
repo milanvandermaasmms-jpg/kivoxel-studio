@@ -39,5 +39,8 @@ describe("channel check before every upload (fase 0.5)", () => {
     expect(uploadChannelProblem(kiv, null)).toMatch(/geen YouTube-koppeling/);
     expect(uploadChannelProblem({ name: "Dreamnest NL", youtubeChannelId: null }, "UCkivoxel")).toMatch(/nog niet aan YouTube gekoppeld/);
     expect(uploadChannelProblem(null, "UCkivoxel")).toMatch(/geen kanaal/);
+    // KIVOXEL linked before the Studio stored its channel ID: uploads keep working with its own tokens.
+    expect(uploadChannelProblem({ name: "KIVOXEL", youtubeChannelId: null, isDefault: true }, "UC6zZPLDaBan9Jr8WpEhbdwA")).toBeNull();
+    expect(uploadChannelProblem({ name: "KIVOXEL", youtubeChannelId: null, isDefault: true }, null)).toMatch(/geen YouTube-koppeling/);
   });
 });

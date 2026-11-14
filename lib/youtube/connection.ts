@@ -44,8 +44,10 @@ export function quotaText(q: { units: number; uploads: number; limitUnits: numbe
  * Channel check before every upload (Dreamnest fase 0.5): the tokens on the pc must belong to the YouTube channel the
  * video's channel is linked to, so a video can never go to the wrong channel. Returns the reason to stop, or null.
  */
-export function uploadChannelProblem(expected: { name: string; youtubeChannelId: string | null } | null, tokensFor: string | null): string | null {
+export function uploadChannelProblem(expected: { name: string; youtubeChannelId: string | null; isDefault?: boolean } | null, tokensFor: string | null): string | null {
   if (!expected) return "Bij deze video hoort geen kanaal in de Studio; kies eerst een kanaal.";
+  // KIVOXEL (default channel) linked before the Studio stored the channel ID: keep uploading as before, with its own tokens.
+  if (!expected.youtubeChannelId && expected.isDefault) return tokensFor ? null : "Er is geen YouTube-koppeling op deze pc. Koppel het kanaal opnieuw.";
   if (!expected.youtubeChannelId) return `Het kanaal ${expected.name} is nog niet aan YouTube gekoppeld (Instellingen > Kanalen).`;
   if (!tokensFor) return "Er is geen YouTube-koppeling op deze pc. Koppel het kanaal opnieuw.";
   if (tokensFor !== expected.youtubeChannelId) return `De YouTube-koppeling op deze pc hoort bij een ander kanaal dan ${expected.name}. Niets geüpload.`;

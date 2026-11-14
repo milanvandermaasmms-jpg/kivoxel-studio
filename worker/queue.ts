@@ -756,9 +756,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const v = await db.from("yt_videos").select("channel_id").eq("id", pub.video_id).single<{ channel_id: string | null }>();
         if (v.error) throw new Error(v.error.message);
         const ch = v.data.channel_id
-          ? await db.from("yt_channels").select("id, name, youtube_channel_id").eq("id", v.data.channel_id).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null }>()
-          : await db.from("yt_channels").select("id, name, youtube_channel_id").eq("studio_id", job.studio_id).eq("is_default", true).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null }>();
-        const problem = uploadChannelProblem(ch.data ? { name: ch.data.name, youtubeChannelId: ch.data.youtube_channel_id } : null, ch.data ? await publisher.tokensChannelId(ch.data.id) : null);
+          ? await db.from("yt_channels").select("id, name, youtube_channel_id, is_default").eq("id", v.data.channel_id).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null; is_default: boolean }>()
+          : await db.from("yt_channels").select("id, name, youtube_channel_id, is_default").eq("studio_id", job.studio_id).eq("is_default", true).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null; is_default: boolean }>();
+        const problem = uploadChannelProblem(ch.data ? { name: ch.data.name, youtubeChannelId: ch.data.youtube_channel_id, isDefault: ch.data.is_default } : null, ch.data ? await publisher.tokensChannelId(ch.data.id) : null);
         if (problem) throw new Error(problem);
       }
       await setPub({ status: "uploading", error: null });
