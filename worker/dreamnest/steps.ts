@@ -59,7 +59,7 @@ export function qcProblems(qc: Record<string, unknown> | null): string[] {
 type Episode = { id: string; title: string; duration_min: number; spent_cents: number };
 
 /** envFile: the worker's own .env.local, so the scripts use the same keys, budget ceiling and data folder as the worker. */
-export function createDnHandlers(o: { db: SupabaseClient; dataDir: string; log: (msg: string) => void; run?: RunScript; envFile?: string }): Partial<Record<DnStep, DnHandler>> {
+export function createDnHandlers(o: { db: SupabaseClient; dataDir: string; log: (msg: string) => void; run?: RunScript; envFile?: string; publish?: DnHandler }): Partial<Record<DnStep, DnHandler>> {
   const base = join(o.dataDir, "dreamnest");
   const run = o.run ?? runScript;
   // Only to read what was spent (fresh each time: the script writes costs.json); the scripts keep the ceiling.
@@ -74,7 +74,7 @@ export function createDnHandlers(o: { db: SupabaseClient; dataDir: string; log: 
 
   /** Runs the step's script; progress and the last line go to the job row, so the Studio can show them. */
   async function runStep(job: DnJob, ep: Episode) {
-    const plan = scriptFor(job.step, ep.duration_min, (job.payload ?? {}) as StepPayload);
+    const plan = scriptFor(job.step, ep.duration_min, (job.payload ?? {}) as StepPayload, ep.title);
     if (!plan) throw new Error(`Stap ${job.step} heeft geen script`);
     const before = await spent();
     let lastWrite = 0;
@@ -135,6 +135,18 @@ export function createDnHandlers(o: { db: SupabaseClient; dataDir: string; log: 
       await setStage(job, ok ? "packaging" : "qc");
       return { ...r, files: [`${dir}/preview.mp4`], video: `${dir}/dreamnest-${ep.duration_min}min.mp4`, qc_ok: ok, qc_problems: qcProblems(qc) };
     },
+    /** Fase 5: texts, chapters, 3 thumbnails and 3 Shorts (fase5.ts). The Studio shows them and fills the publish form. */
+    dn_package: async (job) => {
+      const ep = await episode(job);
+      await setStage(job, "packaging");
+      const r = await runStep(job, ep);
+      const pkg = readJson(join(base, "fase5", `${ep.duration_min}min`, "package.json"));
+      if (!pkg) throw new Error("De verpakking (package.json) is niet gemaakt");
+      await setStage(job, "ready");
+      const shorts = (pkg.shorts as { file: string }[] | undefined) ?? [];
+      return { ...r, files: [...((pkg.thumbs as string[] | undefined) ?? []), ...shorts.map((s) => s.file)], package: pkg };
+    },
+    ...(o.publish ? { dn_publish: o.publish } : {}),
   };
 }
 

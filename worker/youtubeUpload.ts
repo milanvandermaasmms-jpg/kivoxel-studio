@@ -273,6 +273,31 @@ export function createUploader(o: { yt: YouTube; sessionDir: string; fetch?: Fet
       }
     },
 
+    /**
+     * Dreamnest fase 5: puts a video in the channel's playlist with this title, made once if it is not there yet
+     * (playlists.list 1, playlists.insert 50, playlistItems.insert 50 units). Returns the playlist ID.
+     */
+    async addToPlaylist(videoId: string, title: string, description = ""): Promise<string> {
+      const fail = async (res: Response, what: string) => {
+        const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        return new Error(`YouTube weigerde ${what}: ${json.error?.message ?? res.status}`);
+      };
+      await o.yt.spend("playlists.list");
+      const list = await http(`${API}/playlists?part=snippet&mine=true&maxResults=50`, { headers: await auth() });
+      if (!list.ok) throw await fail(list, "de afspeellijsten");
+      let id = ((await list.json()) as { items?: { id: string; snippet?: { title?: string } }[] }).items?.find((p) => p.snippet?.title === title)?.id;
+      if (!id) {
+        await o.yt.spend("playlists.insert");
+        const made = await http(`${API}/playlists?part=snippet,status`, { method: "POST", headers: { ...(await auth()), "content-type": "application/json; charset=UTF-8" }, body: JSON.stringify({ snippet: { title, description }, status: { privacyStatus: "public" } }) });
+        if (!made.ok) throw await fail(made, "de nieuwe afspeellijst");
+        id = ((await made.json()) as { id: string }).id;
+      }
+      await o.yt.spend("playlistItems.insert");
+      const add = await http(`${API}/playlistItems?part=snippet`, { method: "POST", headers: { ...(await auth()), "content-type": "application/json; charset=UTF-8" }, body: JSON.stringify({ snippet: { playlistId: id, resourceId: { kind: "youtube#video", videoId } } }) });
+      if (!add.ok) throw await fail(add, "de video in de afspeellijst");
+      return id;
+    },
+
     /** Processing state after the upload (videos.list, 1 unit). */
     async processing(videoId: string): Promise<Processing> {
       await o.yt.spend("videos.list");

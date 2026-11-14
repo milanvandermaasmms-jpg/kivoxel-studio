@@ -46,3 +46,35 @@ export async function archiveEpisode(episodeId: string): Promise<void> {
   const { error } = await supabase.from("dn_episodes").update({ status: "archived" }).eq("id", episodeId);
   if (error) throw new Error(friendlyError(error.message));
 }
+
+// ---------- Fase 5: publications (migration 053) ----------
+export type PublicationRow = { id: string; episode_id: string; kind: "long" | "short"; short_id: string; file: string; thumbnail: string | null; title: string; description: string; tags: string[]; publish_at: string | null; status: "draft" | "queued" | "uploading" | "uploaded" | "scheduled" | "failed"; youtube_video_id: string | null; progress: number | null; error: string | null };
+export type PublicationDraft = { kind: "long" | "short"; short_id: string; file: string; thumbnail: string | null; title: string; description: string; tags: string[]; publish_at: string | null };
+
+/** null while migration 053 has not run. */
+export async function loadPublications(episodeId: string): Promise<PublicationRow[] | null> {
+  const { data, error } = await supabase.from("dn_publications").select("id, episode_id, kind, short_id, file, thumbnail, title, description, tags, publish_at, status, youtube_video_id, progress, error").eq("episode_id", episodeId).order("created_at").returns<PublicationRow[]>();
+  if (error) {
+    if (/dn_publications|does not exist|schema cache/i.test(error.message)) return null;
+    throw new Error(friendlyError(error.message));
+  }
+  return data ?? [];
+}
+
+/** Saves the form (draft), or with queue=true sets it ready and puts the publish step in the Dreamnest queue. */
+export async function savePublication(studioId: string, episodeId: string, channelId: string, existing: PublicationRow | null, d: PublicationDraft, queue: boolean): Promise<void> {
+  const fields = { thumbnail: d.thumbnail, title: d.title.trim(), description: d.description, tags: d.tags, publish_at: d.publish_at, status: queue ? "queued" : "draft" };
+  let id = existing?.id ?? null;
+  if (existing) {
+    const { error } = await supabase.from("dn_publications").update(fields).eq("id", existing.id);
+    if (error) throw new Error(friendlyError(error.message));
+  } else {
+    const { data, error } = await supabase.from("dn_publications").insert({ studio_id: studioId, episode_id: episodeId, channel_id: channelId, kind: d.kind, short_id: d.short_id, file: d.file, ...fields }).select("id").single<{ id: string }>();
+    if (error) throw new Error(friendlyError(error.message));
+    id = data.id;
+  }
+  if (queue && id) {
+    const { error } = await supabase.from("dn_render_jobs").insert({ studio_id: studioId, episode_id: episodeId, step: "dn_publish", payload: { publication_id: id }, idempotency_key: `publish:${id}:${Date.now()}`, max_attempts: 1 });
+    if (error) throw new Error(friendlyError(error.message));
+  }
+}

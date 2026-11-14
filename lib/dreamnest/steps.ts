@@ -11,7 +11,7 @@ export type FlowStep = {
   /** Maximum cost in euro cents when nothing is cached yet (0 = free, on the pc). */
   maxCents: number;
   /** Episode status while this step runs. */
-  stage: "concept" | "keyframes" | "animation" | "music" | "rendering";
+  stage: "concept" | "keyframes" | "animation" | "music" | "rendering" | "packaging";
   /** What "Aanpassen" does for this step (null = only Opnieuw). */
   adjust: "seed" | "clip" | null;
 };
@@ -22,6 +22,7 @@ export const FLOW: FlowStep[] = [
   { step: "dn_animate", label: "Animatie", about: "Korte AI-clips tussen de keyframes en naadloze lussen (Gemini Omni).", maxCents: 2500, stage: "animation", adjust: "clip" },
   { step: "dn_music", label: "Muziek", about: "Eigen slaapliedjes en sfeergeluid, op de pc gemaakt (gratis).", maxCents: 0, stage: "music", adjust: "seed" },
   { step: "dn_render", label: "Montage en controle", about: "De hele aflevering op de pc, met controle per minuut en een preview van 3 minuten.", maxCents: 0, stage: "rendering", adjust: "seed" },
+  { step: "dn_package", label: "Verpakking", about: "Titel, beschrijving, hoofdstukken, 3 thumbnails (eigen tekstlaag) en 3 Shorts.", maxCents: 33, stage: "packaging", adjust: "seed" },
 ];
 
 export type JobLike = { step: string; status: string; created_at: string };
@@ -44,10 +45,10 @@ export function nextStep(views: StepView[]): FlowStep | null {
   return null;
 }
 
-export type StepPayload = { seed?: number; only?: string; minutes?: number };
+export type StepPayload = { seed?: number; only?: string; minutes?: number; title?: string; publication_id?: string };
 
 /** The tested script (worker/dreamnest/faseN.ts) and its arguments for a step. */
-export function scriptFor(step: DnStep, durationMin: number, payload: StepPayload): { script: string; args: string[] } | null {
+export function scriptFor(step: DnStep, durationMin: number, payload: StepPayload, title = ""): { script: string; args: string[] } | null {
   const seed = Number.isInteger(payload.seed) ? String(payload.seed) : "11";
   switch (step) {
     case "dn_keyframes":
@@ -58,6 +59,8 @@ export function scriptFor(step: DnStep, durationMin: number, payload: StepPayloa
       return { script: "fase3.ts", args: ["--seed", seed] };
     case "dn_render":
       return { script: "fase4.ts", args: ["--minutes", String(durationMin), "--seed", seed] };
+    case "dn_package":
+      return { script: "fase5.ts", args: ["--minutes", String(durationMin), "--seed", Number.isInteger(payload.seed) ? String(payload.seed) : "1", ...(title.trim() ? ["--title", title.trim().slice(0, 80)] : [])] };
     default:
       return null;
   }

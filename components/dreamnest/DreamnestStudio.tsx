@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Notice, Section } from "@/components/settings/Section";
 import { Button } from "@/components/ui/Dialog";
 import { YouTubeConnection } from "@/components/youtube/YouTubeConnection";
+import { PublishPanel, type PackageResult } from "@/components/dreamnest/PublishPanel";
 import { DURATIONS_MIN } from "@/lib/dreamnest/core";
 import { archiveEpisode, cancelStep, createEpisode, loadEpisodes, loadJobs, queueStep, type DnJobRow, type Episode } from "@/lib/dreamnest/data";
 import { euro, nextStep, stepViews, type FlowStep, type StepPayload } from "@/lib/dreamnest/steps";
@@ -104,7 +105,7 @@ export function DreamnestStudio({ channel, channels, studioId, isAdmin, health, 
           <EpisodeList episodes={episodes} selected={selected} onSelect={setSelected} canAdd={isAdmin} busy={busy} onAdd={(title, min) => act(async () => setSelected(await createEpisode(studioId, channel.id, title, min)))} />
           <div className="min-w-0 space-y-4">
             {episode ? (
-              <EpisodeBoard episode={episode} jobs={jobs} busy={busy} isAdmin={isAdmin} act={act} studioId={studioId} />
+              <EpisodeBoard episode={episode} jobs={jobs} busy={busy} isAdmin={isAdmin} act={act} studioId={studioId} channel={channel} />
             ) : (
               <p className="rounded-xl border border-slate-200 px-4 py-10 text-sm text-slate-500">Nog geen aflevering. Begin links met &quot;Nieuwe aflevering&quot;.</p>
             )}
@@ -173,7 +174,7 @@ function EpisodeList({ episodes, selected, onSelect, canAdd, busy, onAdd }: { ep
   );
 }
 
-function EpisodeBoard({ episode, jobs, busy, isAdmin, act, studioId }: { episode: Episode; jobs: DnJobRow[]; busy: boolean; isAdmin: boolean; act: (fn: () => Promise<unknown>) => Promise<void>; studioId: string }) {
+function EpisodeBoard({ episode, jobs, busy, isAdmin, act, studioId, channel }: { episode: Episode; jobs: DnJobRow[]; busy: boolean; isAdmin: boolean; act: (fn: () => Promise<unknown>) => Promise<void>; studioId: string; channel: Channel }) {
   const views = stepViews(jobs);
   const next = nextStep(views);
   const anyActive = views.some((v) => v.state === "queued" || v.state === "running");
@@ -230,6 +231,11 @@ function EpisodeBoard({ episode, jobs, busy, isAdmin, act, studioId }: { episode
           })}
         </ol>
       </Section>
+      {(() => {
+        const pack = views.find((v) => v.flow.step === "dn_package");
+        const pkg = pack?.state === "done" ? ((pack.job as DnJobRow | null)?.result?.package as PackageResult | undefined) : undefined;
+        return pkg ? <PublishPanel pkg={pkg} channel={channel} studioId={studioId} episodeId={episode.id} isAdmin={isAdmin} /> : null;
+      })()}
       {isAdmin && (
         <div className="flex justify-end">
           <Button variant="ghost" disabled={busy || anyActive} onClick={() => void act(() => archiveEpisode(episode.id))}>
@@ -283,6 +289,9 @@ function StepResult({ step, result, files }: { step: string; result: Record<stri
   return (
     <div className="mt-2 space-y-2">
       {paid}
+      {step === "dn_package" && typeof (result.package as { title?: string } | undefined)?.title === "string" && (
+        <p className="text-sm font-medium">{(result.package as { title: string }).title}</p>
+      )}
       {step === "dn_render" && (
         <p className={`text-sm ${result.qc_ok ? "text-emerald-800" : "text-red-800"}`}>
           {result.qc_ok ? "QC ✅: beeld en geluid in orde." : `QC ❌: ${((result.qc_problems as string[] | undefined) ?? []).join("; ")}`}

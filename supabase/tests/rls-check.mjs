@@ -908,6 +908,27 @@ if (hasMigration("046")) {
     await noneAffected("the app cannot finish a running step", MILAN, "update public.dn_render_jobs set status='cancelled' where idempotency_key='ping-1'");
     ok("a stranger sees no Dreamnest queue", (await one(STRANGER, "select count(*)::int from public.dn_render_jobs")) === 0);
   }
+  // ---------- Dreamnest publish (migration 053) ----------
+  if (hasMigration("053")) {
+    const ep = await one(MILAN, "select id from public.dn_episodes where studio_id=$1 limit 1", [hh]);
+    const ins = (uid, extra = "", vals = "") => as(uid, `insert into public.dn_publications(studio_id,episode_id,channel_id,kind,file,title${extra}) values($1,$2,$3,'long','fase4/60min/dreamnest-60min.mp4','Lumi${vals}') returning id`, [hh, ep, def]);
+    const pub = (await ins(MILAN)).rows[0].id;
+    ok("admin makes a Dreamnest publication (draft, Made for Kids and AI label on)", (await one(MILAN, "select status||made_for_kids::text||contains_synthetic_media::text from public.dn_publications where id=$1", [pub])) === "drafttruetrue");
+    await as(MILAN, "update public.dn_publications set title='Lumi 2', publish_at=now()+interval '2 days', status='queued' where id=$1", [pub]);
+    ok("admin edits and queues it", (await one(MILAN, "select status from public.dn_publications where id=$1", [pub])) === "queued");
+    await noneAffected("the app cannot mark it uploaded", MILAN, `update public.dn_publications set status='uploaded' where id='${pub}'`);
+    await rejects("the app cannot write a YouTube ID", MILAN, "update public.dn_publications set youtube_video_id='abcdefghijk' where id=$1", [pub]);
+    await rejects("Made for Kids cannot be switched off", MILAN, "insert into public.dn_publications(studio_id,episode_id,channel_id,kind,short_id,file,title,made_for_kids) values($1,$2,$3,'short','x','a.mp4','T',false)", [hh, ep, def]);
+    await rejects("a file outside the Dreamnest folder is refused", MILAN, "insert into public.dn_publications(studio_id,episode_id,channel_id,kind,short_id,file,title) values($1,$2,$3,'short','y','../geheim.mp4','T')", [hh, ep, def]);
+    await rejects("< and > are refused like YouTube does", MILAN, "insert into public.dn_publications(studio_id,episode_id,channel_id,kind,short_id,file,title) values($1,$2,$3,'short','z','a.mp4','<b>')", [hh, ep, def]);
+    await rejects("the same video cannot be published twice", MILAN, "insert into public.dn_publications(studio_id,episode_id,channel_id,kind,file,title) values($1,$2,$3,'long','a.mp4','T')", [hh, ep, def]);
+    await db.query("update public.dn_publications set status='scheduled', youtube_video_id='abcdefghijk' where id=$1", [pub]);
+    await noneAffected("after the upload the app cannot change it any more", MILAN, `update public.dn_publications set title='x' where id='${pub}'`);
+    ok("a stranger sees no publications", (await one(STRANGER, "select count(*)::int from public.dn_publications")) === 0);
+    await rejects("a stranger cannot make one", STRANGER, "insert into public.dn_publications(studio_id,episode_id,channel_id,kind,short_id,file,title) values($1,$2,$3,'short','s','a.mp4','T')", [hh, ep, def]);
+    await as(MILAN, "insert into public.dn_render_jobs(studio_id,episode_id,step,idempotency_key,payload) values($1,$2,'dn_publish','pub-1',$3)", [hh, ep, { publication_id: pub }]);
+    ok("admin queues the publish step", (await one(MILAN, "select step from public.dn_render_jobs where idempotency_key='pub-1'")) === "dn_publish");
+  }
   await as(MILAN, "update public.yt_settings set private_terms='{}' where studio_id=$1", [hh]);
 }
 

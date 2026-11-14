@@ -6,7 +6,7 @@ const job = (step: string, status: string, at: string) => ({ step, status, creat
 describe("Dreamnest steps in the Studio", () => {
   it("the newest job decides a step; cancelled counts as not started", () => {
     const v = stepViews([job("dn_concept", "failed", "1"), job("dn_concept", "done", "2"), job("dn_keyframes", "cancelled", "3")]);
-    expect(v.map((x) => x.state)).toEqual(["done", "todo", "todo", "todo", "todo"]);
+    expect(v.map((x) => x.state)).toEqual(["done", "todo", "todo", "todo", "todo", "todo"]);
   });
   it("only the first unfinished step can start, and nothing while a step waits or runs", () => {
     expect(nextStep(stepViews([]))?.step).toBe("dn_concept");
@@ -22,9 +22,11 @@ describe("Dreamnest steps in the Studio", () => {
     expect(scriptFor("dn_music", 60, { seed: 42 })?.args).toEqual(["--seed", "42"]);
     expect(scriptFor("dn_render", 90, {})?.args).toEqual(["--minutes", "90", "--seed", "11"]);
     expect(scriptFor("dn_concept", 60, {})).toBeNull();
+    expect(scriptFor("dn_package", 60, { seed: 2 }, "Lumi's Cozy Fireplace Night")?.args).toEqual(["--minutes", "60", "--seed", "2", "--title", "Lumi's Cozy Fireplace Night"]);
+    expect(scriptFor("dn_publish", 60, {})).toBeNull();
   });
   it("paid steps say their maximum; the pc steps are free", () => {
-    expect(FLOW.filter((f) => f.maxCents > 0).map((f) => f.step)).toEqual(["dn_keyframes", "dn_animate"]);
+    expect(FLOW.filter((f) => f.maxCents > 0).map((f) => f.step)).toEqual(["dn_keyframes", "dn_animate", "dn_package"]);
   });
   it("reads the render percentage from the log", () => {
     expect(parseProgress("[09:12:27] Render 54% (50/73), nog ± 20 min")).toBe(54);

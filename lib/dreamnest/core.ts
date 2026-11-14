@@ -7,7 +7,7 @@ export function dreamnestEnabled(env: Record<string, string | undefined> = proce
 }
 
 /** Every step of the Dreamnest queue (migration 052). All start with dn_, so they can never match a KIVOXEL step. */
-export const DN_STEPS = ["dn_concept", "dn_storyboard", "dn_keyframes", "dn_animate", "dn_music", "dn_timeline", "dn_preview", "dn_render", "dn_qc", "dn_package", "dn_ping"] as const;
+export const DN_STEPS = ["dn_concept", "dn_storyboard", "dn_keyframes", "dn_animate", "dn_music", "dn_timeline", "dn_preview", "dn_render", "dn_qc", "dn_package", "dn_publish", "dn_ping"] as const;
 export type DnStep = (typeof DN_STEPS)[number];
 
 export const DURATIONS_MIN = [60, 90, 120, 180, 600] as const;

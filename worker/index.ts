@@ -25,6 +25,7 @@ import { createRegistrar } from "./register.ts";
 import { dreamnestEnabled } from "../lib/dreamnest/core.ts";
 import { createDreamnestLane } from "./dreamnest/lane.ts";
 import { createDnHandlers } from "./dreamnest/steps.ts";
+import { createDnPublish } from "./dreamnest/publish.ts";
 
 const VERSION = "63.2";
 
@@ -141,7 +142,7 @@ const dreamnest =
   queue && dreamnestEnabled(env)
     ? (() => {
         const db = createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } });
-        return createDreamnestLane({ db, workerName, log, kivoxelBusy: queue.mainBusy, handlers: createDnHandlers({ db, dataDir, log, envFile }) });
+        return createDreamnestLane({ db, workerName, log, kivoxelBusy: queue.mainBusy, handlers: createDnHandlers({ db, dataDir, log, envFile, publish: youtube.configured ? createDnPublish({ db, dataDir, log, youtubeFor: youtubeLink.youtubeFor, makeUploader: (yt) => createUploader({ yt, sessionDir: join(dataDir, "youtube-uploads") }) }) : undefined }) });
       })()
     : null;
 

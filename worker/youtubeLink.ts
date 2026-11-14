@@ -70,7 +70,7 @@ const fields = (c: ChannelInfo, now: string): LinkFields => ({ youtube_channel_i
  * keeps `yt` and its existing token file; every other channel gets its own instance (own token file). Without it,
  * exactly one channel can be linked, as before.
  */
-export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceKey: string } | null, dbOverride?: ChannelDb, now = () => new Date().toISOString(), forChannel?: (channelRowId: string) => YouTube): YouTubeRoutes & { sync: () => Promise<string | null>; tokensChannelId: (channelRowId: string) => Promise<string | null> } {
+export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceKey: string } | null, dbOverride?: ChannelDb, now = () => new Date().toISOString(), forChannel?: (channelRowId: string) => YouTube): YouTubeRoutes & { sync: () => Promise<string | null>; tokensChannelId: (channelRowId: string) => Promise<string | null>; youtubeFor: (channelRowId: string) => Promise<YouTube> } {
   const db = dbOverride ?? (supabase ? supabaseChannelDb(supabase.url, supabase.serviceKey) : null);
   const pick = (row: ChannelRow): YouTube => (forChannel && !row.is_default ? forChannel(row.id) : yt);
   /** Which instance handed out a sign-in (state from the Google address), so the callback lands in the right one. */
@@ -143,6 +143,11 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
       if (!forChannel || !channelRowId || !db) return yt.status();
       const row = await db.get(channelRowId);
       return (row ? pick(row) : yt).status();
+    },
+    /** Fase 5: the sign-in of this channel (KIVOXEL's own for the default channel). */
+    async youtubeFor(channelRowId: string): Promise<YouTube> {
+      const row = db ? await db.get(channelRowId) : null;
+      return row ? pick(row) : yt;
     },
     async tokensChannelId(channelRowId) {
       const row = forChannel && db ? await db.get(channelRowId) : null;
