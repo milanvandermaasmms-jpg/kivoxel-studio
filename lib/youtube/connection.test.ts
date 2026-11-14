@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Channel } from "./channels";
-import { connectionView, quotaText, reconnectBefore } from "./connection";
+import { connectionView, quotaText, reconnectBefore, uploadChannelProblem } from "./connection";
 
 const base: Channel = { id: "a", name: "Kivoxel", is_default: true, status: "active", language: "en", audience: null, brand_color: null, youtube_channel_id: null, youtube_connected_at: null, youtube_error: null };
 const health = { ok: true as const, version: "56.0", ffmpeg: "8", queue: "supabase" as const, dataDir: "x", youtube: true };
@@ -28,5 +28,16 @@ describe("YouTube connection block", () => {
 
   it("writes the quota in Dutch numbers", () => {
     expect(quotaText({ units: 1201, uploads: 2, limitUnits: 10000, limitUploads: 100 })).toBe("1.201 van 10.000 eenheden, 2 van 100 uploads");
+  });
+});
+
+describe("channel check before every upload (fase 0.5)", () => {
+  const kiv = { name: "KIVOXEL", youtubeChannelId: "UCkivoxel" };
+  it("lets an upload through only when the tokens belong to the video's channel", () => {
+    expect(uploadChannelProblem(kiv, "UCkivoxel")).toBeNull();
+    expect(uploadChannelProblem(kiv, "UCdreamnest")).toMatch(/ander kanaal dan KIVOXEL/);
+    expect(uploadChannelProblem(kiv, null)).toMatch(/geen YouTube-koppeling/);
+    expect(uploadChannelProblem({ name: "Dreamnest NL", youtubeChannelId: null }, "UCkivoxel")).toMatch(/nog niet aan YouTube gekoppeld/);
+    expect(uploadChannelProblem(null, "UCkivoxel")).toMatch(/geen kanaal/);
   });
 });

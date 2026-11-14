@@ -73,3 +73,39 @@ describe("linking a channel row to YouTube", () => {
     expect(linkError(new Error("Google weigerde het inloggen: invalid_grant (Token has been expired or revoked.)"))).toMatch(/7 dagen.*Opnieuw koppelen/);
   });
 });
+
+describe("one YouTube sign-in per channel (fase 0.5, FEATURE_DREAMNEST)", () => {
+  it("KIVOXEL keeps its own token file; Dreamnest gets its own; each channel is checked on its own", async () => {
+    dir = mkdtempSync(join(tmpdir(), "ytl-"));
+    let who = UC;
+    const fakeFetch = (async (url: string | URL) => {
+      const u = String(url);
+      if (u.startsWith("https://oauth2.googleapis.com/token")) return new Response(JSON.stringify({ access_token: "a", refresh_token: "r", expires_in: 3600, scope: YT_SCOPES.join(" ") }));
+      if (u.includes("/youtube/v3/channels")) return new Response(JSON.stringify({ items: [{ id: who, snippet: { title: who === UC ? "Kivoxel" : "Dreamnest", thumbnails: {} } }] }));
+      return new Response("");
+    }) as typeof fetch;
+    const make = (file: string) => createYouTube({ clientId: "c", clientSecret: "s", redirectUri: "http://127.0.0.1:3210/oauth/callback", key: randomBytes(32), tokenFile: join(dir, file), quotaFile: join(dir, "q.json"), fetch: fakeFetch });
+    const kivoxel = make("youtube-tokens.enc");
+    const others = new Map<string, ReturnType<typeof createYouTube>>();
+    const forChannel = (id: string) => others.get(id) ?? others.set(id, make(`youtube-tokens-${id}.enc`)).get(id)!;
+    const rows: Record<string, ChannelRow & LinkFields> = { k: row("k", { is_default: true }), d: row("d") };
+    const db: ChannelDb = { get: async (id) => rows[id] ?? null, connected: async () => Object.values(rows).find((r) => r.youtube_connected_at) ?? null, connectedAll: async () => Object.values(rows).filter((r) => r.youtube_connected_at), update: async (id, f) => void Object.assign(rows[id], f) };
+    const link = createYouTubeLink(kivoxel, null, db, () => "2026-11-14T12:00:00.000Z", forChannel);
+    const signIn = async (id: string) => link.callback(new URLSearchParams({ state: new URL(await link.connect(id)).searchParams.get("state")!, code: "x" }));
+
+    expect((await signIn("k")).ok).toBe(true);
+    who = "UCdreamnestdreamnestdrea";
+    expect((await signIn("d")).ok).toBe(true); // a second channel is allowed now
+    expect(rows.k.youtube_channel_id).toBe(UC);
+    expect(rows.d.youtube_channel_id).toBe("UCdreamnestdreamnestdrea");
+    expect(await link.tokensChannelId("k")).toBe(UC);
+    expect(await link.tokensChannelId("d")).toBe("UCdreamnestdreamnestdrea");
+    expect(((await link.status("d")) as { channelId: string }).channelId).toBe("UCdreamnestdreamnestdrea");
+    expect(((await link.status()) as { channelId: string }).channelId).toBe(UC); // without a channel: KIVOXEL, as before
+
+    // Disconnecting Dreamnest leaves KIVOXEL linked.
+    await link.disconnect("d");
+    expect(await link.tokensChannelId("d")).toBeNull();
+    expect(await link.tokensChannelId("k")).toBe(UC);
+  });
+});

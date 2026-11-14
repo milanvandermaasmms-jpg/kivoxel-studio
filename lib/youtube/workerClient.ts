@@ -29,7 +29,7 @@ export const listLocalRecordings = () => call<LocalRecording[]>("/recordings");
 
 /** YouTube connection (fase D1). The worker signs in with Google; the tokens never reach the browser. */
 export type YouTubeStatus = { configured: boolean; connected: boolean; channelId: string | null; consentedAt: string | null; scopes: string[]; quota: { day: string; units: number; uploads: number; limitUnits: number; limitUploads: number } };
-export const youtubeStatus = () => call<YouTubeStatus>("/youtube/status", { signal: AbortSignal.timeout(5000) });
+export const youtubeStatus = (channelRowId?: string) => call<YouTubeStatus>(channelRowId ? `/youtube/status?channel=${encodeURIComponent(channelRowId)}` : "/youtube/status", { signal: AbortSignal.timeout(5000) });
 const postJson = (path: string, body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) satisfies RequestInit;
 export const startYouTubeConnect = (channelId: string) => call<{ url: string }>("/youtube/connect", postJson("/youtube/connect", { channelId }));
 /** Fase E: fetch the statistics now (counts and analytics). */

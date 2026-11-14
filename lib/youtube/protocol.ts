@@ -53,7 +53,7 @@ export type InboxStatus = {
   errors: { file: string; message: string; at: string }[];
 };
 
-export type WorkerHealth = { ok: true; version: string; ffmpeg: string | null; queue: "supabase" | "local"; dataDir: string; analysis?: string | null; voice?: boolean; youtube?: boolean; inbox?: InboxStatus | null };
+export type WorkerHealth = { ok: true; version: string; ffmpeg: string | null; queue: "supabase" | "local"; dataDir: string; analysis?: string | null; voice?: boolean; youtube?: boolean; inbox?: InboxStatus | null; /** Fase 0.5: every channel has its own YouTube sign-in (FEATURE_DREAMNEST). */ multiChannel?: boolean; /** Fase 0.5: Dreamnest media and steps in this worker. */ dreamnest?: boolean };
 
 export const isFingerprint = (value: string) => /^[0-9a-f]{64}$/.test(value);
 

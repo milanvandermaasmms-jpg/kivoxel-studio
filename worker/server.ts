@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { UploadStart, WorkerHealth } from "../lib/youtube/protocol.ts";
 import { isRenderFileName } from "../lib/youtube/render.ts";
+import { safeMediaPath } from "../lib/dreamnest/steps.ts";
 import { StoreError, type Store } from "./store.ts";
 
 /**
@@ -40,6 +41,8 @@ export type ServerOptions = {
   /** Called after a new recording arrived (local mode runs the intake, queue mode wakes the queue). */
   onReceived?: (fingerprint: string) => void;
   log?: (msg: string) => void;
+  /** Dreamnest media on this pc (only with FEATURE_DREAMNEST); without it /dreamnest answers 404. */
+  dreamnestDir?: string;
   /** YouTube connection (fase D1); without it the /youtube addresses answer 404. */
   youtube?: YouTubeRoutes;
 };
@@ -49,7 +52,8 @@ export type YouTubeRoutes = {
   connect: (channelRowId: string) => Promise<string>;
   /** Google sends the browser back here; returns the Dutch text for the page Milan sees. */
   callback: (query: URLSearchParams) => Promise<{ ok: boolean; message: string }>;
-  status: () => Promise<unknown>;
+  /** channelRowId (fase 0.5): the status of that channel's own sign-in; without it the default channel. */
+  status: (channelRowId?: string) => Promise<unknown>;
   disconnect: (channelRowId: string) => Promise<void>;
   /** Fase E: fetch the statistics now (the dashboard's "Nu verversen"). */
   refresh?: () => Promise<string | null>;
@@ -80,7 +84,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, onReceived, youtube, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -114,15 +118,11 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
 
       // Montage previews. The dashboard asks with crossorigin, so the Origin check above applies; without Origin no preview,
       // so another website cannot show Milan's footage by guessing an address.
-      if ((req.method === "GET" || req.method === "HEAD") && parts[0] === "renders" && parts.length === 2 && rendersDir) {
-        const name = decodeURIComponent(parts[1]);
-        if (!origin) return send(403, { error: "Preview alleen via het dashboard" });
-        if (!isRenderFileName(name)) return send(400, { error: "Ongeldige bestandsnaam" });
-        const file = join(rendersDir, name);
+      const sendFile = async (file: string, contentType: string) => {
         const info = await stat(file).catch(() => null);
         if (!info?.isFile()) return send(404, { error: "Deze preview staat niet (meer) op deze pc" });
         const range = parseRange(req.headers.range, info.size);
-        const base = { "content-type": name.endsWith(".jpg") ? "image/jpeg" : "video/mp4", "accept-ranges": "bytes", "cache-control": "private, no-store", "access-control-expose-headers": "content-range, content-length, accept-ranges" };
+        const base = { "content-type": contentType, "accept-ranges": "bytes", "cache-control": "private, no-store", "access-control-expose-headers": "content-range, content-length, accept-ranges" };
         if (range === "invalid") {
           res.writeHead(416, { ...base, "content-range": `bytes */${info.size}` });
           return res.end();
@@ -132,6 +132,20 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
         if (req.method === "HEAD" || info.size === 0) return res.end();
         // The player often stops halfway a range (seeking); that is not an error.
         return void (await pipeline(createReadStream(file, { start, end }), res).catch(() => {}));
+      };
+      if ((req.method === "GET" || req.method === "HEAD") && parts[0] === "renders" && parts.length === 2 && rendersDir) {
+        const name = decodeURIComponent(parts[1]);
+        if (!origin) return send(403, { error: "Preview alleen via het dashboard" });
+        if (!isRenderFileName(name)) return send(400, { error: "Ongeldige bestandsnaam" });
+        return sendFile(join(rendersDir, name), name.endsWith(".jpg") ? "image/jpeg" : "video/mp4");
+      }
+      // Dreamnest keyframes, clips and previews: the same rules (Origin required), only media inside the Dreamnest folder.
+      if ((req.method === "GET" || req.method === "HEAD") && parts[0] === "dreamnest" && parts.length > 1 && dreamnestDir) {
+        const rel = parts.slice(1).map(decodeURIComponent).join("/");
+        if (!origin) return send(403, { error: "Preview alleen via het dashboard" });
+        if (!safeMediaPath(rel)) return send(400, { error: "Ongeldige bestandsnaam" });
+        const ext = rel.slice(rel.lastIndexOf(".") + 1).toLowerCase();
+        return sendFile(join(dreamnestDir, ...rel.split("/")), ext === "mp4" ? "video/mp4" : ext === "m4a" ? "audio/mp4" : ext === "png" ? "image/png" : "image/jpeg");
       }
 
       // YouTube connection. Starting, status and disconnecting only from the dashboard (Origin required),
@@ -145,7 +159,10 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
       }
       if (youtube && parts[0] === "youtube" && parts.length === 2) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });
-        if (req.method === "GET" && parts[1] === "status") return send(200, await youtube.status());
+        if (req.method === "GET" && parts[1] === "status") {
+          const ch = url.searchParams.get("channel");
+          return send(200, await youtube.status(isUuid(ch) ? ch : undefined));
+        }
         if (req.method === "POST" && parts[1] === "refresh" && youtube.refresh) return send(200, { message: await youtube.refresh() });
         if (req.method === "POST" && (parts[1] === "connect" || parts[1] === "disconnect")) {
           const body = (await readJson(req)) as { channelId?: unknown };

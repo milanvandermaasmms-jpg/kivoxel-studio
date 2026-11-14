@@ -1,9 +1,11 @@
 "use client";
 
-import { Rocket } from "lucide-react";
+import { Plus, Rocket } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { Channel } from "@/lib/youtube/channels";
 import { countFlow, type Flow, type FlowItem } from "@/lib/youtube/flow";
+import { isDreamnestChannel, routeSlug } from "@/lib/studioRoutes";
 
 /** The same order as the tabs: what needs Milan, what is being made, what is planned, what is live. */
 const CHIPS: { key: string; label: string; dot: string; keys: Flow[] }[] = [
@@ -17,7 +19,7 @@ const CHIPS: { key: string; label: string; dot: string; keys: Flow[] }[] = [
  * Always visible at the top (fase 1.1 and 1.3): "🚀 X klaar voor YouTube", the count per status and a filter per
  * channel. A new video that becomes ready gives a short message and a number in the browser tab.
  */
-export function StudioTopBar({ items, channels, channel, onChannel, onOpen }: { items: FlowItem[] | null; channels: Channel[]; channel: string | null; onChannel: (id: string | null) => void; onOpen: (flow: Flow) => void }) {
+export function StudioTopBar({ items, channels, channel, onChannel, onOpen, hideChannelSelect = false }: { items: FlowItem[] | null; channels: Channel[]; channel: string | null; onChannel: (id: string | null) => void; onOpen: (flow: Flow) => void; hideChannelSelect?: boolean }) {
   const shown = items?.filter((i) => !channel || i.channelId === channel) ?? null;
   const counts = shown ? countFlow(shown) : null;
   const ready = counts?.ready ?? 0;
@@ -69,7 +71,7 @@ export function StudioTopBar({ items, channels, channel, onChannel, onOpen }: { 
           ))}
         </ul>
         {/* Always rendered (also while loading), so the bar does not change height when the data arrives. */}
-        {(
+        {!hideChannelSelect && (
           <label className="ml-auto flex min-w-0 items-center gap-1.5 text-xs text-slate-600">
             <span className="hidden sm:inline">Kanaal</span>
             <select value={channel ?? ""} aria-label="Kanaal" onChange={(e) => onChannel(e.target.value || null)} className="max-w-[9rem] rounded-md border border-slate-300 bg-transparent px-2 py-1">
@@ -92,5 +94,42 @@ export function StudioTopBar({ items, channels, channel, onChannel, onOpen }: { 
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Fase 0.5 (FEATURE_DREAMNEST): KIVOXEL | Dreamnest | + Kanaal. Every channel has its own address; the channels come
+ * from the database, so a new channel (Instellingen > Kanalen) shows up here by itself.
+ */
+export function ChannelSwitcher({ channels, current }: { channels: Channel[]; current: string | null }) {
+  return (
+    <nav aria-label="Kanaal kiezen" className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-surface p-1">
+      {channels.map((c) => {
+        const slug = routeSlug(c, channels);
+        if (!slug) return null;
+        const active = c.id === current;
+        const dn = isDreamnestChannel(c);
+        return (
+          <Link
+            key={c.id}
+            href={`/studio/${slug}`}
+            aria-current={active ? "page" : undefined}
+            className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${active ? (dn ? "bg-[#1c2250] text-[#f3d98b] shadow-sm" : "bg-cyan-50 text-cyan-900 shadow-sm") : "text-slate-600 hover:bg-slate-100"}`}
+          >
+            {c.youtube_thumbnail_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={c.youtube_thumbnail_url} alt="" className="h-5 w-5 rounded-full" referrerPolicy="no-referrer" />
+            ) : (
+              <span aria-hidden>{dn ? "🌙" : "🎮"}</span>
+            )}
+            {c.is_default ? "KIVOXEL" : c.name}
+            {c.status === "planned" && <span className="text-xs font-normal opacity-70">gepland</span>}
+          </Link>
+        );
+      })}
+      <Link href="/studio/kivoxel#instellingen" className="ml-auto inline-flex min-h-10 items-center gap-1 rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+        <Plus className="h-4 w-4" aria-hidden /> Kanaal
+      </Link>
+    </nav>
   );
 }

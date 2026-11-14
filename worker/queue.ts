@@ -37,6 +37,7 @@ import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
 import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
+import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
 import { thumbArgs, thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
@@ -61,7 +62,9 @@ export type Montage = {
 
 /** YouTube upload (fase D3); null while YouTube is not set up in worker/.env.local. */
 /** frame: one picture of a montage as JPEG (fase D4b), written to tmpDir. */
-export type Publisher = { uploader: Uploader; rendersDir: string; tmpDir?: string; frame?: (input: string, atMs: number, output: string) => Promise<void>; pollMs?: number; pollTimes?: number };
+export type Publisher = { uploader: Uploader; rendersDir: string;
+  /** The YouTube channel ID the tokens on this pc belong to (free, from the token file). Checked before every new upload. */
+  tokensChannelId?: (channelRowId: string) => Promise<string | null>; tmpDir?: string; frame?: (input: string, atMs: number, output: string) => Promise<void>; pollMs?: number; pollTimes?: number };
 
 /** The paid analysis service; null while GEMINI_API_KEY is missing from worker/.env.local. */
 export type Ai = {
@@ -748,6 +751,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const render = await db.from("yt_renders").select("file_name, video_id").eq("id", pub.render_id).single<{ file_name: string; video_id: string }>();
       if (render.error) throw new Error(render.error.message);
       if (render.data.video_id !== pub.video_id) throw new Error("Deze montage hoort niet bij deze video");
+      if (publisher.tokensChannelId) {
+        // Fase 0.5: the right YouTube channel, before a single byte goes out. A video without a channel is KIVOXEL's (default).
+        const v = await db.from("yt_videos").select("channel_id").eq("id", pub.video_id).single<{ channel_id: string | null }>();
+        if (v.error) throw new Error(v.error.message);
+        const ch = v.data.channel_id
+          ? await db.from("yt_channels").select("id, name, youtube_channel_id").eq("id", v.data.channel_id).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null }>()
+          : await db.from("yt_channels").select("id, name, youtube_channel_id").eq("studio_id", job.studio_id).eq("is_default", true).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null }>();
+        const problem = uploadChannelProblem(ch.data ? { name: ch.data.name, youtubeChannelId: ch.data.youtube_channel_id } : null, ch.data ? await publisher.tokensChannelId(ch.data.id) : null);
+        if (problem) throw new Error(problem);
+      }
       await setPub({ status: "uploading", error: null });
       await lv.phase(`Uploaden naar YouTube (${visibilityWord(pub)})`, 0);
       const started = Date.now();

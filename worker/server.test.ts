@@ -99,3 +99,43 @@ describe("YouTube connection addresses", () => {
     }
   });
 });
+
+describe("Dreamnest media (fase 0.5)", () => {
+  it("serves keyframes and previews from the Dreamnest folder only, only to the dashboard", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fmk-dn-"));
+    const dreamnestDir = join(dir, "dreamnest");
+    await mkdir(join(dreamnestDir, "fase4", "60min"), { recursive: true });
+    await writeFile(join(dreamnestDir, "fase4", "60min", "preview.mp4"), Buffer.from("0123456789"));
+    await writeFile(join(dreamnestDir, "fase4", "60min", "qc.json"), "{}");
+    await writeFile(join(dir, "geheim.mp4"), "secret");
+    const server = createWorkerServer({ store: createStore(dir, async () => ({ durationMs: 1, width: 1, height: 1, fps: 1, videoCodec: "h264", audioCodec: null })), allowedOrigins: ["http://localhost:3200"], dreamnestDir, health: () => ({ ok: true, version: "t", ffmpeg: null, queue: "local", dataDir: dir }) });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/dreamnest/`;
+    const origin = "http://localhost:3200";
+    try {
+      const part = await fetch(base + "fase4/60min/preview.mp4", { headers: { origin, range: "bytes=2-5" } });
+      expect(part.status).toBe(206);
+      expect(part.headers.get("content-type")).toBe("video/mp4");
+      expect(await part.text()).toBe("2345");
+      expect((await fetch(base + "fase4/60min/preview.mp4")).status).toBe(403);
+      expect((await fetch(base + "fase4/60min/qc.json", { headers: { origin } })).status).toBe(400);
+      expect((await fetch(base + "..%2Fgeheim.mp4", { headers: { origin } })).status).toBe(400);
+      expect((await fetch(base + "fase4/..%2F..%2Fgeheim.mp4", { headers: { origin } })).status).toBe(400);
+      expect((await fetch(base + "fase4/60min/nope.mp4", { headers: { origin } })).status).toBe(404);
+    } finally {
+      server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  it("does not exist without Dreamnest", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fmk-dn-"));
+    const server = createWorkerServer({ store: createStore(dir, async () => ({ durationMs: 1, width: 1, height: 1, fps: 1, videoCodec: "h264", audioCodec: null })), allowedOrigins: ["http://localhost:3200"], health: () => ({ ok: true, version: "t", ffmpeg: null, queue: "local", dataDir: dir }) });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      expect((await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/dreamnest/x.mp4`, { headers: { origin: "http://localhost:3200" } })).status).toBe(404);
+    } finally {
+      server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

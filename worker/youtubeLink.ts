@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { YouTubeRoutes } from "./server.ts";
 import type { ChannelInfo, YouTube } from "./youtube.ts";
 
-export type ChannelRow = { id: string; youtube_channel_id: string | null; youtube_connected_at: string | null };
+export type ChannelRow = { id: string; youtube_channel_id: string | null; youtube_connected_at: string | null; is_default?: boolean };
 export type LinkFields = {
   youtube_channel_id?: string | null;
   youtube_title?: string | null;
@@ -18,6 +18,8 @@ export type ChannelDb = {
   get: (id: string) => Promise<ChannelRow | null>;
   connected: () => Promise<ChannelRow | null>;
   update: (id: string, fields: LinkFields) => Promise<void>;
+  /** Every linked channel (several channels, fase 0.5); optional so older fakes keep working. */
+  connectedAll?: () => Promise<ChannelRow[]>;
 };
 
 const MIGRATION_HINT = "Migratie 036 is nog niet uitgevoerd; daarna werkt koppelen.";
@@ -27,7 +29,7 @@ export function supabaseChannelDb(url: string, serviceKey: string): ChannelDb {
   const fail = (message: string): never => {
     throw new Error(/youtube_(title|connected_at|error)|column/i.test(message) ? MIGRATION_HINT : `Database: ${message}`);
   };
-  const cols = "id, youtube_channel_id, youtube_connected_at";
+  const cols = "id, youtube_channel_id, youtube_connected_at, is_default";
   return {
     async get(id) {
       const { data, error } = await db.from("yt_channels").select(cols).eq("id", id).maybeSingle<ChannelRow>();
@@ -38,6 +40,11 @@ export function supabaseChannelDb(url: string, serviceKey: string): ChannelDb {
       const { data, error } = await db.from("yt_channels").select(cols).not("youtube_connected_at", "is", null).limit(1).maybeSingle<ChannelRow>();
       if (error) fail(error.message);
       return data;
+    },
+    async connectedAll() {
+      const { data, error } = await db.from("yt_channels").select(cols).not("youtube_connected_at", "is", null).returns<ChannelRow[]>();
+      if (error) fail(error.message);
+      return data ?? [];
     },
     async update(id, fields) {
       const { error } = await db.from("yt_channels").update(fields).eq("id", id);
@@ -58,8 +65,16 @@ export function linkError(e: unknown): string {
 
 const fields = (c: ChannelInfo, now: string): LinkFields => ({ youtube_channel_id: c.id, youtube_title: c.title.slice(0, 100), youtube_thumbnail_url: c.thumbnail, youtube_synced_at: now, youtube_error: null });
 
-export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceKey: string } | null, dbOverride?: ChannelDb, now = () => new Date().toISOString()): YouTubeRoutes & { sync: () => Promise<string | null> } {
+/**
+ * forChannel (fase 0.5, only with FEATURE_DREAMNEST): one YouTube sign-in per channel. The default channel (KIVOXEL)
+ * keeps `yt` and its existing token file; every other channel gets its own instance (own token file). Without it,
+ * exactly one channel can be linked, as before.
+ */
+export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceKey: string } | null, dbOverride?: ChannelDb, now = () => new Date().toISOString(), forChannel?: (channelRowId: string) => YouTube): YouTubeRoutes & { sync: () => Promise<string | null>; tokensChannelId: (channelRowId: string) => Promise<string | null> } {
   const db = dbOverride ?? (supabase ? supabaseChannelDb(supabase.url, supabase.serviceKey) : null);
+  const pick = (row: ChannelRow): YouTube => (forChannel && !row.is_default ? forChannel(row.id) : yt);
+  /** Which instance handed out a sign-in (state from the Google address), so the callback lands in the right one. */
+  const signIns = new Map<string, YouTube>();
   const needDb = () => {
     if (!db) throw new Error("De werker heeft geen Supabase-sleutel; zonder wachtrij kan hij de koppeling niet bewaren.");
     return db;
@@ -68,26 +83,37 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
   return {
     async connect(channelRowId) {
       const d = needDb();
-      if (!(await d.get(channelRowId))) throw new Error("Dit kanaal bestaat niet (meer).");
-      const other = await d.connected();
-      if (other && other.id !== channelRowId) throw new Error("Er is al een ander kanaal gekoppeld. Meer kanalen tegelijk komen later; ontkoppel dat kanaal eerst.");
-      return yt.start(channelRowId);
+      const row = await d.get(channelRowId);
+      if (!row) throw new Error("Dit kanaal bestaat niet (meer).");
+      if (!forChannel) {
+        const other = await d.connected();
+        if (other && other.id !== channelRowId) throw new Error("Er is al een ander kanaal gekoppeld. Meer kanalen tegelijk komen later; ontkoppel dat kanaal eerst.");
+        return yt.start(channelRowId);
+      }
+      const inst = pick(row);
+      const url = inst.start(channelRowId);
+      const state = new URL(url).searchParams.get("state");
+      if (state) signIns.set(state, inst);
+      return url;
     },
     async callback(query) {
       try {
         const d = needDb();
-        const { channelRowId, channel } = await yt.callback(query);
+        const state = query.get("state") ?? "";
+        const inst = signIns.get(state) ?? yt;
+        signIns.delete(state);
+        const { channelRowId, channel } = await inst.callback(query);
         const row = await d.get(channelRowId);
         if (!row) throw new Error("Dit kanaal bestaat niet (meer).");
         if (row.youtube_channel_id && row.youtube_channel_id !== channel.id) {
-          await yt.disconnect();
+          await inst.disconnect();
           throw new Error(`Je logde in met het kanaal "${channel.title}", maar dit kanaal in YouTube Studio hoort bij een ander YouTube-kanaal. Kies bij het inloggen het juiste kanaal.`);
         }
         try {
           const t = now();
           await d.update(channelRowId, { ...fields(channel, t), youtube_connected_at: t });
         } catch (e) {
-          await yt.disconnect(); // nothing half-linked: without the database row the tokens are not kept either
+          await inst.disconnect(); // nothing half-linked: without the database row the tokens are not kept either
           throw e;
         }
         return { ok: true, message: `Gekoppeld met het YouTube-kanaal "${channel.title}" (${channel.id}).` };
@@ -95,21 +121,40 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
         return { ok: false, message: linkError(e) };
       }
     },
-    async status() {
-      return yt.status();
+    async status(channelRowId?: string) {
+      if (!forChannel || !channelRowId || !db) return yt.status();
+      const row = await db.get(channelRowId);
+      return (row ? pick(row) : yt).status();
+    },
+    async tokensChannelId(channelRowId) {
+      const row = forChannel && db ? await db.get(channelRowId) : null;
+      return (await (row ? pick(row) : yt).status()).channelId;
     },
     async disconnect(channelRowId) {
-      await yt.disconnect();
+      const row = forChannel && db ? await db.get(channelRowId) : null;
+      await (row ? pick(row) : yt).disconnect();
       // Before anything is published the channel may be linked to another YouTube channel; publications (D2+) keep their own video IDs.
       await needDb().update(channelRowId, { youtube_channel_id: null, youtube_title: null, youtube_thumbnail_url: null, youtube_connected_at: null, youtube_synced_at: null, youtube_error: null });
     },
     /** At start: check the connection still works and refresh name and picture (1 quota unit). */
     async sync() {
+      if (forChannel && db?.connectedAll && yt.configured) {
+        const rows = await db.connectedAll().catch(() => [] as ChannelRow[]);
+        const out: string[] = [];
+        for (const row of rows) out.push((await syncOne(pick(row), row)) ?? "");
+        return out.filter(Boolean).join("; ") || null;
+      }
       if (!db || !yt.configured || !(await yt.status()).connected) return null;
       const row = await db.connected().catch(() => null);
       if (!row) return null;
+      return syncOne(yt, row);
+    },
+  };
+
+  async function syncOne(inst: YouTube, row: ChannelRow): Promise<string | null> {
+      if (!db || !(await inst.status()).connected) return null;
       try {
-        const channel = await yt.myChannel();
+        const channel = await inst.myChannel();
         if (row.youtube_channel_id && row.youtube_channel_id !== channel.id) throw new Error("De tokens horen bij een ander YouTube-kanaal dan gekoppeld. Ontkoppel en koppel opnieuw.");
         await db.update(row.id, fields(channel, now()));
         return `gekoppeld met "${channel.title}"`;
@@ -118,6 +163,5 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
         await db.update(row.id, { youtube_error: message.slice(0, 500) }).catch(() => undefined);
         return `koppeling werkt niet: ${message}`;
       }
-    },
-  };
+  }
 }

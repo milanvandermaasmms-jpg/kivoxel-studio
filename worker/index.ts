@@ -24,6 +24,7 @@ import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
 import { dreamnestEnabled } from "../lib/dreamnest/core.ts";
 import { createDreamnestLane } from "./dreamnest/lane.ts";
+import { createDnHandlers } from "./dreamnest/steps.ts";
 
 const VERSION = "63.2";
 
@@ -123,9 +124,13 @@ const youtube = createYouTube({
   tokenFile: join(dataDir, "youtube-tokens.enc"),
   quotaFile: join(dataDir, "youtube-quota.json"),
 });
-const youtubeLink = createYouTubeLink(youtube, supabaseUrl && serviceKey ? { url: supabaseUrl, serviceKey } : null);
+// Fase 0.5 (only with FEATURE_DREAMNEST): every other channel gets its own sign-in and token file; KIVOXEL keeps youtube-tokens.enc.
+const youtubeOptions = { clientId: env.YOUTUBE_CLIENT_ID, clientSecret: env.YOUTUBE_CLIENT_SECRET, redirectUri: `http://127.0.0.1:${port}/oauth/callback`, key: Buffer.from(env.YT_TOKEN_KEY!, "hex"), quotaFile: join(dataDir, "youtube-quota.json") };
+const perChannel = new Map<string, ReturnType<typeof createYouTube>>();
+const youtubeFor = (rowId: string) => perChannel.get(rowId) ?? perChannel.set(rowId, createYouTube({ ...youtubeOptions, tokenFile: join(dataDir, `youtube-tokens-${rowId}.enc`) })).get(rowId)!;
+const youtubeLink = createYouTubeLink(youtube, supabaseUrl && serviceKey ? { url: supabaseUrl, serviceKey } : null, undefined, undefined, dreamnestEnabled(env) ? youtubeFor : undefined);
 // Private upload (fase D3): needs the YouTube client and the montages on this pc.
-const publisher: Publisher | null = youtube.configured && montage ? { uploader: createUploader({ yt: youtube, sessionDir: join(dataDir, "youtube-uploads") }), rendersDir: montage.rendersDir, tmpDir: montage.tmpDir, frame: (input, atMs, output) => extractFrame(ffmpeg, input, atMs, output) } : null;
+const publisher: Publisher | null = youtube.configured && montage ? { uploader: createUploader({ yt: youtube, sessionDir: join(dataDir, "youtube-uploads") }), tokensChannelId: dreamnestEnabled(env) ? (row) => youtubeLink.tokensChannelId(row) : undefined, rendersDir: montage.rendersDir, tmpDir: montage.tmpDir, frame: (input, atMs, output) => extractFrame(ffmpeg, input, atMs, output) } : null;
 // Statistics (fase E): hourly counts and every 6 hours the delayed analytics, only while YouTube is linked.
 const statsSync = youtube.configured && supabaseUrl && serviceKey ? createStatsSync({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), stats: createStats({ yt: youtube }), log }) : null;
 // Fase 3.1: reference videos in the niche through the linked YouTube account (only quota, no money).
@@ -134,7 +139,10 @@ const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, w
 // Dreamnest: only with FEATURE_DREAMNEST=true in worker/.env.local. Own queue (dn_render_jobs); KIVOXEL goes first.
 const dreamnest =
   queue && dreamnestEnabled(env)
-    ? createDreamnestLane({ db: createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } }), workerName, log, kivoxelBusy: queue.mainBusy })
+    ? (() => {
+        const db = createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } });
+        return createDreamnestLane({ db, workerName, log, kivoxelBusy: queue.mainBusy, handlers: createDnHandlers({ db, dataDir, log, envFile }) });
+      })()
     : null;
 
 // Inbox folder (fase 2): KIVOXEL/inbox in the user's home folder unless KIVOXEL_INBOX_DIR says otherwise. KIVOXEL_INBOX=0 switches it off.
@@ -158,13 +166,14 @@ const inbox =
         log,
       });
 
-const health = (): WorkerHealth => ({ ok: true, version: VERSION, ffmpeg: version, queue: queue ? "supabase" : "local", dataDir, analysis: ai?.gemini.model ?? null, voice: !!montage?.voice, youtube: youtube.configured, inbox: inbox?.status() ?? null });
+const health = (): WorkerHealth => ({ ok: true, version: VERSION, ffmpeg: version, queue: queue ? "supabase" : "local", dataDir, analysis: ai?.gemini.model ?? null, voice: !!montage?.voice, youtube: youtube.configured, inbox: inbox?.status() ?? null, ...(dreamnest ? { multiChannel: true, dreamnest: true } : {}) });
 
 const server = createWorkerServer({
   store,
   allowedOrigins,
   health,
   rendersDir: montage?.rendersDir,
+  dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
   youtube: { ...youtubeLink, refresh: statsSync ? async () => ((await youtube.status()).connected ? statsSync.sync(true) : "YouTube is niet gekoppeld") : undefined },
   log,
   // Local mode: no queue, so run the intake straight away. Queue mode: the dashboard queues the step.

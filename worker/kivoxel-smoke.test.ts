@@ -112,4 +112,28 @@ describe("KIVOXEL smoke test", () => {
     await createQueue("http://x", "k", "pc-smoke", {} as Store, () => {}, null, null, second.db, publisher).tick();
     expect(sent).toEqual([]);
   });
+
+  it("5 channel check (fase 0.5): an upload only goes to the YouTube channel of the video's channel", async () => {
+    const pub = { id: "p1", video_id: "v1", render_id: "r1", title: "[TEST] Minecraft", description: "", tags: [], category_id: "20", language: "en", made_for_kids: false, contains_synthetic_media: false, visibility: "private", publish_at: null, status: "queued", youtube_video_id: null, is_test: true, error: null };
+    const rows = { yt_publications: pub, yt_renders: { file_name: "m.mp4", video_id: "v1" }, yt_videos: { channel_id: "c1" }, yt_channels: { id: "c1", name: "KIVOXEL", youtube_channel_id: "UCkivoxel" } };
+    const sent: string[] = [];
+    const publisher = (tokens: string): Publisher => ({
+      rendersDir: "C:/renders",
+      pollMs: 0,
+      tokensChannelId: async () => tokens,
+      uploader: {
+        upload: async () => (sent.push("upload"), { videoId: "vid12345678", resumed: false, adopted: false, bytes: 1 }),
+        setStatus: async () => undefined,
+        processing: async () => ({ uploadStatus: "processed", processingStatus: null, privacyStatus: "private", reason: null }),
+      } as unknown as Publisher["uploader"],
+    });
+    const ok = fakeDb(rows, [[job("upload", { payload: { publication_id: "p1" } })]]);
+    await createQueue("http://x", "k", "pc-smoke", {} as Store, () => {}, null, null, ok.db, publisher("UCkivoxel")).tick();
+    expect(sent).toEqual(["upload"]);
+    sent.length = 0;
+    const wrong = fakeDb(rows, [[job("upload", { payload: { publication_id: "p1" } })]]);
+    await createQueue("http://x", "k", "pc-smoke", {} as Store, () => {}, null, null, wrong.db, publisher("UCdreamnest")).tick();
+    expect(sent).toEqual([]);
+    expect(JSON.stringify(wrong.calls.filter((c) => c.op === "update"))).toMatch(/ander kanaal dan KIVOXEL/);
+  });
 });

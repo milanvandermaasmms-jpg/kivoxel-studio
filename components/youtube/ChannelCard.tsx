@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Section } from "@/components/settings/Section";
 import { Button } from "@/components/ui/Dialog";
 import { YouTubeConnection } from "@/components/youtube/YouTubeConnection";
+import { addChannel, newChannelProblem, type NewChannel } from "@/lib/youtube/channels";
 import { CHANNEL_MODE, CHANNEL_STATUS, channelProblem, loadChannels, parseSlots, parseWords, profileProblem, providersText, SAFETY_PROFILE, saveChannel, saveProfile, type Channel, type ChannelEdit, type ProfileEdit } from "@/lib/youtube/channels";
 
 /** Channel administration (migration 032) with a profile per channel (migration 045). */
-export function ChannelCard({ studioId, onError }: { studioId: string; onError: (message: string | null) => void }) {
+export function ChannelCard({ studioId, onError, allowAdd = false }: { studioId: string; onError: (message: string | null) => void; allowAdd?: boolean }) {
   const [channels, setChannels] = useState<Channel[] | null | undefined>(undefined);
   const refresh = useCallback(async () => {
     try {
@@ -75,7 +76,79 @@ export function ChannelCard({ studioId, onError }: { studioId: string; onError: 
           />
         ))}
       </ul>
+      {allowAdd && (
+        <AddChannel
+          existing={channels}
+          onAdd={async (c) => {
+            try {
+              onError(null);
+              await addChannel(studioId, c, channels);
+              await refresh();
+            } catch (e) {
+              onError(e instanceof Error ? e.message : "Toevoegen lukte niet.");
+            }
+          }}
+        />
+      )}
     </Section>
+  );
+}
+
+/** "+ Kanaal" (fase 0.5): name, short name (address), language and kind. */
+function AddChannel({ existing, onAdd }: { existing: Channel[]; onAdd: (c: NewChannel) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<NewChannel>({ name: "", slug: "", language: "en", safety_profile: "general" });
+  const problem = draft.name || draft.slug ? newChannelProblem(draft, existing) : null;
+  if (!open)
+    return (
+      <div className="mt-3">
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          + Kanaal toevoegen
+        </Button>
+      </div>
+    );
+  const slugOf = (name: string) => name.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+  return (
+    <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3 text-sm">
+      <p className="font-medium">Nieuw kanaal</p>
+      <label className="block">
+        Naam
+        <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value, slug: draft.slug === slugOf(draft.name) ? slugOf(e.target.value) : draft.slug })} className="mt-1 block w-full rounded-md border border-slate-300 bg-transparent px-2 py-1" />
+      </label>
+      <label className="block">
+        Korte naam (adres /studio/…)
+        <input value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value.trim() })} className="mt-1 block w-full rounded-md border border-slate-300 bg-transparent px-2 py-1 font-mono" />
+      </label>
+      <div className="flex flex-wrap gap-3">
+        <label>
+          Taal{" "}
+          <select value={draft.language} onChange={(e) => setDraft({ ...draft, language: e.target.value as NewChannel["language"] })} className="rounded-md border border-slate-300 bg-transparent px-2 py-1">
+            <option value="en">Engels</option>
+            <option value="nl">Nederlands</option>
+          </select>
+        </label>
+        <label>
+          Soort{" "}
+          <select value={draft.safety_profile} onChange={(e) => setDraft({ ...draft, safety_profile: e.target.value as NewChannel["safety_profile"] })} className="rounded-md border border-slate-300 bg-transparent px-2 py-1">
+            {Object.entries(SAFETY_PROFILE).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {problem && <p className="text-red-700">{problem}</p>}
+      <p className="text-slate-500">Het kanaal start als gepland, zonder YouTube-koppeling. Koppelen doe je daarna hierboven bij het kanaal.</p>
+      <div className="flex gap-2">
+        <Button disabled={!!problem || !draft.name || !draft.slug} onClick={() => void onAdd(draft).then(() => setOpen(false))}>
+          Toevoegen
+        </Button>
+        <Button variant="ghost" onClick={() => setOpen(false)}>
+          Annuleren
+        </Button>
+      </div>
+    </div>
   );
 }
 

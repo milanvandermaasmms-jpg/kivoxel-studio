@@ -26,8 +26,8 @@ export function YouTubeConnection({ channel, anotherLinked, onChanged }: { chann
   const check = useCallback(async () => {
     const h = await workerHealth();
     setHealth(h);
-    setStatus(h?.youtube ? await youtubeStatus().catch(() => null) : null);
-  }, []);
+    setStatus(h?.youtube ? await youtubeStatus(h.multiChannel ? channel.id : undefined).catch(() => null) : null);
+  }, [channel.id]);
   useEffect(() => {
     void check();
   }, [check]);
@@ -50,7 +50,7 @@ export function YouTubeConnection({ channel, anotherLinked, onChanged }: { chann
   }, [waiting, linked, onChanged, check]);
 
   if (health === undefined) return <p className="text-xs text-slate-500">YouTube-koppeling: werker nakijken…</p>;
-  const view = connectionView(channel, health, status?.connected ? status.channelId : null, anotherLinked);
+  const view = connectionView(channel, health, status?.connected ? status.channelId : null, anotherLinked && !health?.multiChannel);
   const needsStats = !!status?.connected && !status.scopes.includes("https://www.googleapis.com/auth/yt-analytics.readonly");
 
   async function connect() {
@@ -111,7 +111,7 @@ export function YouTubeConnection({ channel, anotherLinked, onChanged }: { chann
       {view.kind === "ready" && (
         <>
           <p>
-            Koppel dit kanaal met YouTube. Er opent een tabblad van Google: log in met het account van <strong>Kivoxel</strong>, kies het kanaal en geef toestemming voor uploaden en het beheren van je eigen video&apos;s. Er wordt niets gepubliceerd: dat doe je later altijd zelf met een klik.
+            Koppel dit kanaal met YouTube. Er opent een tabblad van Google: log in met het Google-account van <strong>{channel.is_default ? "Kivoxel" : channel.name}</strong>, kies dat YouTube-kanaal en geef toestemming voor uploaden en het beheren van je eigen video&apos;s. Er wordt niets gepubliceerd: dat doe je later altijd zelf met een klik.
           </p>
           <p className="text-slate-500">Zie je &quot;Google heeft deze app niet geverifieerd&quot;? Dat klopt: de app is alleen van jou. Kies Geavanceerd en dan Ga naar Kivoxel Studio.</p>
           {connectButton("YouTube koppelen")}

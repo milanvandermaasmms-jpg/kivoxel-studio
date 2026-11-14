@@ -69,6 +69,36 @@ export function channelProblem(c: ChannelEdit): string | null {
   return null;
 }
 
+export type NewChannel = { name: string; slug: string; language: "en" | "nl"; safety_profile: SafetyProfile };
+
+/** What is wrong with a new channel, or null. The slug becomes its address (/studio/<slug>) and folder name. */
+export function newChannelProblem(c: NewChannel, existing: { name: string; slug?: string | null }[]): string | null {
+  if (!c.name.trim() || c.name.trim().length > 60) return "Geef het kanaal een naam (hoogstens 60 tekens).";
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.slug) || c.slug.length > 40) return "De korte naam mag alleen kleine letters, cijfers en streepjes hebben.";
+  if (["kivoxel", "dreamnest"].includes(c.slug) || existing.some((e) => e.slug === c.slug)) return "Deze korte naam is al in gebruik.";
+  if (existing.some((e) => e.name.trim().toLowerCase() === c.name.trim().toLowerCase())) return "Er is al een kanaal met deze naam.";
+  return null;
+}
+
+/** "+ Kanaal" (fase 0.5): a new channel starts as planned, without YouTube link; a sleep channel is made for kids. */
+export async function addChannel(studioId: string, c: NewChannel, existing: Channel[]): Promise<void> {
+  const problem = newChannelProblem(c, existing);
+  if (problem) throw new Error(problem);
+  const sleep = c.safety_profile === "infant_sleep";
+  const { error } = await supabase.from("yt_channels").insert({
+    studio_id: studioId,
+    name: c.name.trim(),
+    slug: c.slug,
+    status: "planned",
+    language: c.language,
+    mode: sleep ? "generate" : "upload",
+    safety_profile: c.safety_profile,
+    made_for_kids: c.safety_profile === "general" ? null : true,
+    synthetic_media: sleep,
+  });
+  if (error) throw new Error(friendlyError(error.message));
+}
+
 export async function saveChannel(id: string, c: ChannelEdit): Promise<void> {
   const problem = channelProblem(c);
   if (problem) throw new Error(problem);
