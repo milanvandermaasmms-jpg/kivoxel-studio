@@ -237,6 +237,21 @@ function IvarShell({ studioId }: { studioId: string }) {
     }
   }, [scope.projectId, scope.projectKind]);
 
+  // On a wide screen the panel stands next to the page (the page moves aside) instead of covering its buttons.
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      const width = expanded ? 760 : 420;
+      root.style.paddingRight = open && !mobile && window.innerWidth >= width + 760 ? `${width + 24}px` : "";
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => {
+      window.removeEventListener("resize", apply);
+      root.style.paddingRight = "";
+    };
+  }, [open, expanded, mobile]);
+
   // ---------- launcher signal ----------
   const signal: LauncherSignal = useMemo(
     () =>
