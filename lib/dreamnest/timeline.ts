@@ -23,16 +23,20 @@ export function buildTimeline(assets: Asset[], totalMin: number, seed = 1): Segm
     t += lengthS - xfadeS;
   };
   const order = ["b01-welcome-exterior", "b02-lumi-rocking-chair", "b03-pip-arrives", "b04-tea", "b05-mo-by-fire", "b06-window-momo", "b07-lumi-yawn", "b08-blanket-together", "b09-lumi-falls-asleep"];
-  // Welcome -> first room: a longer 6 s cross-fade, from outside (dark) to inside (warm light).
-  push(`story-${order[0]}`, 36, "welcome", 6);
+  // Welcome -> first room: a long 10 s cross-fade, from outside (night, darker) to inside (warm light).
+  push(`story-${order[0]}`, 40, "welcome", 10);
   // Every keyframe moves the clock by its length minus one 3 s cross-fade, so add that back.
   const storyEach = (PARTS.storyEnd - t) / (order.length - 1) + 3;
   for (const k of order.slice(1)) {
     const loop = `loop-${k}`;
+    // A segment must outlast its incoming and outgoing cross-fade (plus a calm second); the first one after the long
+    // welcome fade gets that extra time from its loop, so the clock (and every later piece) stays the same.
+    const minLen = segs[segs.length - 1].xfadeS + 3 + 1;
     if (has(loop)) {
-      push(`story-${k}`, 9, "story", 3);
-      push(loop, storyEach - 6, "story", 3);
-    } else push(`story-${k}`, storyEach, "story", 3);
+      const len = Math.max(9, minLen);
+      push(`story-${k}`, len, "story", 3);
+      push(loop, storyEach - 6 - (len - 9), "story", 3);
+    } else push(`story-${k}`, Math.max(storyEach, minLen), "story", 3);
   }
   // Falling asleep: Lumi asleep, then everyone asleep; slow and getting darker.
   const asleep = ["loop-b09-lumi-falls-asleep", "loop-b08-blanket-together", "loop-b10-sleep-loop-base"].filter((a) => has(a) && a !== segs[segs.length - 1].asset);

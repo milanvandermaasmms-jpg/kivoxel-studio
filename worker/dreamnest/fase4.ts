@@ -37,7 +37,8 @@ const assetsDir = join(out, "assets"), piecesDir = join(out, "pieces"), audioDir
 const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
 const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
 const log = (m: string) => console.log(`[${new Date().toLocaleTimeString("nl-NL")}] ${m}`);
-const ENC = ["-c:v", "libx264", "-preset", "faster", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "24", "-g", "48", "-profile:v", "high", "-an"];
+// Always limited (tv) range: one full-range piece (from a JPEG keyframe) made the light jump after joining.
+const ENC = ["-c:v", "libx264", "-preset", "faster", "-crf", "18", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", "24", "-g", "48", "-profile:v", "high", "-an"];
 const FPS = 24;
 /** Each frame against the next, matched by frame number (never by timestamp, which proved unreliable). */
 const STEPS = `setpts=N/${24}/TB,split[x][y];[y]trim=start_frame=1,setpts=N/${24}/TB[b];[x][b]ssim=stats_file=-:shortest=1`;
@@ -85,9 +86,9 @@ async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }
     if (c.id === "story-b01-welcome-exterior" && existsSync(still)) {
       // Welcome: our own slow dolly-in on the chosen keyframe (2% per 10 s, megaprompt §4). Upscaled first so the
       // zoom does not wobble on whole pixels.
-      const n = 36 * FPS;
-      await ff(["-y", "-v", "error", "-loop", "1", "-i", still, "-vf", `scale=7680:-2,zoompan=z='1+${(0.07 / n).toFixed(7)}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=24,setsar=1`, "-frames:v", String(n), ...ENC, tmp]);
-      log(`${c.id}: welkomstbeeld met langzame dolly-in (36 s)`);
+      const n = 42 * FPS;
+      await ff(["-y", "-v", "error", "-loop", "1", "-i", still, "-vf", `scale=7680:-2,zoompan=z='1+${(0.08 / n).toFixed(7)}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=24,setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
+      log(`${c.id}: welkomstbeeld met langzame dolly-in (42 s)`);
     } else if (c.kind === "story") {
       // The own-scene part: until the picture looks more like the next scene than like its own start, never past a cut.
       const vs = (pick: string) => ff(["-i", c.file, "-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2[a];[1:v]${norm},scale=480:-2,${pick},loop=loop=-1:size=1,setpts=N/${FPS}/TB[b];[a][b]ssim=stats_file=-:shortest=1`, "-f", "null", "-"]).then(parseAllSsim);
@@ -131,6 +132,8 @@ async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number)
     // Our own slow cross-fade; both sides brightness-matched by the same dim curve (no "plop" in the light).
     await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.from.asset}.mp4`), "-stream_loop", "-1", "-i", join(assetsDir, `${p.to.asset}.mp4`), "-filter_complex", `[0:v]trim=start=${off(p.from.asset, p.from.fromS)},setpts=PTS-STARTPTS[a];[1:v]trim=start=${off(p.to.asset, p.to.fromS)},setpts=PTS-STARTPTS[b];[a][b]xfade=transition=fade:duration=${p.lengthS.toFixed(3)}:offset=0,${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
   }
+  const range = execFileSync(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_range", "-of", "csv=p=0", dst]).toString().trim();
+  if (range !== "tv") throw new Error(`Stuk ${p.id} heeft kleurbereik ${range}, moet tv zijn`);
   await writeFile(`${dst}.ok`, "");
   return dst;
 }

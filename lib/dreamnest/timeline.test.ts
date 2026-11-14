@@ -25,8 +25,8 @@ describe("timeline of a 60 minute episode", () => {
     for (const s of sleep) expect(s.lengthS).toBeLessThanOrEqual(480);
     for (let i = 1; i < segs.length; i++) expect(segs[i].asset).not.toBe(segs[i - 1].asset);
   });
-  it("uses slow cross-fades: 6 s after the welcome, 3 s in the story, 5 s later", () => {
-    for (const s of segs.slice(0, -1)) expect(s.xfadeS).toBe(s.part === "welcome" ? 6 : s.part === "story" ? 3 : 5);
+  it("uses slow cross-fades: 10 s after the welcome, 3 s in the story, 5 s later", () => {
+    for (const s of segs.slice(0, -1)) expect(s.xfadeS).toBe(s.part === "welcome" ? 10 : s.part === "story" ? 3 : 5);
   });
 });
 
@@ -40,6 +40,9 @@ describe("render pieces", () => {
       t += p.lengthS;
     }
     expect(t).toBeCloseTo(episodeLength(segs), 6);
+  });
+  it("every segment outlasts the cross-fades on both sides", () => {
+    segs.forEach((s, i) => expect(s.lengthS).toBeGreaterThan((i > 0 ? segs[i - 1].xfadeS : 0) + (i < segs.length - 1 ? s.xfadeS : 0)));
   });
   it("are at most 2 minutes, so a render can resume", () => {
     for (const p of pieces) expect(p.lengthS).toBeLessThanOrEqual(120);
