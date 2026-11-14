@@ -611,7 +611,8 @@ async function preparePublish(env: ToolEnv, a: { video_id: string }) {
   if (!render) problems.push("Er is nog geen montage.");
   if (!pub) problems.push("Er is nog geen publicatieconcept (titel, beschrijving).");
   else if (!pub.title.trim()) problems.push("De titel is leeg.");
-  if (ch && !ch.youtube_channel_id) problems.push(`Kanaal ${ch.name} is nog niet aan YouTube gekoppeld.`);
+  // KIVOXEL (default channel) uploads with the existing link on this pc even without a channel ID in the database.
+  if (ch && !ch.youtube_channel_id && !ch.is_default) problems.push(`Kanaal ${ch.name} is nog niet aan YouTube gekoppeld.`);
   env.cards.push({ type: "publish", videoId: v.id, channelName: ch?.name ?? "?", fileName: render?.file_name ?? null, visibility: pub?.visibility ?? "private", publishAt: pub?.publish_at ?? null, problems });
   return { ready: problems.length === 0, problems, note: "Ivar publiceert niet zelf. Milan controleert en klikt in het publicatiescherm." };
 }
