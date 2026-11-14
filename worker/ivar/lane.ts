@@ -120,7 +120,8 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
     const reserved = await db.rpc("reserve_yt_cost", { p_studio: job.studio_id, p_job: job.id, p_category: "analysis", p_service: `Gemini ${model.model} (Ivar)`, p_estimate_cents: ESTIMATE_CENTS });
     if (reserved.error) return failWith(/betaalde verwerking staat uit/i.test(reserved.error.message) ? "Ivar gebruikt Gemini (± 1 cent per antwoord) en betaalde verwerking staat uit. Zet die aan in Instellingen > Analyse, met een maandplafond." : /maandplafond/i.test(reserved.error.message) ? `Het maandplafond is bereikt, dus Ivar antwoordt niet meer deze maand. ${reserved.error.message}` : `Kosten konden niet worden vastgelegd: ${reserved.error.message}`);
 
-    const channels = (await db.from("yt_channels").select(CHANNEL_COLUMNS).eq("studio_id", job.studio_id).returns<ChannelRow[]>()).data ?? [];
+    // The default channel is KIVOXEL in the studio, whatever its first name in the database was.
+    const channels = ((await db.from("yt_channels").select(CHANNEL_COLUMNS).eq("studio_id", job.studio_id).returns<ChannelRow[]>()).data ?? []).map((c) => (c.is_default ? { ...c, name: "KIVOXEL" } : c));
     const channel = conv.data.channel_id ? (channels.find((c) => c.id === conv.data!.channel_id) ?? null) : null;
     const cards: Card[] = [];
     const env: ToolEnv = {

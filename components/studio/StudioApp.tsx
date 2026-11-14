@@ -244,7 +244,13 @@ export function StudioApp({ route }: { route?: string } = {}) {
   };
 
   // Ivar (fase 14.2): what Milan looks at. Dreamnest publishes its own (episode) context.
-  const openVideo = details ?? (reviewing ? reviewStart : null);
+  const openNow = details ?? (reviewing ? reviewStart : null);
+  const [lastOpened, setLastOpened] = useState<string | null>(null);
+  useEffect(() => {
+    if (openNow) setLastOpened(openNow);
+  }, [openNow]);
+  useEffect(() => setLastOpened(null), [tab, channel]);
+  const openVideo = openNow ?? lastOpened;
   const openItem = openVideo ? flowReady?.items.find((i) => i.videoId === openVideo) : null;
   const ivarChannel = channelsNow.find((c) => c.id === channel) ?? null;
   usePublishPageContext(

@@ -192,8 +192,12 @@ export async function projectOptions(studioId: string, channelId: string, dreamn
     supabase.from("yt_recordings").select("id, label").eq("studio_id", studioId).eq("channel_id", channelId).order("created_at", { ascending: false }).limit(15).returns<{ id: string; label: string }[]>(),
     supabase.from("yt_videos").select("id, title, promise, format, status").eq("studio_id", studioId).eq("channel_id", channelId).neq("status", "archived").order("created_at", { ascending: false }).limit(30).returns<{ id: string; title: string | null; promise: string | null; format: string; status: string }[]>(),
   ]);
+  const ids = (vids.data ?? []).map((v) => v.id);
+  const scripts = ids.length ? await supabase.from("yt_scripts").select("video_id, version, titles, top_line, status").in("video_id", ids).neq("status", "rejected").order("version", { ascending: false }).returns<{ video_id: string; titles: string[] | null; top_line: string | null }[]>() : { data: [] };
+  const named = new Map<string, string>();
+  for (const s of scripts.data ?? []) if (!named.has(s.video_id)) named.set(s.video_id, s.titles?.[0] ?? s.top_line ?? "");
   return [
     ...(recs.data ?? []).map((r) => ({ kind: "recording" as const, id: r.id, label: r.label, sub: "Opname" })),
-    ...(vids.data ?? []).map((v) => ({ kind: "video" as const, id: v.id, label: (v.title || v.promise || (v.format === "C" ? "Lange video" : "Short")).slice(0, 80), sub: v.format === "C" ? "Lange video" : "Short" })),
+    ...(vids.data ?? []).map((v) => ({ kind: "video" as const, id: v.id, label: (v.title || named.get(v.id) || v.promise || (v.format === "C" ? "Lange video" : "Short")).slice(0, 80), sub: v.format === "C" ? "Lange video" : "Short" })),
   ];
 }

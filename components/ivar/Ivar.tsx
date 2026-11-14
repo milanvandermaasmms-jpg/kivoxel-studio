@@ -17,6 +17,7 @@ import { clientKey, sameTarget, scopeOf, scopeTrail, type Card, type ChannelKind
 import { IvarCard, TaskCard, type CardCtx, type CardLive } from "./IvarCards";
 
 type ChannelInfo = { id: string; name: string; is_default: boolean; slug: string | null; safety_profile: string | null; status: string };
+const displayName = (c: ChannelInfo | undefined | null) => (c ? (c.is_default ? "KIVOXEL" : c.name) : null);
 const kindOf = (c: ChannelInfo | undefined | null): ChannelKind | null => (!c ? null : isDreamnestChannel(c) ? "dreamnest" : c.is_default ? "kivoxel" : "other");
 
 // Per-viewer conveniences only (open panel, chosen conversation, unsent draft). The conversation itself lives in Supabase.
@@ -123,7 +124,7 @@ function IvarShell({ studioId }: { studioId: string }) {
       .returns<ChannelInfo[]>()
       .then(({ data: rows }) => setChannels(rows ?? []));
   }, [studioId]);
-  const channelName = useCallback((id: string | null) => channels.find((c) => c.id === id)?.name ?? null, [channels]);
+  const channelName = useCallback((id: string | null) => displayName(channels.find((c) => c.id === id)) ?? null, [channels]);
 
   // The scope: of the conversation when there is one, else what Milan picked, else the page he looks at.
   const pageScope: Scope = useMemo(() => ({ ...page, channelName: page.channelName ?? channelName(page.channelId) }), [page, channelName]);
@@ -654,7 +655,7 @@ function HistoryView({ studioId, channels, currentChannel, active, onOpen, onDel
     return () => clearTimeout(t);
   }, [load]);
   const shown = (list ?? []).filter((c) => !onlyChannel || c.channel_id === currentChannel);
-  const name = (id: string | null) => channels.find((c) => c.id === id)?.name ?? "Hele studio";
+  const name = (id: string | null) => displayName(channels.find((c) => c.id === id)) ?? "Hele studio";
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-3">
       <div className="flex items-center gap-2">
@@ -728,7 +729,7 @@ function MemoryView({ studioId, channels, scope }: { studioId: string; channels:
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const load = useCallback(() => data.loadMemory(studioId).then(setItems, (e) => setError(e.message)), [studioId]);
   useEffect(() => void load(), [load]);
-  const label = (m: MemoryItem) => (m.scope === "studio" ? "Hele studio" : `${channels.find((c) => c.id === m.channel_id)?.name ?? "Kanaal"}${m.scope === "project" ? " → project" : ""}`);
+  const label = (m: MemoryItem) => (m.scope === "studio" ? "Hele studio" : `${displayName(channels.find((c) => c.id === m.channel_id)) ?? "Kanaal"}${m.scope === "project" ? " → project" : ""}`);
   const groups = (items ?? []).reduce<Record<string, MemoryItem[]>>((acc, m) => ((acc[label(m)] ??= []).push(m), acc), {});
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm">
@@ -825,23 +826,23 @@ function ScopeView({ studioId, channels, scope, locked, onPick }: { studioId: st
         </button>
         {channels.map((c) => (
           <button key={c.id} type="button" disabled={locked} className={`${item} ${c.id === channelId ? "bg-violet-50 font-medium" : ""}`} onClick={() => setChannelId(c.id)}>
-            {c.name}
+            {displayName(c)}
             <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
           </button>
         ))}
       </div>
       {channel && (
         <>
-          <p className="mt-3 text-xs font-medium text-slate-500">Project in {channel.name}</p>
+          <p className="mt-3 text-xs font-medium text-slate-500">Project in {displayName(channel)}</p>
           <div className="mt-1 space-y-0.5">
-            <button type="button" disabled={locked} className={item} onClick={() => onPick({ channelId: channel.id, channelName: channel.name })}>
+            <button type="button" disabled={locked} className={item} onClick={() => onPick({ channelId: channel.id, channelName: displayName(channel) })}>
               Het hele kanaal
             </button>
             {options === null ? (
               <p className="px-2 py-1 text-xs text-slate-500">Laden…</p>
             ) : (
               options.map((o) => (
-                <button key={o.id} type="button" disabled={locked} className={`${item} ${o.id === scope.projectId ? "bg-violet-50 font-medium" : ""}`} onClick={() => onPick({ channelId: channel.id, channelName: channel.name, projectKind: o.kind, projectId: o.id, projectLabel: o.label })}>
+                <button key={o.id} type="button" disabled={locked} className={`${item} ${o.id === scope.projectId ? "bg-violet-50 font-medium" : ""}`} onClick={() => onPick({ channelId: channel.id, channelName: displayName(channel), projectKind: o.kind, projectId: o.id, projectLabel: o.label })}>
                   <span className="truncate">{o.label}</span>
                   <span className="ml-2 shrink-0 text-xs text-slate-500">{o.sub}</span>
                 </button>
