@@ -112,6 +112,11 @@ export function YouTubeConnection({ channel, anotherLinked, onChanged }: { chann
         <>
           <p>
             Koppel dit kanaal met YouTube. Er opent een tabblad van Google: log in met het Google-account van <strong>{channel.is_default ? "Kivoxel" : channel.name}</strong>, kies dat YouTube-kanaal en geef toestemming voor uploaden en het beheren van je eigen video&apos;s. Er wordt niets gepubliceerd: dat doe je later altijd zelf met een klik.
+            {!channel.is_default && (
+              <span className="mt-1 block font-medium text-amber-800">
+                Heeft je Google-account meer kanalen? Kies dan in het scherm van Google het kanaal {channel.name}, niet Kivoxel. Kies je een kanaal dat al gekoppeld is, dan weigert de werker het.
+              </span>
+            )}
           </p>
           <p className="text-slate-500">Zie je &quot;Google heeft deze app niet geverifieerd&quot;? Dat klopt: de app is alleen van jou. Kies Geavanceerd en dan Ga naar Kivoxel Studio.</p>
           {connectButton("YouTube koppelen")}

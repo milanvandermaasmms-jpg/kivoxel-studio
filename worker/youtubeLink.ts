@@ -75,6 +75,20 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
   const pick = (row: ChannelRow): YouTube => (forChannel && !row.is_default ? forChannel(row.id) : yt);
   /** Which instance handed out a sign-in (state from the Google address), so the callback lands in the right one. */
   const signIns = new Map<string, YouTube>();
+  /** Does another sign-in on this pc hold tokens for this YouTube channel? (One Google account, several channels.) */
+  async function heldElsewhere(inst: YouTube, youtubeChannelId: string): Promise<boolean> {
+    if (!forChannel) return false;
+    const holders = new Set<YouTube>([yt]);
+    for (const r of (await db?.connectedAll?.().catch(() => [] as ChannelRow[])) ?? []) holders.add(pick(r));
+    holders.delete(inst);
+    for (const h of holders) if ((await h.status()).channelId === youtubeChannelId) return true;
+    return false;
+  }
+  /** Removes a sign-in; never revokes a Google grant another channel still uses. */
+  async function drop(inst: YouTube, youtubeChannelId: string | null) {
+    if (youtubeChannelId && (await heldElsewhere(inst, youtubeChannelId))) await inst.forget();
+    else await inst.disconnect();
+  }
   const needDb = () => {
     if (!db) throw new Error("De werker heeft geen Supabase-sleutel; zonder wachtrij kan hij de koppeling niet bewaren.");
     return db;
@@ -105,15 +119,19 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
         const { channelRowId, channel } = await inst.callback(query);
         const row = await d.get(channelRowId);
         if (!row) throw new Error("Dit kanaal bestaat niet (meer).");
+        if (forChannel && (await heldElsewhere(inst, channel.id))) {
+          await inst.forget();
+          throw new Error(`Je koos het YouTube-kanaal "${channel.title}", maar dat hoort al bij een ander kanaal in de Studio. Niets gekoppeld. Klik opnieuw op YouTube koppelen en kies in het scherm van Google het juiste kanaal (heeft je Google-account meer kanalen, dan vraagt Google welk kanaal).`);
+        }
         if (row.youtube_channel_id && row.youtube_channel_id !== channel.id) {
-          await inst.disconnect();
+          await drop(inst, channel.id);
           throw new Error(`Je logde in met het kanaal "${channel.title}", maar dit kanaal in YouTube Studio hoort bij een ander YouTube-kanaal. Kies bij het inloggen het juiste kanaal.`);
         }
         try {
           const t = now();
           await d.update(channelRowId, { ...fields(channel, t), youtube_connected_at: t });
         } catch (e) {
-          await inst.disconnect(); // nothing half-linked: without the database row the tokens are not kept either
+          await drop(inst, channel.id); // nothing half-linked: without the database row the tokens are not kept either
           throw e;
         }
         return { ok: true, message: `Gekoppeld met het YouTube-kanaal "${channel.title}" (${channel.id}).` };
@@ -132,7 +150,8 @@ export function createYouTubeLink(yt: YouTube, supabase: { url: string; serviceK
     },
     async disconnect(channelRowId) {
       const row = forChannel && db ? await db.get(channelRowId) : null;
-      await (row ? pick(row) : yt).disconnect();
+      const inst = row ? pick(row) : yt;
+      await drop(inst, (await inst.status()).channelId);
       // Before anything is published the channel may be linked to another YouTube channel; publications (D2+) keep their own video IDs.
       await needDb().update(channelRowId, { youtube_channel_id: null, youtube_title: null, youtube_thumbnail_url: null, youtube_connected_at: null, youtube_synced_at: null, youtube_error: null });
     },

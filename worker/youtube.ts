@@ -180,6 +180,10 @@ export function createYouTube(o: { clientId?: string; clientSecret?: string; red
       if (t) await http(`${REVOKE_URL}?token=${encodeURIComponent(t.refresh_token)}`, { method: "POST" }).catch(() => undefined);
       await rm(o.tokenFile, { force: true });
     },
+    /** Deletes the tokens on this pc only, without revoking at Google (fase 0.5: another channel may share the same Google grant). */
+    async forget(): Promise<void> {
+      await rm(o.tokenFile, { force: true });
+    },
     accessToken,
     spend,
   };
