@@ -78,3 +78,6 @@ export const euro = (cents: number) => `€ ${(cents / 100).toFixed(2).replace("
 export function safeMediaPath(p: string): boolean {
   return /^[a-z0-9][a-z0-9._/-]{0,200}$/i.test(p) && !p.split("/").some((s) => s === ".." || s === "." || s === "") && /\.(jpg|jpeg|png|mp4|m4a)$/i.test(p);
 }
+
+/** Fase 6: the render folder of the current version (v3: own speed, living layers, new music). */
+export const renderFolder = (minutes: number) => `${minutes}min-v3`;

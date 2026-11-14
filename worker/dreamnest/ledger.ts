@@ -15,7 +15,11 @@ export function cacheKey(parts: (string | Buffer)[]): string {
   return h.digest("hex").slice(0, 32);
 }
 
-export function createLedger(dir: string, ceilingCents: number) {
+/**
+ * monthCents (fase 6, the shared Google key): Dreamnest may spend at most this much per calendar month, so the prepaid
+ * credit that KIVOXEL's analysis also uses is never eaten up. Default from DREAMNEST_MONTH_CENTS, else EUR 15.
+ */
+export function createLedger(dir: string, ceilingCents: number, monthCents = Number(process.env.DREAMNEST_MONTH_CENTS || 1500)) {
   const file = join(dir, "costs.json");
   let entries: LedgerEntry[] | null = null;
   async function load() {
@@ -30,6 +34,9 @@ export function createLedger(dir: string, ceilingCents: number) {
     async guard(estimateCents: number) {
       const now = await spent();
       if (now + estimateCents > ceilingCents) throw new BudgetError(`Budget op: ${now} van ${ceilingCents} cent gebruikt, deze stap kost ± ${estimateCents} cent. Gepauzeerd tot Milan meer budget geeft.`);
+      const month = new Date().toISOString().slice(0, 7);
+      const thisMonth = (await load()).filter((e) => e.at.startsWith(month)).reduce((s, e) => s + e.cents, 0);
+      if (thisMonth + estimateCents > monthCents) throw new BudgetError(`Maandrem: Dreamnest gebruikte deze maand al ${thisMonth} van ${monthCents} cent (zelfde Google-tegoed als KIVOXEL). Gepauzeerd; Milan kan DREAMNEST_MONTH_CENTS verhogen.`);
     },
     async add(entry: Omit<LedgerEntry, "at">) {
       const list = await load();

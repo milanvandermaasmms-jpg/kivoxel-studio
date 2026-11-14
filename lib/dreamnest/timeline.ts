@@ -106,3 +106,70 @@ export function dimFilter(globalS: number, lengthS: number, totalS: number): str
   const dim = `(${d(a)}+(${d(b - a)})*t/${lengthS.toFixed(3)})`;
   return `eq=eval=frame:brightness='-0.30*${dim}':gamma='1-0.35*${dim}':saturation='1-0.25*${dim}',colorbalance=rm=${d(0.04 * ((a + b) / 2))}:bm=${d(-0.04 * ((a + b) / 2))}`;
 }
+
+// ---------- Fase 6: crisp motion (Milan: "beweging wazig/raar") ----------
+// No slowing down, no blending of frames, no playing backwards. Story clips play at their own speed (only the calm
+// part), then the scene's seamless loop or its still with a very slow zoom. The sleep part alternates stills (with
+// the living layers, 4-7 min) and breathing loops (1.5-3 min), never the same view twice in a row.
+
+export type AssetV2 = { id: string; kind: "story" | "loop" | "still"; lengthS: number };
+
+const STORY_X = 1.5;
+export const STORY_MIN_S = 2 * STORY_X + 1;
+export const STORY_ORDER = ["b01-welcome-exterior", "b02-lumi-rocking-chair", "b03-pip-arrives", "b04-tea", "b05-mo-by-fire", "b06-window-momo", "b07-lumi-yawn", "b08-blanket-together", "b09-lumi-falls-asleep"];
+
+export function buildEpisodeTimeline(assets: AssetV2[], totalMin: number, seed = 1): Segment[] {
+  const has = (id: string) => assets.some((a) => a.id === id);
+  const len = (id: string) => assets.find((a) => a.id === id)?.lengthS ?? 0;
+  const segs: Segment[] = [];
+  let t = 0;
+  const push = (asset: string, lengthS: number, part: Segment["part"], xfadeS: number) => {
+    segs.push({ asset, startS: t, lengthS, part, xfadeS });
+    t += lengthS - xfadeS;
+  };
+  push(`story-${STORY_ORDER[0]}`, 40, "welcome", 10);
+  const keys = STORY_ORDER.slice(1);
+  const storyEach = (PARTS.storyEnd - t) / keys.length;
+  // A story moment is used when it outlasts its two soft 1.5 s cross-fades plus a second (>= 4 s at its own speed).
+  // Not right after the welcome: that long 10 s cross-fade (outside to inside) goes into the scene's loop or still.
+  const usable = (k: string) => k !== keys[0] && has(`story-${k}`) && len(`story-${k}`) >= STORY_MIN_S;
+  keys.forEach((k, i) => {
+    const target = PARTS.welcomeEnd + 10 + storyEach * (i + 1); // where this scene should hand over (keeps the clock)
+    const story = `story-${k}`;
+    const hold = has(`loop-${k}`) ? `loop-${k}` : `still-${k}`;
+    if (usable(k)) {
+      // The cross-fade into a short story moment is 1.5 s (the one before it is shortened to match).
+      if (segs.length > 1 && segs[segs.length - 1].xfadeS > STORY_X) segs[segs.length - 1].xfadeS = Math.min(segs[segs.length - 1].xfadeS, STORY_X), (t = segs[segs.length - 1].startS + segs[segs.length - 1].lengthS - STORY_X);
+      push(story, Math.min(len(story), 8), "story", STORY_X);
+    }
+    const prevX = segs[segs.length - 1].xfadeS;
+    const nextX = i + 1 < keys.length && usable(keys[i + 1]) ? STORY_X : 3;
+    const holdLen = Math.max(prevX + nextX + 3, target - t + nextX);
+    if (has(hold)) push(hold, holdLen, "story", nextX);
+  });
+  // Falling asleep: Lumi asleep, everyone asleep, the quiet room; a breathing loop between two stills.
+  const asleep = ["loop-b09-lumi-falls-asleep", "still-b08-blanket-together", "loop-b10-sleep-loop-base"].filter((a) => has(a) && a !== segs[segs.length - 1].asset);
+  const asleepEach = (PARTS.asleepEnd - t) / asleep.length + 5;
+  for (const a of asleep) push(a, asleepEach, "falling_asleep", 5);
+  // Sleep: alternate still and loop, each from a different view than the one before.
+  const stills = ["still-b10-sleep-loop-base", "still-b06-window-momo", "still-b08-blanket-together", "still-b05-mo-by-fire", "still-b09-lumi-falls-asleep"].filter(has);
+  const loops = ["loop-b10-sleep-loop-base", "loop-b06-window-momo", "loop-b08-blanket-together", "loop-b05-mo-by-fire", "loop-b09-lumi-falls-asleep"].filter(has);
+  let s = seed >>> 0 || 1;
+  const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const end = totalMin * 60;
+  const outroS = 120;
+  const view = (id: string) => id.replace(/^(story|loop|still)-/, "");
+  let last = segs[segs.length - 1].asset;
+  let useStill = !last.startsWith("still-");
+  while (t < end - outroS - 60) {
+    const pool = (useStill && stills.length ? stills : loops.length ? loops : stills).filter((c) => view(c) !== view(last));
+    const pick = pool[Math.floor(rand() * pool.length)];
+    const want = pick.startsWith("still-") ? 240 + rand() * 180 : 90 + rand() * 90;
+    push(pick, Math.min(want, end - outroS - t + 5), "sleep", 5);
+    last = pick;
+    useStill = !useStill;
+  }
+  const outro = ["still-b10-sleep-loop-base", "still-b08-blanket-together"].find((c) => has(c) && view(c) !== view(last)) ?? last;
+  push(outro, end - t, "outro", 5);
+  return segs;
+}

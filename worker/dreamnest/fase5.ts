@@ -12,6 +12,7 @@ import { STYLE_DNA, type Character } from "../../lib/dreamnest/bible.ts";
 import { chaptersFrom, dnShortAss, dnThumbAss, episodeText, planShorts, shortText, thumbLines } from "../../lib/dreamnest/package.ts";
 import type { Segment } from "../../lib/dreamnest/timeline.ts";
 import { findTool } from "../ffmpeg.ts";
+import { renderFolder } from "../../lib/dreamnest/steps.ts";
 import { createGeminiImage, IMAGE_CENTS } from "../providers/image/gemini.ts";
 import { cacheKey, createCache, createLedger } from "./ledger.ts";
 
@@ -29,7 +30,7 @@ const seed = Number(arg("--seed", "1"));
 const title = arg("--title", "Lumi's Cozy Fireplace Night").slice(0, 80);
 const dry = process.argv.includes("--dry");
 const base = join(env.WORKER_DATA_DIR || join(homedir(), "FamilieMK-YouTube"), "dreamnest");
-const render = join(base, "fase4", `${minutes}min`);
+const render = join(base, "fase4", renderFolder(minutes));
 const out = join(base, "fase5", `${minutes}min`);
 const rel = (...p: string[]) => ["fase5", `${minutes}min`, ...p].join("/");
 const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
@@ -132,6 +133,6 @@ for (const p of planShorts(timeline.segments)) {
   log(`Short klaar: ${p.caption} (${len} s)`);
 }
 
-const pkg = { made_at: new Date().toISOString(), minutes, seed, qc_ok: qc.ok, long_file: `fase4/${minutes}min/dreamnest-${minutes}min.mp4`, ...text, chapters, thumbs, shorts };
+const pkg = { made_at: new Date().toISOString(), minutes, seed, qc_ok: qc.ok, long_file: `fase4/${renderFolder(minutes)}/dreamnest-${minutes}min.mp4`, ...text, chapters, thumbs, shorts };
 await writeFile(join(out, "package.json"), JSON.stringify(pkg, null, 1));
 log(`Klaar: ${join(out, "package.json")}. Totaal gebruikt € ${((await ledger.spent()) / 100).toFixed(2)}.`);

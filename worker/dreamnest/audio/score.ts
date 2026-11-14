@@ -5,7 +5,8 @@ import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TARGETS, TRUE_PEAK_MAX } from "../../../lib/dreamnest/audioqc.ts";
-import { arrange, composeLullaby, MELODIES, rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
+import { rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
+import { planCues, renderCues } from "../../../lib/dreamnest/setlist.ts";
 import { brownNoise, fade, fireplace, mix, rain, renderEvents, SR, stereo, wav, type Stereo } from "./synth.ts";
 
 type Song = { events: NoteEvent[]; lengthS: number };
@@ -72,12 +73,18 @@ export async function renderScorePiece(ffmpeg: string, dir: string, irFile: stri
   const len = p.lengthS;
   let music: Song;
   let musicGain = 1, amb = 0.25;
+  // Fase 6: a setlist per part (lib/dreamnest/setlist.ts): every song once per episode, changing instrument, style
+  // and key; the sleep part is a row of new, slow songs with quiet space between them instead of loose notes.
   if (p.part === "story") {
-    music = fill((k) => [arrange(MELODIES[0], 66, { seed: p.seed + k }), arrange(MELODIES[1], 69, { lead: "celesta", seed: p.seed + k }), arrange(composeLullaby(p.seed + k), 66, { seed: p.seed + k })][k % 3], len);
+    music = renderCues(planCues("story", len, p.seed), len, p.seed);
   } else if (p.part === "falling_asleep") {
-    music = fill((k) => arrange(composeLullaby(p.seed), 60 - Math.min(k, 6), { thin: Math.min(0.9, 0.2 + k * 0.1), lead: "celesta", seed: p.seed + k }), len);
+    music = renderCues(planCues("falling_asleep", len, p.seed), len, p.seed);
     musicGain = 0.8;
     amb = 0.5;
+  } else if (p.part === "sleep") {
+    music = renderCues(planCues("sleep", len, p.seed), len, p.seed);
+    musicGain = 0.75;
+    amb = 0.55;
   } else {
     music = sleepMusic(len, p.seed);
     musicGain = 0.8;

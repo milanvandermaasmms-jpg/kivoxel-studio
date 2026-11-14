@@ -7,7 +7,7 @@ import { constants, setPriority } from "node:os";
 import { join, resolve } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DnStep } from "../../lib/dreamnest/core.ts";
-import { FLOW, parseProgress, scriptFor, type StepPayload } from "../../lib/dreamnest/steps.ts";
+import { FLOW, parseProgress, renderFolder, scriptFor, type StepPayload } from "../../lib/dreamnest/steps.ts";
 import type { DnHandler, DnJob } from "./lane.ts";
 import { createLedger } from "./ledger.ts";
 
@@ -129,8 +129,8 @@ export function createDnHandlers(o: { db: SupabaseClient; dataDir: string; log: 
       const ep = await episode(job);
       await setStage(job, "rendering");
       const r = await runStep(job, ep);
-      const dir = `fase4/${ep.duration_min}min`;
-      const qc = readJson(join(base, "fase4", `${ep.duration_min}min`, "qc.json"));
+      const dir = `fase4/${renderFolder(ep.duration_min)}`;
+      const qc = readJson(join(base, "fase4", renderFolder(ep.duration_min), "qc.json"));
       const ok = qc?.ok === true;
       await setStage(job, ok ? "packaging" : "qc");
       return { ...r, files: [`${dir}/preview.mp4`], video: `${dir}/dreamnest-${ep.duration_min}min.mp4`, qc_ok: ok, qc_problems: qcProblems(qc) };

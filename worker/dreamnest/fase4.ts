@@ -6,13 +6,16 @@
 // Output on this pc: <WORKER_DATA_DIR>/dreamnest/fase4/<minutes>min/ (dreamnest-<minutes>min.mp4, qc.json, qc.html, preview.mp4).
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { constants, homedir, setPriority } from "node:os";
 import { join, resolve } from "node:path";
 import { judgeAudio, parseEbur128, parseSilences, TARGETS } from "../../lib/dreamnest/audioqc.ts";
 import { calmEndFrame } from "../../lib/dreamnest/motion.ts";
-import { buildTimeline, dimFilter, episodeLength, PARTS, planPieces, type Asset, type Piece } from "../../lib/dreamnest/timeline.ts";
+import { buildEpisodeTimeline, dimFilter, episodeLength, PARTS, planPieces, type AssetV2 as Asset, type Piece } from "../../lib/dreamnest/timeline.ts";
+import { LOOP_S, type Region, type Weather } from "../../lib/dreamnest/overlay.ts";
+import { renderOverlay } from "./overlay.ts";
+import { renderFolder } from "../../lib/dreamnest/steps.ts";
 import { judgeVideo, parseBlack, perMinute } from "../../lib/dreamnest/videoqc.ts";
 import { findTool } from "../ffmpeg.ts";
 import { makeIr, planScore, renderScorePiece } from "./audio/score.ts";
@@ -30,10 +33,13 @@ const arg = (n: string, d: string) => (process.argv.includes(n) ? process.argv[p
 const minutes = Number(arg("--minutes", "60"));
 const seed = Number(arg("--seed", "11"));
 const qcOnly = process.argv.includes("--qc-only");
+// Fase 6: only the pieces the 3-minute preview needs (minutes instead of the whole hour), for Milan's judgement first.
+const previewOnly = process.argv.includes("--preview-only");
 const base = join(env.WORKER_DATA_DIR || join(homedir(), "FamilieMK-YouTube"), "dreamnest");
 const clipsDir = join(base, "fase2", "1080p");
-const out = join(base, "fase4", `${minutes}min`);
-const assetsDir = join(out, "assets"), piecesDir = join(out, "pieces"), audioDir = join(out, "audio");
+// Fase 6 (crisp motion, new music): its own folder, so the earlier version stays as it was.
+const out = join(base, "fase4", renderFolder(minutes));
+const assetsDir = join(out, "assets-v3"), piecesDir = join(out, "pieces"), audioDir = join(out, "audio");
 const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
 const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
 const log = (m: string) => console.log(`[${new Date().toLocaleTimeString("nl-NL")}] ${m}`);
@@ -71,12 +77,18 @@ async function waitForKivoxel() {
 
 // ---------- 1. Clips: only the calm part, anti-jitter, loops slower ----------
 const CLIPS = readdirClips();
+const SET = JSON.parse(readFileSync(join(resolve(import.meta.dirname, "../.."), "content", "dreamnest", "sets", "huiskamer.json"), "utf8")) as { weather?: Weather; regions?: Record<string, Region> };
+const STILL_LEN = 430;
+const viewOf = (id: string) => id.replace(/^(story|loop|still)-/, "");
 function readdirClips() {
   const manifest = JSON.parse(readFileSync(join(clipsDir, "manifest.json"), "utf8")) as { rows: { clip: { id: string; kind: "story" | "loop" }; file: string | null; safety: { ok: boolean } | null }[] };
-  return manifest.rows.filter((r) => r.file).map((r) => ({ id: r.clip.id, kind: r.clip.kind, file: join(clipsDir, r.file!) }));
+  const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = manifest.rows.filter((r) => r.file).map((r) => ({ id: r.clip.id, kind: r.clip.kind, file: join(clipsDir, r.file!) }));
+  // Fase 6: a still of every keyframe after the welcome, for scenes without a loop and for the calm sleep views.
+  for (const f of readdirSync(join(base, "keyframes", "huiskamer-01")).filter((x) => /^b(0[2-9]|10)-.*\.png$/.test(x))) clips.push({ id: `still-${f.replace(/\.png$/, "")}`, kind: "still", file: join(base, "keyframes", "huiskamer-01", f) });
+  return clips;
 }
 
-async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }): Promise<Asset> {
+async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file: string }): Promise<Asset> {
   const dst = join(assetsDir, `${c.id}.mp4`);
   if (!existsSync(`${dst}.ok`)) {
     await waitForKivoxel();
@@ -96,13 +108,21 @@ async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }
       const vsLast = await vs("reverse,trim=end_frame=1");
       const steps = parseAllSsim(await ff(["-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2,${STEPS}`, "-f", "null", "-"]));
       const endS = calmEndFrame(vsFirst, vsLast, steps, Math.round(2.5 * FPS)) / FPS;
-      // Slower (0.6×, soft frame blending), then ping-pong (forward, backward) into a seamless loop; then anti-jitter.
-      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end=${endS.toFixed(3)},setpts=(PTS-STARTPTS)/0.6,framerate=fps=24,split[f][r];[r]reverse[rr];[f][rr]concat=n=2:v=1,tmix=frames=3:weights='1 2 1'[v]`, "-map", "[v]", ...ENC, tmp]);
-      log(`${c.id}: eigen scène ${endS.toFixed(1)} s → ${(endS / 0.6 * 2).toFixed(1)} s rustige lus (0,6×, heen en terug)`);
+      // Fase 6: the calm part at its own speed. No slowing down, no frame blending, never backwards (that made it blurry and odd).
+      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end=${endS.toFixed(3)},setpts=PTS-STARTPTS[v]`, "-map", "[v]", ...ENC, tmp]);
+      log(`${c.id}: eigen scène ${endS.toFixed(1)} s op eigen snelheid`);
+    } else if (c.kind === "still") {
+      // A still with a very slow zoom (3.5% in 7 minutes) towards the window, so the living layer stays in its place.
+      // Upscaled first, so the zoom never steps on whole pixels.
+      const reg = SET.regions?.[viewOf(c.id)];
+      const cx = reg?.window.cx ?? 0.5, cy = reg?.window.cy ?? 0.45;
+      const n = STILL_LEN * FPS;
+      await ff(["-y", "-v", "error", "-loop", "1", "-i", c.file, "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,scale=7680:4320,zoompan=z='1+${(0.035 / n).toFixed(9)}*on':x='max(0,min(iw-iw/zoom,${cx}*iw-iw/zoom/2))':y='max(0,min(ih-ih/zoom,${cy}*ih-ih/zoom/2))':d=1:s=1920x1080:fps=24,setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
+      log(`${c.id}: stil beeld met heel langzame zoom (${STILL_LEN} s)`);
     } else {
-      // Loops: anti-jitter, then 0.8× speed with soft frame blending (calmer for the long sleep part).
-      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},tmix=frames=3:weights='1 2 1',setpts=1.25*PTS,framerate=fps=24[v]`, "-map", "[v]", ...ENC, tmp]);
-      log(`${c.id}: lus rustiger en 0,8× gemaakt`);
+      // Loops: at their own speed (the seam was already made seamless in fase 2).
+      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm}[v]`, "-map", "[v]", ...ENC, tmp]);
+      log(`${c.id}: lus op eigen snelheid`);
     }
     // Same average brightness for every clip, so a cross-fade between two scenes never jumps in light;
     // getting darker is left to the dim curve alone.
@@ -121,16 +141,27 @@ async function prepAsset(c: { id: string; kind: "story" | "loop"; file: string }
 const frames = (p: Piece) => Math.round((p.globalS + p.lengthS) * FPS) - Math.round(p.globalS * FPS);
 async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number) {
   // The file name carries a fingerprint of everything that makes the piece, so a changed timeline never reuses an old piece.
-  const dst = join(piecesDir, `${p.id}-${createHash("sha1").update(JSON.stringify({ p, totalS, v: 2 })).digest("hex").slice(0, 10)}.mp4`);
+  const dst = join(piecesDir, `${p.id}-${createHash("sha1").update(JSON.stringify({ p, totalS, v: 3 })).digest("hex").slice(0, 10)}.mp4`);
   if (existsSync(`${dst}.ok`)) return dst;
   await waitForKivoxel();
   const dim = dimFilter(p.globalS, p.lengthS, totalS);
   const off = (id: string, s: number) => (s % assets.get(id)!.lengthS).toFixed(3);
+  // Fase 6: the living layer (20 s seamless loop) of the view over every loop and still, timed on the episode clock,
+  // so it runs on without a seam across pieces and cross-fades.
+  const ov = (asset: string) => (/^(loop|still)-/.test(asset) && overlays.has(viewOf(asset)) ? overlays.get(viewOf(asset))! : null);
+  const ovOff = (p.globalS % LOOP_S).toFixed(3);
+  const layer = (asset: string, label: string, input: number) => {
+    const o = ov(asset);
+    return o ? { args: ["-stream_loop", "-1", "-i", o], chain: `[${input}:v]trim=start=${ovOff},setpts=PTS-STARTPTS[o${label}];[${label}0][o${label}]overlay=format=auto[${label}]` } : { args: [], chain: `[${label}0]null[${label}]` };
+  };
   if (p.kind === "body") {
-    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.asset}.mp4`), "-filter_complex", `[0:v]trim=start=${off(p.asset, p.fromS)},setpts=PTS-STARTPTS,${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
+    const l = layer(p.asset, "a", 1);
+    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.asset}.mp4`), ...l.args, "-filter_complex", `[0:v]trim=start=${off(p.asset, p.fromS)},setpts=PTS-STARTPTS[a0];${l.chain};[a]${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
   } else {
     // Our own slow cross-fade; both sides brightness-matched by the same dim curve (no "plop" in the light).
-    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.from.asset}.mp4`), "-stream_loop", "-1", "-i", join(assetsDir, `${p.to.asset}.mp4`), "-filter_complex", `[0:v]trim=start=${off(p.from.asset, p.from.fromS)},setpts=PTS-STARTPTS[a];[1:v]trim=start=${off(p.to.asset, p.to.fromS)},setpts=PTS-STARTPTS[b];[a][b]xfade=transition=fade:duration=${p.lengthS.toFixed(3)}:offset=0,${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
+    const la = layer(p.from.asset, "a", 2);
+    const lb = layer(p.to.asset, "b", 2 + la.args.length / 4);
+    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.from.asset}.mp4`), "-stream_loop", "-1", "-i", join(assetsDir, `${p.to.asset}.mp4`), ...la.args, ...lb.args, "-filter_complex", `[0:v]trim=start=${off(p.from.asset, p.from.fromS)},setpts=PTS-STARTPTS[a0];[1:v]trim=start=${off(p.to.asset, p.to.fromS)},setpts=PTS-STARTPTS[b0];${la.chain};${lb.chain};[a][b]xfade=transition=fade:duration=${p.lengthS.toFixed(3)}:offset=0,${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
   }
   const range = execFileSync(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_range", "-of", "csv=p=0", dst]).toString().trim();
   if (range !== "tv") throw new Error(`Stuk ${p.id} heeft kleurbereik ${range}, moet tv zijn`);
@@ -205,6 +236,28 @@ function qcPage(r: Awaited<ReturnType<typeof qc>>) {
 <h2>Beeld per minuut</h2><table><tr><th>min</th><th>helderheid gem.</th><th>max</th><th>grootste sprong</th><th>kleinste stap</th><th>rust (p10)</th><th>oordeel</th></tr>${r.minutes.map(row).join("")}</table>`;
 }
 
+// ---------- Preview only (fase 6) ----------
+const overlays = new Map<string, string>();
+const PREVIEW_CUTS = (totalS: number) => [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]];
+async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, totalS: number, audio: string) {
+  const parts: string[] = [];
+  for (const [k, [from, len]] of PREVIEW_CUTS(totalS).entries()) {
+    const need = pieces.filter((p) => p.globalS < from + len && p.globalS + p.lengthS > from);
+    const files: string[] = [];
+    for (const p of need) files.push(await renderPiece(p, assets, totalS));
+    const list = join(out, `preview-${k}.txt`);
+    await writeFile(list, files.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+    const start = need[0].globalS;
+    const part = join(out, `preview-${k}.mp4`);
+    await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `[0:v]trim=start=${(from - start).toFixed(3)}:duration=${len},setpts=PTS-STARTPTS,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${len - 1}:d=1[v];[1:a]afade=t=in:d=1,afade=t=out:st=${len - 1}:d=1[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
+    parts.push(part);
+  }
+  const list = join(out, "preview-all.txt");
+  await writeFile(list, parts.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
+  await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", join(out, "preview.mp4")]);
+  log(`Preview (alleen de benodigde stukken): ${join(out, "preview.mp4")}`);
+}
+
 // ---------- Run ----------
 await mkdir(assetsDir, { recursive: true });
 await mkdir(piecesDir, { recursive: true });
@@ -215,11 +268,25 @@ if (!qcOnly) {
   const started = Date.now();
   const assets = new Map<string, Asset>();
   for (const c of CLIPS) assets.set(c.id, await prepAsset(c));
-  const segs = buildTimeline([...assets.values()], minutes, seed);
+  for (const [view, reg] of Object.entries(SET.regions ?? {})) {
+    const f = join(assetsDir, `overlay-${view}.mov`);
+    if (!existsSync(`${f}.ok`)) {
+      await waitForKivoxel();
+      await renderOverlay(ffmpeg, f, reg, SET.weather ?? "rain");
+      await writeFile(`${f}.ok`, "");
+      log(`${view}: levende laag gemaakt (${SET.weather ?? "rain"}, vuurvliegjes, stofjes, haardgloed)`);
+    }
+    overlays.set(view, f);
+  }
+  const segs = buildEpisodeTimeline([...assets.values()], minutes, seed);
   const pieces = planPieces(segs);
   await writeFile(join(out, "timeline.json"), JSON.stringify({ minutes, seed, length_s: episodeLength(segs), segments: segs, pieces }, null, 1));
   log(`Tijdlijn: ${segs.length} delen, ${pieces.length} renderstukken.`);
   const audio = await soundtrack(totalS);
+  if (previewOnly) {
+    await renderPreviewOnly(pieces, assets, totalS, audio);
+    process.exit(0);
+  }
   const files: string[] = [];
   for (const [i, p] of pieces.entries()) {
     files.push(await renderPiece(p, assets, totalS));

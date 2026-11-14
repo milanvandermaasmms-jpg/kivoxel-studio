@@ -51,6 +51,21 @@ export function renderEvents(events: NoteEvent[], seconds: number, seed = 1): St
         idx = (idx + 1) % period;
         return e.vel * 0.3 * v * envelope(i, n, 0.006, 2.5);
       });
+    } else if (e.instrument === "felt") {
+      // Felt piano (fase 6): a warm hammered string with soft felt. Harmonic partials with slight piano stretch, the
+      // higher ones die quickly (that is the "felt"), the note is held for its length and released gently.
+      const B = 0.0004;
+      const parts = [1, 0.45, 0.2, 0.09, 0.04].map((a, k) => ({ k: k + 1, a, f: (k + 1) * Math.sqrt(1 + B * (k + 1) ** 2), d: (e.midi < 60 ? 3.2 : 2.4) / (1 + k * 0.9) }));
+      const hold = Math.floor(Math.max(0.3, e.dur) * SR);
+      const n = hold + Math.floor(0.8 * SR);
+      addVoice(out, e.t, n, (r() - 0.5) * 0.5, (i) => {
+        const t = i / SR;
+        const attack = Math.min(1, t / 0.008);
+        const release = i < hold ? 1 : Math.exp(-(i - hold) / (0.18 * SR));
+        let v = 0;
+        for (const p of parts) v += p.a * Math.exp(-t / p.d) * Math.sin(w * p.f * i);
+        return e.vel * 0.3 * attack * release * v * Math.min(1, (n - i) / (0.02 * SR));
+      });
     } else {
       // Pad: three slightly detuned soft tones with a slow swell in and out.
       const n = Math.floor((e.dur + 2) * SR);
