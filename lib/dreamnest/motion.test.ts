@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { clipCents, FRAME_MODE_MAX_S, judgeClip, planClips, seamlessLoopArgs } from "./motion";
+import { calmEndFrame, clipCents, FRAME_MODE_MAX_S, judgeClip, planClips, seamlessLoopArgs } from "./motion";
 
 const motion = JSON.parse(readFileSync("content/dreamnest/shots/fase2-motion.json", "utf8")) as { shot: string; motion: string; loop?: string }[];
 
@@ -34,6 +34,20 @@ describe("seam repair", () => {
   });
   it("refuses a clip that is too short", () => {
     expect(() => seamlessLoopArgs("a", "b", 1.5)).toThrow();
+  });
+});
+
+describe("own-scene part of a story clip", () => {
+  const n = 192;
+  const vsFirst = Array.from({ length: n }, (_, i) => 1 - i / n);
+  const vsLast = Array.from({ length: n }, (_, i) => 0.4 + (0.6 * i) / n);
+  it("stops where the clip starts to look more like the next scene", () => {
+    expect(calmEndFrame(vsFirst, vsLast, [], 60)).toBe(72);
+  });
+  it("stops before a hard cut, but keeps a minimum", () => {
+    const steps = Array.from({ length: n }, (_, i) => (i === 50 ? 0.4 : 0.99));
+    expect(calmEndFrame(vsFirst, vsLast, steps, 30)).toBe(50);
+    expect(calmEndFrame(vsFirst, vsLast, steps, 60)).toBe(60);
   });
 });
 

@@ -86,6 +86,18 @@ export function seamlessLoopArgs(input: string, output: string, lengthS: number,
   return ["-y", "-v", "error", "-i", input, "-filter_complex", filter, "-map", "[v]", "-an", "-c:v", "libx264", "-crf", "16", "-preset", "slow", output];
 }
 
+/**
+ * The usable "own scene" part of a story clip, in frames: up to the moment the picture looks more like the next scene
+ * (its last frame) than like its own first frame, and never past a hard cut (step < 0.6). At least minFrames.
+ */
+export function calmEndFrame(vsFirst: number[], vsLast: number[], steps: number[], minFrames: number): number {
+  let end = vsFirst.findIndex((f, i) => i > 0 && vsLast[i] !== undefined && vsLast[i] >= f);
+  if (end < 0) end = vsFirst.length;
+  const cut = steps.findIndex((s) => s < 0.6);
+  if (cut >= 0) end = Math.min(end, cut);
+  return Math.max(minFrames, Math.min(end, vsFirst.length));
+}
+
 /** Price per second in cents (Gemini Omni 1.2 Flash, docs 13-11-2026), rounded up per clip. */
 export const OMNI_CENTS_PER_S: Record<"720p" | "1080p", number> = { "720p": 7, "1080p": 10.4 };
 export const clipCents = (durationS: number, res: "720p" | "1080p") => Math.ceil(durationS * OMNI_CENTS_PER_S[res]);
