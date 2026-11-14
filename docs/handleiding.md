@@ -37,3 +37,8 @@
 - **Rode melding**: lees de tekst; meestal staat er een knop **Opnieuw proberen** bij.
 - **"Werker niet bereikbaar"**: dubbelklik op `worker\start-werker.cmd` in de projectmap.
 - **Een melding over een migratie**: die moet nog in Supabase worden uitgevoerd. Vraag het Claude.
+
+
+## Ivar
+
+Rechtsonder staat Ivar (of druk **Alt+I**). Vraag hem iets over het kanaal of de video die je open hebt: titels, een analyse, een editvoorstel, of "waar is mijn render mee bezig?". Ivar zet alleen concepten klaar en start alleen iets als je het echt vraagt; betaalde stappen krijgen eerst een kostenkaart. Publiceren blijft jouw klik. Meer: `docs/ivar.md`.

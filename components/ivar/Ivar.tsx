@@ -311,19 +311,10 @@ function IvarShell({ studioId }: { studioId: string }) {
           }`}
           style={{ ...panelStyle, paddingBottom: mobile ? "env(safe-area-inset-bottom)" : undefined }}
         >
-          <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
+          <header className="border-b border-slate-200 px-3 pb-1.5 pt-2">
+            <div className="flex items-center gap-1">
             <Avatar />
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate text-sm font-semibold text-slate-900">Ivar — Studio Assistant</h2>
-              <button type="button" onClick={() => setView(view === "scope" ? "chat" : "scope")} className="flex max-w-full items-center gap-0.5 truncate text-xs text-violet-700 hover:underline" aria-label={`Scope: ${scopeTrail(scope).join(" → ")}. Klik om te wijzigen.`}>
-                {scopeTrail(scope).map((part, i) => (
-                  <span key={i} className="inline-flex min-w-0 items-center gap-0.5">
-                    {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />}
-                    <span className="truncate">{part}</span>
-                  </span>
-                ))}
-              </button>
-            </div>
+            <h2 className="ml-1 min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">Ivar — Studio Assistant</h2>
             <IconButton label="Gesprekken" onClick={() => setView(view === "history" ? "chat" : "history")} active={view === "history"}>
               <History className="h-4 w-4" />
             </IconButton>
@@ -341,6 +332,16 @@ function IvarShell({ studioId }: { studioId: string }) {
             <IconButton label="Minimaliseren (taken lopen door)" onClick={() => setOpen(false)}>
               {mobile ? <X className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
             </IconButton>
+            </div>
+            <button type="button" onClick={() => setView(view === "scope" ? "chat" : "scope")} className="mt-1 flex max-w-full flex-wrap items-center gap-0.5 rounded px-1 text-left text-xs text-violet-700 hover:bg-violet-50" aria-label={`Scope: ${scopeTrail(scope).join(" → ")}. Klik om te wijzigen.`}>
+              {scopeTrail(scope).map((part, i) => (
+                <span key={i} className="inline-flex min-w-0 items-center gap-0.5">
+                  {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />}
+                  <span className="max-w-[16rem] truncate">{part}</span>
+                </span>
+              ))}
+              <Pencil className="ml-1 h-3 w-3 shrink-0 opacity-60" aria-hidden />
+            </button>
           </header>
 
           {error && (
@@ -457,7 +458,8 @@ function ChatView(props: {
   setError: (e: string | null) => void;
 }) {
   const { studioId, conv, convId, messages, scope, ctx } = props;
-  const draftKey = `draft:${convId ?? "new"}`;
+  // An unsent draft belongs to its conversation, or (new conversation) to its channel: drafts never cross channels.
+  const draftKey = `draft:${convId ?? `new:${scope.channelId ?? "studio"}`}`;
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [busyStop, setBusyStop] = useState(false);
@@ -500,7 +502,7 @@ function ChatView(props: {
       if (!pendingKey.current || pendingKey.current.text !== body) pendingKey.current = { text: body, key: clientKey() };
       await data.send(id, body, pendingKey.current.key, { ...scope, page: props.pageScope.page ?? null });
       pendingKey.current = null;
-      store.set(`draft:${convId ?? "new"}`, null);
+      store.set(draftKey, null);
       store.set(`draft:${id}`, null);
       setText("");
       await props.reload();
@@ -607,7 +609,7 @@ function ChatView(props: {
                 void sendText(text);
               }
             }}
-            placeholder={conv || props.messages.length ? "Vraag of opdracht…" : `Vraag iets over ${scopeTrail(scope).slice(0, 2).join(" → ")}…`}
+            placeholder="Vraag of opdracht…"
             className="min-h-10 flex-1 resize-none rounded-lg border border-slate-200 bg-surface px-3 py-2 text-base text-slate-900 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 sm:text-sm"
           />
           {waitingReply ? (
