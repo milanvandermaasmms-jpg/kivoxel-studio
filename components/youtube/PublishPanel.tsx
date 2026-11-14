@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, Rocket } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import { useEffect, useRef, useState } from "react";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button, Dialog } from "@/components/ui/Dialog";
@@ -291,6 +292,11 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         if (p && p !== "migration") {
           setDraft(toDraft(p));
           setExtras(extrasOf(p));
+        } else if (p === null) {
+          // A new draft starts with the working title of the video, if there is one (also one applied from Ivar).
+          void supabase.from("yt_videos").select("title").eq("id", videoId).maybeSingle<{ title: string | null }>().then(({ data }) => {
+            if (live && data?.title) setDraft((d) => (d.title ? d : { ...d, title: data.title!.slice(0, 100) }));
+          });
         }
       })
       .catch((e) => live && setMessage({ ok: false, text: e instanceof Error ? e.message : "Laden lukte niet." }));

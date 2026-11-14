@@ -33,9 +33,10 @@ export function useFlow(studioId: string, enabled: boolean) {
         return;
       }
       const publications: FlowPublication[] = pubs === "migration" ? [] : pubs;
-      const titleOf = (v: { id: string; format: string; promise?: string | null }) => {
+      // A working title (set by Milan or applied from Ivar as a concept) goes first.
+      const titleOf = (v: { id: string; format: string; promise?: string | null; title?: string | null }) => {
         const s = board.scripts.find((x) => x.video_id === v.id && x.status !== "rejected");
-        return (s?.titles?.[0] as string | undefined) ?? s?.top_line ?? v.promise ?? FORMATS.find((f) => f.key === v.format)?.name ?? "Video";
+        return (v.title || undefined) ?? (s?.titles?.[0] as string | undefined) ?? s?.top_line ?? v.promise ?? FORMATS.find((f) => f.key === v.format)?.name ?? "Video";
       };
       const items = buildFlow(board.input.videos, board.input.scripts, publications, titleOf, board.jobs);
       const views: Record<string, number> = {};
