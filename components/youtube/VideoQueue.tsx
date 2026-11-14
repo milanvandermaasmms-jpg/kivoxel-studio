@@ -8,6 +8,7 @@ import { formatTimecode } from "@/lib/youtube/analysis";
 import type { FlowState } from "@/lib/youtube/flowData";
 import type { Flow, FlowItem } from "@/lib/youtube/flow";
 import { WORKER_URL } from "@/lib/youtube/protocol";
+import { groupByProject, groupMeta } from "@/lib/youtube/projectGroups";
 
 type Ready = Extract<NonNullable<FlowState>, { board: unknown }>;
 const when = (iso: string) => new Date(iso).toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -17,16 +18,28 @@ const when = (iso: string) => new Date(iso).toLocaleString("nl-NL", { timeZone: 
  * and the big "Naar YouTube sturen" button. The details (the publication form) open only after a click.
  * Cards keep their place: the order is the creation time of the video, never its status.
  */
-export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction, startOpen = false, onArchive }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void; startOpen?: boolean; onArchive?: (videoId: string) => void }) {
+export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction, startOpen = false, onArchive, byProject = false }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void; startOpen?: boolean; onArchive?: (videoId: string) => void; byProject?: boolean }) {
   const [open, setOpen] = useState<string | null>(startOpen ? (state.items[0]?.videoId ?? null) : null);
   const items = state.items.filter((i) => flows.includes(i.flow) && (!channel || i.channelId === channel));
   if (items.length === 0) return <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">{empty}</p>;
+  const card = (item: FlowItem) => <VideoCard key={item.videoId} onArchive={onArchive} item={item} state={state} open={open === item.videoId} onToggle={() => setOpen(open === item.videoId ? null : item.videoId)} workerOnline={workerOnline} studioId={studioId} onOpenProduction={onOpenProduction} />;
+  if (!byProject) return <ul className="space-y-3">{items.map(card)}</ul>;
+  // Per project (one recording): the parts of a long story in order, then the Shorts of the same gameplay.
+  const groups = groupByProject(items, state.board.input.videos as { id: string; recording_id: string | null; plan_key?: string | null }[], state.board.input.recordings);
   return (
-    <ul className="space-y-3">
-      {items.map((item) => (
-        <VideoCard key={item.videoId} onArchive={onArchive} item={item} state={state} open={open === item.videoId} onToggle={() => setOpen(open === item.videoId ? null : item.videoId)} workerOnline={workerOnline} studioId={studioId} onOpenProduction={onOpenProduction} />
+    <div className="space-y-4">
+      {groups.map((g) => (
+        <details key={g.key} open className="group rounded-xl border border-slate-200 bg-surface/40 p-3">
+          <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1 [&::-webkit-details-marker]:hidden">
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-[:not([open])]:-rotate-90 motion-reduce:transition-none" aria-hidden />
+            <span aria-hidden>{g.recordingId ? "🎮" : "🎬"}</span>
+            <span className="min-w-0 truncate text-sm font-semibold text-slate-800">{g.label}</span>
+            <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{groupMeta(g)}</span>
+          </summary>
+          <ul className="mt-3 space-y-3">{g.items.map(card)}</ul>
+        </details>
       ))}
-    </ul>
+    </div>
   );
 }
 
