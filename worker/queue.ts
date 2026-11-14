@@ -29,7 +29,7 @@ import {
   type Segment,
 } from "../lib/youtube/analysis.ts";
 import type { LocalRecording } from "../lib/youtube/protocol.ts";
-import { applyHook, parseHooks } from "../lib/youtube/hooks.ts";
+import { applyHook, parseHooks, rankShortHooks } from "../lib/youtube/hooks.ts";
 import { STEP_MILESTONE, STEP_PHASE, stepNotes } from "../lib/youtube/live.ts";
 import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type SuggestInput } from "../lib/youtube/suggest.ts";
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
@@ -472,6 +472,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       draft = parsed.draft;
     }
     if (part && draft.titles) draft = { ...draft, titles: seriesTitles(draft.titles, part) };
+    // A Short opens with the first hook by default: a greeting or a long first line goes to the back.
+    if (video.data.format !== "C") draft = { ...draft, hooks: rankShortHooks(draft.hooks) };
     const row = {
       studio_id: job.studio_id,
       video_id: video.data.id,
@@ -540,7 +542,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const size = renderSize(video.data.format);
     const spoken = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs);
     const voice: VoiceClip[] = [];
-    const voiceName = settings.data?.voice_name ?? "en-US-Chirp3-HD-Charon";
+    const voiceName = settings.data?.voice_name ?? "en-US-Chirp3-HD-Fenrir";
     const fileName = renderFileName(video.data.id, s.data.version, job.id);
     const output = join(montage.rendersDir, fileName);
     const partial = join(montage.rendersDir, fileName.replace(/\.mp4$/, ".part.mp4"));
@@ -564,7 +566,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (characters) {
           for (const [i, line] of spoken.entries()) {
             const file = `line${i}.mp3`;
-            await writeFile(join(tmp, file), await montage.voice.tts.speak(line.text, { voiceName, speakingRate: Number(settings.data?.speaking_rate ?? 1.1) }));
+            await writeFile(join(tmp, file), await montage.voice.tts.speak(line.text, { voiceName, speakingRate: Number(settings.data?.speaking_rate ?? 1.15) }));
             voice.push({ file, atMs: line.at_ms });
           }
           const cost = await db.from("yt_costs").insert({ studio_id: job.studio_id, job_id: job.id, category: "voiceover", service: "Google TTS Chirp 3 HD", amount_cents: 0, is_estimate: false, description: `${characters} tekens, binnen het gratis deel` });

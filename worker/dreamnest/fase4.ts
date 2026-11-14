@@ -18,6 +18,7 @@ import { renderOverlay } from "./overlay.ts";
 import { renderFolder } from "../../lib/dreamnest/steps.ts";
 import { judgeVideo, parseBlack, perMinute } from "../../lib/dreamnest/videoqc.ts";
 import { findTool } from "../ffmpeg.ts";
+import { lockFolder, waitForKivoxel as waitKivoxelFirst } from "./kivoxelFirst.ts";
 import { makeIr, planScore, renderScorePiece } from "./audio/score.ts";
 import { parseAllSsim, parseLuma } from "./measure.ts";
 
@@ -62,18 +63,8 @@ function ff(args: string[]): Promise<string> {
 }
 const probeDur = (f: string) => Number(execFileSync(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f]).toString());
 
-/** KIVOXEL goes first: wait while an FFmpeg runs that is not ours (we run one at a time and only call this in between). */
-async function waitForKivoxel() {
-  for (let waited = 0; ; waited++) {
-    let busy = false;
-    try {
-      busy = /ffmpeg\.exe/i.test(execFileSync("tasklist", ["/FI", "IMAGENAME eq ffmpeg.exe", "/FO", "CSV", "/NH"], { windowsHide: true }).toString());
-    } catch {}
-    if (!busy) return;
-    if (waited % 10 === 0) log("KIVOXEL gebruikt FFmpeg: Dreamnest wacht even...");
-    await new Promise((r) => setTimeout(r, 30_000));
-  }
-}
+/** KIVOXEL goes first: waits only for FFmpeg that is not Dreamnest's own (worker/dreamnest/kivoxelFirst.ts). */
+const waitForKivoxel = () => waitKivoxelFirst(log);
 
 // ---------- 1. Clips: only the calm part, anti-jitter, loops slower ----------
 const CLIPS = readdirClips();
@@ -249,17 +240,23 @@ async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, to
     await writeFile(list, files.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
     const start = need[0].globalS;
     const part = join(out, `preview-${k}.mp4`);
-    await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `[0:v]trim=start=${(from - start).toFixed(3)}:duration=${len},setpts=PTS-STARTPTS,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${len - 1}:d=1[v];[1:a]afade=t=in:d=1,afade=t=out:st=${len - 1}:d=1[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
+    // Every piece decoded and joined by the concat filter, then cut by frame number (a copy-join of the pieces gave
+    // frames with doubled timestamps: the preview started in the wrong place and blinked).
+    const startFrame = Math.round((from - start) * FPS), endFrame = Math.round((from - start + len) * FPS);
+    await ff(["-y", "-v", "error", ...files.flatMap((f) => ["-i", f]), "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `${files.map((_, i) => `[${i}:v]`).join("")}concat=n=${files.length}:v=1:a=0,setpts=N/${FPS}/TB,trim=start_frame=${startFrame}:end_frame=${endFrame},setpts=N/${FPS}/TB,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${len - 1}:d=1[v];[${files.length}:a]afade=t=in:d=1,afade=t=out:st=${len - 1}:d=1[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
     parts.push(part);
   }
   const list = join(out, "preview-all.txt");
   await writeFile(list, parts.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
-  await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", "-movflags", "+faststart", join(out, "preview.mp4")]);
+  // One encode over the four parts (the concat filter keeps the clock exact; a copy-join broke the timestamps).
+  await ff(["-y", "-v", "error", ...parts.flatMap((f) => ["-i", f]), "-filter_complex", `${parts.map((_, i) => `[${i}:v][${i}:a]`).join("")}concat=n=${parts.length}:v=1:a=1[v][a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
   log(`Preview (alleen de benodigde stukken): ${join(out, "preview.mp4")}`);
 }
 
 // ---------- Run ----------
 await mkdir(assetsDir, { recursive: true });
+// One montage per folder (a Studio run and a preview at the same time wrote over each other's files).
+lockFolder(out, previewOnly ? "montage of preview" : "montage");
 await mkdir(piecesDir, { recursive: true });
 await mkdir(audioDir, { recursive: true });
 const final = join(out, `dreamnest-${minutes}min.mp4`);

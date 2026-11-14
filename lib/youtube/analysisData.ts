@@ -33,7 +33,8 @@ export type DbRender = { id: string; video_id: string; script_id: string; file_n
 export type RenderJob = { script_id: string; status: string; error: string | null; created_at: string };
 /** Montage (migration 030); null until that migration has run. */
 export type VoiceSettings = { voice_name: string; speaking_rate: number; game_volume: number };
-export const DEFAULT_VOICE: VoiceSettings = { voice_name: "en-US-Chirp3-HD-Charon", speaking_rate: 1.1, game_volume: 0.25 };
+/** Enthusiastic for young viewers (14-11-2026): Fenrir instead of the calm Charon, a little faster. */
+export const DEFAULT_VOICE: VoiceSettings = { voice_name: "en-US-Chirp3-HD-Fenrir", speaking_rate: 1.15, game_volume: 0.25 };
 /** Blurring and muting (migration 031). */
 export type PrivacySettings = { privacy_blur: boolean; privacy_regions: Region[]; mute_flagged_voice: boolean };
 /** privacy is null until migration 031 has run. */
@@ -46,7 +47,7 @@ export type MontageState = { renders: DbRender[]; jobs: RenderJob[]; voice: Voic
 export const VOICES: { name: string; label: string }[] = [
   { name: "en-US-Chirp3-HD-Charon", label: "Charon · Amerikaans Engels, mannelijk, rustig" },
   { name: "en-US-Chirp3-HD-Puck", label: "Puck · Amerikaans Engels, mannelijk, levendig" },
-  { name: "en-US-Chirp3-HD-Fenrir", label: "Fenrir · Amerikaans Engels, mannelijk, enthousiast" },
+  { name: "en-US-Chirp3-HD-Fenrir", label: "Fenrir · Amerikaans Engels, mannelijk, enthousiast (aanrader voor kinderen)" },
   { name: "en-US-Chirp3-HD-Kore", label: "Kore · Amerikaans Engels, vrouwelijk" },
   { name: "en-GB-Chirp3-HD-Charon", label: "Charon · Brits Engels, mannelijk" },
   { name: "nl-NL-Chirp3-HD-Charon", label: "Charon · Nederlands, mannelijk" },

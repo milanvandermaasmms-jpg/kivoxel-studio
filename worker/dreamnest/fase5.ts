@@ -12,6 +12,7 @@ import { STYLE_DNA, type Character } from "../../lib/dreamnest/bible.ts";
 import { chaptersFrom, dnShortAss, dnThumbAss, episodeText, planShorts, shortText, thumbLines } from "../../lib/dreamnest/package.ts";
 import type { Segment } from "../../lib/dreamnest/timeline.ts";
 import { findTool } from "../ffmpeg.ts";
+import { lockFolder, waitForKivoxel as waitKivoxelFirst } from "./kivoxelFirst.ts";
 import { renderFolder } from "../../lib/dreamnest/steps.ts";
 import { createGeminiImage, IMAGE_CENTS } from "../providers/image/gemini.ts";
 import { cacheKey, createCache, createLedger } from "./ledger.ts";
@@ -46,18 +47,8 @@ function ff(args: string[], cwd: string): Promise<string> {
     } catch {}
   });
 }
-/** KIVOXEL goes first: wait while another FFmpeg runs. */
-async function waitForKivoxel() {
-  for (let waited = 0; ; waited++) {
-    let busy = false;
-    try {
-      busy = /ffmpeg\.exe/i.test(execFileSync("tasklist", ["/FI", "IMAGENAME eq ffmpeg.exe", "/FO", "CSV", "/NH"], { windowsHide: true }).toString());
-    } catch {}
-    if (!busy) return;
-    if (waited % 10 === 0) log("KIVOXEL gebruikt FFmpeg: Dreamnest wacht even...");
-    await new Promise((r) => setTimeout(r, 30_000));
-  }
-}
+/** KIVOXEL goes first: waits only for FFmpeg that is not Dreamnest's own (worker/dreamnest/kivoxelFirst.ts). */
+const waitForKivoxel = () => waitKivoxelFirst(log);
 
 // ---------- 0. What is there ----------
 const qc = JSON.parse(readFileSync(join(render, "qc.json"), "utf8")) as { ok: boolean };
@@ -69,6 +60,7 @@ const thumbCost = 3 * IMAGE_CENTS["2K"];
 log(`Verpakking: teksten en Shorts gratis; 3 thumbnail-achtergronden hoogstens € ${(thumbCost / 100).toFixed(2)} (uit de opslag gratis). Al gebruikt € ${((await ledger.spent()) / 100).toFixed(2)}.`);
 if (dry) process.exit(0);
 await mkdir(join(out, "thumbs"), { recursive: true });
+lockFolder(out, "verpakking");
 await mkdir(join(out, "shorts"), { recursive: true });
 
 // ---------- 1. Texts and chapters ----------
