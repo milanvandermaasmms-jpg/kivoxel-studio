@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, withEvidence, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
@@ -499,7 +499,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         } else ev = { evidence: parsedEv, frames: evidence.frames };
       }
       let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
-      if (ev) prompt += groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs);
+      if (ev) prompt = withEvidence(prompt) + groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs);
       const { json } = await paid(job, () => ai.gemini.generateText(prompt));
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
@@ -516,6 +516,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         draft = { ...draft, lines: v.lines, ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
         // Too little narration: fill the silent gaps with supported lines, and check those again.
         let added = 0;
+        const expandLog: { gaps: number; asked: number; returned: number; inGaps: number; kept: number }[] = [];
         const share = video.data.format === "C" ? 0.5 : 0.7;
         // Long videos get a second round: one pass rarely fills minutes of silence.
         for (let round = 0; round < (video.data.format === "C" ? 2 : 1) && coverage(draft.lines, plan.targetMs) < share * (video.data.format === "C" ? 0.9 : 0.8); round++) {
@@ -525,11 +526,14 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (gaps.length && extra >= 5) {
             const more = await paid(job, () => ai.gemini.generateText(expandPrompt(draft.lines, ev!.evidence, ev!.frames, gaps, extra)));
             const merged = mergeAdded(draft.lines, more.json, gaps, plan.targetMs);
+            const returned = Array.isArray((more.json as { lines?: unknown })?.lines) ? (more.json as { lines: unknown[] }).lines.length : 0;
+            expandLog.push({ gaps: gaps.length, asked: extra, returned, inGaps: merged.length - draft.lines.length, kept: 0 });
             if (merged.length > draft.lines.length) {
               const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames)));
               const v2 = applyVerification(merged, recheck.json);
               if (v2.checked < merged.length * 0.8) continue;
               added += v2.lines.length - draft.lines.length;
+              expandLog[expandLog.length - 1].kept = v2.lines.length - draft.lines.length;
               v.issues.push(...v2.issues);
               draft = { ...draft, lines: v2.lines };
             }
@@ -547,6 +551,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),
           longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
           added,
+          expand: expandLog,
           strength: contentStrength(ev.evidence),
           edit,
         };
@@ -613,16 +618,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   /** Gemini describes the frames, in batches of 40; the answers are joined with the frame numbers of the whole video. */
   async function describeEvidence(job: Job, evidence: { frames: FramePick[]; images: unknown[] }): Promise<Evidence> {
     const parts: { offset: number; evidence: Evidence }[] = [];
-    const errors: string[] = [];
     for (const b of evidenceBatches(evidence.frames)) {
       const images = evidence.images.slice(b.offset, b.offset + b.frames.length);
-      const { json } = await paid(job, () => ai!.gemini.generateWithParts([...images, { text: evidencePrompt(b.frames) }]));
-      const parsed = parseEvidence(json, b.frames.length);
-      if ("error" in parsed) errors.push(parsed.error);
-      else parts.push({ offset: b.offset, evidence: parsed });
+      // Every batch must be described: a gap in the evidence would let the check approve lines it cannot see.
+      let parsed: Evidence | { error: string } = { error: "geen antwoord" };
+      for (let attempt = 0; attempt < 2 && "error" in parsed; attempt++) {
+        try {
+          const { json } = await paid(job, () => ai!.gemini.generateWithParts([...images, { text: evidencePrompt(b.frames) }]));
+          parsed = parseEvidence(json, b.frames.length);
+        } catch (e) {
+          parsed = { error: e instanceof Error ? e.message : String(e) };
+        }
+      }
+      if ("error" in parsed) throw new Error(`Beeldbewijs onbruikbaar (beelden ${b.offset + 1}-${b.offset + b.frames.length}): ${parsed.error}`);
+      parts.push({ offset: b.offset, evidence: parsed });
     }
-    // One bad batch in a long video is tolerated (fewer frames there); without any usable batch the step stops.
-    if (!parts.length || errors.length > parts.length) throw new Error(`Beeldbewijs onbruikbaar: ${errors[0] ?? "geen antwoord"}`);
     return mergeEvidence(parts);
   }
 

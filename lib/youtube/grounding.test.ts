@@ -142,3 +142,12 @@ describe("no plan labels in the voice-over", () => {
     expect(merged.map((l) => l.at_ms)).toEqual([0, 75_000]);
   });
 });
+
+describe("old moment notes are only hints once there is evidence", () => {
+  it("relabels the moments block of the script prompt", async () => {
+    const { withEvidence } = await import("./grounding.ts");
+    const out = withEvidence("x\nWhat happens on screen (from the analysis; use only this, invent nothing, never mention real names):\n- 0:00 near_death");
+    expect(out).toContain("often WRONG");
+    expect(out).not.toContain("use only this");
+  });
+});

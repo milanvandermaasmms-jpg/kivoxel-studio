@@ -117,6 +117,11 @@ export function longestSilenceMs(lines: ScriptLine[], durationMs: number): numbe
   return Math.max(0, Math.round(gap));
 }
 
+/** With evidence, the moment notes of the first analysis are only rough hints (they invented mobs and damage before). */
+export function withEvidence(prompt: string): string {
+  return prompt.replace("What happens on screen (from the analysis; use only this, invent nothing", "Rough notes from an earlier automatic analysis (often WRONG: use a note only when the verified evidence below confirms it; invent nothing");
+}
+
 /** Added to the existing script prompt: the evidence per moment of the final video and the hard rules that follow from it. */
 export function groundingBlock(e: Evidence, frames: FramePick[], format: Format, durationMs: number): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
@@ -136,6 +141,7 @@ export function groundingBlock(e: Evidence, frames: FramePick[], format: Format,
     dark ? "- Only call it dark where the evidence says cave_dark or night." : "- It is never really dark: do NOT call it dark.",
     "- No falls, deaths, explosions or kills unless they are in the events.",
     "- Write full, lively sentences of 6-14 words (a narrator telling the story to a friend), not 2-3 word shouts; vary the rhythm.",
+    ...(format === "C" ? [`- Long video: write at least ${Math.ceil(durationMs / 8000)} lines (about one every 6-8 s), so the whole story is told; quiet stretches get a short reaction or what the player is doing.`] : []),
     `- Length: about ${words} words in total (±10%), spread over the whole video, the line at_ms on the moment it talks about; no stretch longer than ${maxGap} s without narration unless it is a deliberate pause before a payoff.`,
   ].join("\n");
 }
