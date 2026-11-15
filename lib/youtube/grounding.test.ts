@@ -72,3 +72,28 @@ describe("the check after writing", () => {
     expect(longestSilenceMs([{ at_ms: 0, text: "one two three" }], 35_000)).toBeGreaterThan(33_000);
   });
 });
+
+import { contentStrength, mergeAdded, silentGaps } from "./grounding.ts";
+describe("moment keuring", () => {
+  const f = (action: string, mobs: string[] = [], events: string[] = []) => ({ i: 0, light: "day" as const, health: "not_visible" as const, mobs, action, events });
+  it("calls menus and idle digging weak", () => {
+    const s = contentStrength({ frames: [f("walking"), f("in inventory"), f("chest menu"), f("digging dirt"), f("digging dirt")], summary: "", uncertain: [] });
+    expect(s.verdict).toBe("weak");
+    expect(s.reasons.join(" ")).toMatch(/menu/);
+  });
+  it("calls a fight with events strong", () => {
+    const s = contentStrength({ frames: [f("fighting", ["zombie"], ["damage taken"]), f("fighting", ["zombie", "skeleton"]), f("running", ["creeper"], ["explosion"]), f("eating")], summary: "", uncertain: [] });
+    expect(s.verdict).toBe("strong");
+  });
+});
+describe("filling silence", () => {
+  const lines = [{ at_ms: 0, text: "one two three four five" }, { at_ms: 20_000, text: "six seven" }];
+  it("finds the long gaps", () => {
+    expect(silentGaps(lines, 35_000, 3000)).toEqual([[1923, 20_000], [20_769, 35_000]]);
+  });
+  it("only adds lines that fall inside a gap", () => {
+    const gaps: [number, number][] = [[2000, 20_000]];
+    const merged = mergeAdded(lines, { lines: [{ at_ms: 8000, text: "New supported line" }, { at_ms: 21_000, text: "outside" }, { at_ms: 9000, text: "" }] }, gaps, 35_000);
+    expect(merged.map((l) => l.text)).toEqual(["one two three four five", "New supported line", "six seven"]);
+  });
+});

@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, coverage, evidencePrompt, framePlan, groundingBlock, longestSilenceMs, parseEvidence, verifyPrompt, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { applyVerification, contentStrength, coverage, evidencePrompt, expandPrompt, framePlan, groundingBlock, longestSilenceMs, mergeAdded, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { nicheQueries } from "../lib/ivar/insights.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
@@ -474,7 +474,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // Studio 2.0: the gameplay is the source of truth. Frames of the real recording first (free), then Gemini reports
       // only what is visible; the script must lean on that, and a check removes lines without support.
       const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments);
-      await reserve(job, evidence ? 3 : 1);
+      // Studio 2.0 keuring: only look at the material (no script written), to sort the library into strong and weak.
+      if (job.payload?.assess === true) {
+        if (!evidence) throw new Error("Keuren kan alleen met de opname op deze pc");
+        await reserve(job, 2);
+        const { json } = await paid(job, () => ai.gemini.generateWithParts([...evidence.images, { text: evidencePrompt(evidence.frames) }]));
+        const ev0 = parseEvidence(json, evidence.frames.length);
+        if ("error" in ev0) throw new Error(`Beeldbewijs onbruikbaar: ${ev0.error}`);
+        return { assess: true, frames: evidence.frames.length, strength: contentStrength(ev0), summary: ev0.summary, uncertain: ev0.uncertain };
+      }
+      await reserve(job, evidence ? 4 : 1);
       const feedback = await previousFeedback(job, video.data.id, version);
       let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
       let ev: { evidence: Evidence; frames: FramePick[] } | null = null;
@@ -493,6 +502,25 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const check = await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook })));
         const v = applyVerification(draft.lines, check.json);
         draft = { ...draft, lines: v.lines, ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
+        // Too little narration: fill the silent gaps with supported lines, and check those again.
+        let added = 0;
+        const share = video.data.format === "C" ? 0.5 : 0.7;
+        if (coverage(draft.lines, plan.targetMs) < share * 0.8) {
+          const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 8000 : 3000);
+          const have = draft.lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
+          const extra = Math.max(0, targetWords(video.data.format, plan.targetMs) - have);
+          if (gaps.length && extra >= 5) {
+            const more = await paid(job, () => ai.gemini.generateText(expandPrompt(draft.lines, ev!.evidence, ev!.frames, gaps, extra)));
+            const merged = mergeAdded(draft.lines, more.json, gaps, plan.targetMs);
+            if (merged.length > draft.lines.length) {
+              const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames)));
+              const v2 = applyVerification(merged, recheck.json);
+              added = v2.lines.length - draft.lines.length;
+              v.issues.push(...v2.issues);
+              draft = { ...draft, lines: v2.lines };
+            }
+          }
+        }
         grounding = {
           frames: ev.frames.length,
           summary: ev.evidence.summary,
@@ -502,6 +530,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           issues: v.issues,
           spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),
           longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
+          added,
+          strength: contentStrength(ev.evidence),
         };
       }
     }
@@ -600,7 +630,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const size = renderSize(video.data.format);
     const spoken = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs);
     const voice: VoiceClip[] = [];
-    const voiceName = settings.data?.voice_name ?? "en-US-Chirp3-HD-Fenrir";
+    // Studio 2.0: a voice for this montage only (comparing voices), else the studio setting.
+    const voiceOverride = typeof job.payload?.voice_name === "string" && /^en-US-Chirp3-HD-[A-Za-z]{2,20}$/.test(job.payload.voice_name) ? job.payload.voice_name : null;
+    const voiceName = voiceOverride ?? settings.data?.voice_name ?? "en-US-Chirp3-HD-Fenrir";
     const fileName = renderFileName(video.data.id, s.data.version, job.id);
     const output = join(montage.rendersDir, fileName);
     const partial = join(montage.rendersDir, fileName.replace(/\.mp4$/, ".part.mp4"));

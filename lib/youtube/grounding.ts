@@ -156,3 +156,71 @@ export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
   const fix = (v: unknown) => (typeof v === "string" && v.trim() ? v.replace(/[<>]/g, "").trim().slice(0, 300) : null);
   return { lines: out, rewritten, dropped, issues: issues.slice(0, 12), topLine: fix(r?.top_line), hook: fix(r?.hook) };
 }
+
+// ---------- Moment keuring (Studio 2.0) ----------
+
+export type Strength = { score: number; verdict: "strong" | "ok" | "weak"; reasons: string[] };
+const MENU = /\b(menu|inventory|inventaris|chest|crafting table|pause|settings|map screen|loading)\b/i;
+
+/**
+ * How strong is the material for a video, from the evidence alone: real threat or find, events, variety. Menus and
+ * idle walking make it weak. A rubric, not a prediction of views.
+ */
+export function contentStrength(e: Evidence): Strength {
+  const n = Math.max(1, e.frames.length);
+  const menus = e.frames.filter((f) => MENU.test(f.action) || f.events.some((x) => MENU.test(x))).length;
+  const withMobs = e.frames.filter((f) => f.mobs.length).length;
+  const events = e.frames.reduce((s, f) => s + f.events.filter((x) => !MENU.test(x)).length, 0);
+  const actions = new Set(e.frames.map((f) => f.action.toLowerCase().split(/\s+/)[0]).filter(Boolean)).size;
+  const reasons: string[] = [];
+  let score = 50;
+  score += Math.min(25, Math.round((withMobs / n) * 40));
+  score += Math.min(20, events * 5);
+  score += Math.min(10, (actions - 1) * 3);
+  score -= Math.round((menus / n) * 60);
+  if (menus / n >= 0.25) reasons.push(`${menus} van ${n} beelden zijn menu's of inventaris`);
+  if (!withMobs) reasons.push("geen vijanden of dieren in beeld");
+  if (!events) reasons.push("geen duidelijke gebeurtenis (schade, ontploffing, vondst, val)");
+  if (withMobs / n >= 0.4) reasons.push(`dreiging in ${withMobs} van ${n} beelden`);
+  if (events >= 2) reasons.push(`${events} gebeurtenissen`);
+  score = Math.max(0, Math.min(100, score));
+  return { score, verdict: score >= 70 ? "strong" : score >= 50 ? "ok" : "weak", reasons };
+}
+
+// ---------- Filling silence with supported lines ----------
+
+/** Gaps (in the final video) longer than `minMs` without narration. */
+export function silentGaps(lines: ScriptLine[], durationMs: number, minMs: number): [number, number][] {
+  const sorted = [...lines].sort((a, b) => a.at_ms - b.at_ms);
+  const gaps: [number, number][] = [];
+  let cursor = 0;
+  for (const l of sorted) {
+    if (l.at_ms - cursor >= minMs) gaps.push([cursor, l.at_ms]);
+    cursor = Math.max(cursor, Math.round(l.at_ms + (l.text.split(/\s+/).filter(Boolean).length / WPS) * 1000));
+  }
+  if (durationMs - cursor >= minMs) gaps.push([cursor, durationMs]);
+  return gaps;
+}
+
+export function expandPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], gaps: [number, number][], extraWords: number): string {
+  const at = new Map(frames.map((f) => [f.index, f.outMs]));
+  return [
+    "Add narration lines to fill silent gaps in a Minecraft video, in the same energetic narrator voice (English). Only say what the evidence supports near that time; reactions, tension and humour are welcome.",
+    "Evidence:",
+    ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; mobs ${f.mobs.join(", ") || "-"}; action ${f.action || "-"}; events ${f.events.join(", ") || "-"}`),
+    "Current lines:",
+    ...lines.map((l) => `[${mmss(l.at_ms)}] ${l.text}`),
+    `Silent gaps to fill (start-end): ${gaps.map(([a, b]) => `${mmss(a)}-${mmss(b)}`).join(", ")}.`,
+    `Add about ${extraWords} words in total, as short lines placed inside those gaps (at_ms inside a gap, at least 1.5 s after the previous line). Do not repeat what is already said.`,
+    'Answer with JSON only: {"lines":[{"at_ms":0,"text":"..."}]}',
+  ].join("\n");
+}
+
+/** Merges added lines that fall inside a gap; never on top of an existing line. */
+export function mergeAdded(lines: ScriptLine[], raw: unknown, gaps: [number, number][], durationMs: number): ScriptLine[] {
+  const added = Array.isArray((raw as { lines?: unknown })?.lines) ? ((raw as { lines: unknown[] }).lines as Record<string, unknown>[]) : [];
+  const ok = added
+    .map((l) => ({ at_ms: Math.round(Number(l.at_ms)), text: String(l.text ?? "").replace(/[<>]/g, "").trim().slice(0, 300) }))
+    .filter((l) => Number.isFinite(l.at_ms) && l.at_ms >= 0 && l.at_ms < durationMs && l.text && gaps.some(([a, b]) => l.at_ms >= a && l.at_ms < b));
+  return [...lines, ...ok].sort((a, b) => a.at_ms - b.at_ms);
+}
