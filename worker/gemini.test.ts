@@ -68,3 +68,18 @@ describe("gemini", () => {
     expect(args).toContain("-ac 1");
   });
 });
+
+describe("broken JSON from Gemini", () => {
+  const reply = (text: string) => Response.json({ candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } });
+  it("asks once more and adds up what both calls used", async () => {
+    let n = 0;
+    const fake = (async () => reply(n++ === 0 ? '{"lines": [' : '{"ok":true}')) as typeof fetch;
+    const r = await createGemini("k", undefined, fake).generateText("p");
+    expect(r.json).toEqual({ ok: true });
+    expect(r.usage).toEqual({ inputTokens: 20, outputTokens: 10 });
+  });
+  it("gives up after the second broken answer, with the usage of both", async () => {
+    const fake = (async () => reply("nope")) as typeof fetch;
+    await expect(createGemini("k", undefined, fake).generateText("p")).rejects.toMatchObject({ usage: { inputTokens: 20, outputTokens: 10 } });
+  });
+});

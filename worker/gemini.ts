@@ -80,7 +80,24 @@ export function createGemini(apiKey: string, model = DEFAULT_MODEL, fetchImpl: t
     await fetchImpl(`${BASE}/v1beta/${name}`, { method: "DELETE", headers }).catch(() => undefined);
   }
 
+  /** Now and then the answer is cut-off or broken JSON: ask once more, and always report what both calls used. */
   async function generateJson(parts: unknown[], video: boolean): Promise<{ json: unknown; usage: Usage }> {
+    try {
+      return await generateOnce(parts, video);
+    } catch (e) {
+      const first = (e as { usage?: Usage }).usage;
+      if (!(e instanceof Error) || !e.message.includes("geen geldige JSON") || !first) throw e;
+      try {
+        const again = await generateOnce(parts, video);
+        return { json: again.json, usage: { inputTokens: first.inputTokens + again.usage.inputTokens, outputTokens: first.outputTokens + again.usage.outputTokens } };
+      } catch (e2) {
+        const second = (e2 as { usage?: Usage }).usage;
+        throw Object.assign(e2 instanceof Error ? e2 : new Error(String(e2)), { usage: { inputTokens: first.inputTokens + (second?.inputTokens ?? 0), outputTokens: first.outputTokens + (second?.outputTokens ?? 0) } });
+      }
+    }
+  }
+
+  async function generateOnce(parts: unknown[], video: boolean): Promise<{ json: unknown; usage: Usage }> {
     const res = await fetchImpl(`${BASE}/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
@@ -96,7 +113,11 @@ export function createGemini(apiKey: string, model = DEFAULT_MODEL, fetchImpl: t
     if (body.promptFeedback?.blockReason) throw Object.assign(new Error(`Gemini weigerde de opdracht (${body.promptFeedback.blockReason})`), { usage });
     const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
     if (!text) throw Object.assign(new Error(`Gemini gaf een leeg antwoord (${body.candidates?.[0]?.finishReason ?? "onbekend"})`), { usage });
-    return { json: extractJson(text), usage };
+    try {
+      return { json: extractJson(text), usage };
+    } catch (e) {
+      throw Object.assign(e as Error, { usage });
+    }
   }
 
   return {
