@@ -151,3 +151,12 @@ describe("old moment notes are only hints once there is evidence", () => {
     expect(out).not.toContain("use only this");
   });
 });
+
+describe("the check answers in other shapes", () => {
+  const lines = [{ at_ms: 0, text: "a" }, { at_ms: 1000, text: "b" }];
+  it("reads verdicts / i / no numbers at all", () => {
+    expect(applyVerification(lines, { verdicts: [{ i: 0, supported: true }, { i: 1, supported: false, rewrite: "c" }] })).toMatchObject({ checked: 2, rewritten: 1 });
+    expect(applyVerification(lines, [{ supported: true }, { supported: "false", rewrite: "" }])).toMatchObject({ checked: 2, dropped: 1 });
+    expect(applyVerification(lines, { lines: [{ index: 7, supported: false }] }).checked).toBe(0);
+  });
+});

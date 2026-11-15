@@ -166,13 +166,20 @@ export type Verified = { lines: ScriptLine[]; rewritten: number; dropped: number
 
 /** Applies the check: unsupported lines are rewritten, or dropped when no supported rewrite exists. */
 export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
-  const r = raw as { lines?: unknown; top_line?: unknown; hook?: unknown };
+  const r = (Array.isArray(raw) ? { lines: raw } : raw) as { lines?: unknown; verdicts?: unknown; results?: unknown; checks?: unknown; top_line?: unknown; hook?: unknown };
   const verdicts = new Map<number, { supported: boolean; issue: string; rewrite: string }>();
-  if (Array.isArray(r?.lines))
-    for (const v of r.lines as Record<string, unknown>[]) {
-      const i = Number(v?.index);
-      if (Number.isInteger(i)) verdicts.set(i, { supported: v.supported !== false, issue: String(v.issue ?? "").slice(0, 200), rewrite: String(v.rewrite ?? "").replace(/[<>]/g, "").trim().slice(0, 300) });
-    }
+  // The checker does not always use the asked shape: other list names, "i"/"line" instead of "index", or no number at all.
+  const list = [r?.lines, r?.verdicts, r?.results, r?.checks].find(Array.isArray) as Record<string, unknown>[] | undefined;
+  if (list)
+    list.forEach((v, pos) => {
+      if (!v || typeof v !== "object") return;
+      const n = Number(v.index ?? v.i ?? v.line ?? v.line_index ?? v.id);
+      const i = Number.isInteger(n) ? n : list.length === lines.length ? pos : NaN;
+      if (!Number.isInteger(i) || i < 0 || i >= lines.length) return;
+      const ok = v.supported ?? v.ok ?? v.valid;
+      const supported = !(ok === false || ok === "false" || ok === "no");
+      verdicts.set(i, { supported, issue: String(v.issue ?? v.reason ?? "").slice(0, 200), rewrite: String(v.rewrite ?? v.fix ?? "").replace(/[<>]/g, "").trim().slice(0, 300) });
+    });
   let rewritten = 0;
   let dropped = 0;
   const issues: string[] = [];
