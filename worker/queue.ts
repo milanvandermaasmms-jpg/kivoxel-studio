@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, contentStrength, coverage, evidencePrompt, expandPrompt, framePlan, groundingBlock, longestSilenceMs, mergeAdded, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
@@ -475,24 +475,20 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (!ai) throw new Error(NO_KEY);
       // Studio 2.0: the gameplay is the source of truth. Frames of the real recording first (free), then Gemini reports
       // only what is visible; the script must lean on that, and a check removes lines without support.
-      const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments);
+      const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments, video.data.format === "C" && job.payload?.assess !== true);
       // Studio 2.0 keuring: only look at the material (no script written), to sort the library into strong and weak.
       if (job.payload?.assess === true) {
         if (!evidence) throw new Error("Keuren kan alleen met de opname op deze pc");
         await reserve(job, 2);
-        const { json } = await paid(job, () => ai.gemini.generateWithParts([...evidence.images, { text: evidencePrompt(evidence.frames) }]));
-        const ev0 = parseEvidence(json, evidence.frames.length);
-        if ("error" in ev0) throw new Error(`Beeldbewijs onbruikbaar: ${ev0.error}`);
+        const ev0 = await describeEvidence(job, evidence);
         return { assess: true, frames: evidence.frames.length, strength: contentStrength(ev0), summary: ev0.summary, uncertain: ev0.uncertain };
       }
-      await reserve(job, evidence ? 4 : 1);
+      await reserve(job, evidence ? 3 + evidenceBatches(evidence.frames).length : 1);
       const feedback = await previousFeedback(job, video.data.id, version);
       let ev: { evidence: Evidence; frames: FramePick[] } | null = null;
       let edit: { removedMs: number; cuts: [number, number][]; zooms: number } | null = null;
       if (evidence) {
-        const { json } = await paid(job, () => ai.gemini.generateWithParts([...evidence.images, { text: evidencePrompt(evidence.frames) }]));
-        const parsedEv = parseEvidence(json, evidence.frames.length);
-        if ("error" in parsedEv) throw new Error(`Beeldbewijs onbruikbaar: ${parsedEv.error}`);
+        const parsedEv = await describeEvidence(job, evidence);
         // Studio 2.0 editor: idle stretches out and zooms on real events, BEFORE the narration, so the lines land on the new timeline.
         const polished = job.payload?.polish === false ? null : polishPlan(plan.segments, evidence.frames, parsedEv, video.data.format, video.data.plan_key);
         if (polished) {
@@ -515,7 +511,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         // Too little narration: fill the silent gaps with supported lines, and check those again.
         let added = 0;
         const share = video.data.format === "C" ? 0.5 : 0.7;
-        if (coverage(draft.lines, plan.targetMs) < share * 0.8) {
+        // Long videos get a second round: one pass rarely fills minutes of silence.
+        for (let round = 0; round < (video.data.format === "C" ? 2 : 1) && coverage(draft.lines, plan.targetMs) < share * (video.data.format === "C" ? 0.9 : 0.8); round++) {
           const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 6000 : 1800);
           const have = draft.lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
           const extra = Math.max(0, targetWords(video.data.format, plan.targetMs) - have);
@@ -525,7 +522,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             if (merged.length > draft.lines.length) {
               const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames)));
               const v2 = applyVerification(merged, recheck.json);
-              added = v2.lines.length - draft.lines.length;
+              added += v2.lines.length - draft.lines.length;
               v.issues.push(...v2.issues);
               draft = { ...draft, lines: v2.lines };
             }
@@ -583,12 +580,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
    * Frames of the montage plan from the recording on this pc (full quality, free). Null when frames cannot be made here
    * (no frame helper or the recording is not on this pc): then the script is written as before and the result says so.
    */
-  async function gatherEvidence(job: Job, recordingId: string | null, segments: Segment[]): Promise<{ frames: FramePick[]; images: unknown[] } | null> {
+  async function gatherEvidence(job: Job, recordingId: string | null, segments: Segment[], dense = false): Promise<{ frames: FramePick[]; images: unknown[] } | null> {
     if (!ai?.frame || !recordingId) return null;
     const rec = await db.from("yt_recordings").select("fingerprint").eq("id", recordingId).maybeSingle<{ fingerprint: string }>();
     const local = rec.data ? await store.get(rec.data.fingerprint) : null;
     if (!local) return null;
-    const frames = framePlan(segments);
+    // Long videos: a frame per ~6 s (at most 180, described in batches of 40), so the story can be told all the way.
+    const frames = dense ? framePlan(segments, 180, LONG_FRAME_EVERY_MS) : framePlan(segments);
     const dir = await mkdtemp(join(tmpdir(), "kivoxel-bewijs-"));
     try {
       const images: unknown[] = [];
@@ -601,6 +599,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  }
+
+  /** Gemini describes the frames, in batches of 40; the answers are joined with the frame numbers of the whole video. */
+  async function describeEvidence(job: Job, evidence: { frames: FramePick[]; images: unknown[] }): Promise<Evidence> {
+    const parts: { offset: number; evidence: Evidence }[] = [];
+    const errors: string[] = [];
+    for (const b of evidenceBatches(evidence.frames)) {
+      const images = evidence.images.slice(b.offset, b.offset + b.frames.length);
+      const { json } = await paid(job, () => ai!.gemini.generateWithParts([...images, { text: evidencePrompt(b.frames) }]));
+      const parsed = parseEvidence(json, b.frames.length);
+      if ("error" in parsed) errors.push(parsed.error);
+      else parts.push({ offset: b.offset, evidence: parsed });
+    }
+    // One bad batch in a long video is tolerated (fewer frames there); without any usable batch the step stops.
+    if (!parts.length || errors.length > parts.length) throw new Error(`Beeldbewijs onbruikbaar: ${errors[0] ?? "geen antwoord"}`);
+    return mergeEvidence(parts);
   }
 
   /** Render: cuts the edit plan into a preview with subtitles (the narrator follows with Google TTS). The file stays on this pc. */

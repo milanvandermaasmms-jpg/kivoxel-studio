@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyVerification, coverage, framePlan, groundingBlock, longestSilenceMs, parseEvidence, targetWords, type Evidence } from "./grounding.ts";
+import { applyVerification, coverage, evidenceBatches, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, longestSilenceMs, mergeEvidence, parseEvidence, targetWords, type Evidence } from "./grounding.ts";
 import type { Segment } from "./analysis.ts";
 
 const seg = (src: number, len: number, out: number, speed = 1): Segment => ({ part: "build", src_start_ms: src, src_end_ms: src + len, out_start_ms: out, speed, effects: [], note: "" });
@@ -14,6 +14,27 @@ describe("frames from the montage plan", () => {
     const second = f.find((x) => x.segment === 1)!;
     expect(second.srcMs).toBeGreaterThanOrEqual(100_000);
     expect(second.outMs).toBeGreaterThanOrEqual(30_000);
+  });
+  it("long videos get a frame per ~6 s, also in long segments, and batches renumber from 0", () => {
+    // A 5:30 part: cold open of 15 s + two long chapters of 2:30.
+    const plan = [seg(60_000, 15_000, 0), seg(0, 150_000, 15_000), seg(150_000, 165_000, 165_000)];
+    const f = framePlan(plan, 180, LONG_FRAME_EVERY_MS);
+    expect(f.length).toBeGreaterThanOrEqual(50);
+    expect(f.filter((x) => x.segment === 1).length).toBe(25);
+    const gaps = f.slice(1).map((x, i) => x.outMs - f[i].outMs);
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(LONG_FRAME_EVERY_MS + 1000);
+    const b = evidenceBatches(f, 40);
+    expect(b.map((x) => x.frames.length)).toEqual([40, f.length - 40]);
+    expect(b[1].offset).toBe(40);
+    expect(b[1].frames[0]).toMatchObject({ index: 0, srcMs: f[40].srcMs });
+  });
+  it("merges batch evidence back to the frame numbers of the whole video", () => {
+    const a: Evidence = { frames: [{ i: 0, light: "day", health: "full", mobs: [], action: "walking", events: [] }], summary: "Walks.", uncertain: ["x"] };
+    const b: Evidence = { frames: [{ i: 2, light: "night", health: "full", mobs: ["zombie"], action: "fighting", events: [] }], summary: "Fights.", uncertain: ["x", "y"] };
+    const m = mergeEvidence([{ offset: 40, evidence: b }, { offset: 0, evidence: a }]);
+    expect(m.frames.map((f) => f.i)).toEqual([0, 42]);
+    expect(m.summary).toBe("Walks. Fights.");
+    expect(m.uncertain).toEqual(["x", "y"]);
   });
   it("maps sped-up segments to the right output time", () => {
     const [f] = framePlan([seg(0, 2000, 5000, 2)]);

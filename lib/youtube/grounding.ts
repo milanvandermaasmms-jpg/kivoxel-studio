@@ -14,11 +14,20 @@ const LIGHTS: Light[] = ["day", "night", "cave_dark", "cave_lit", "underwater", 
 const HEALTHS: Health[] = ["full", "most", "half", "low", "not_visible"];
 export const WPS = 2.6;
 
-/** Frames spread over every segment of the final video (source time), at most `max` in total, at least one per segment. */
-export function framePlan(segments: Segment[], max = 40): FramePick[] {
+/** Long videos: one frame per ~6 s of the final video, so the narration can follow the whole story. */
+export const LONG_FRAME_EVERY_MS = 6000;
+/** Frames per Gemini call; longer videos are described in batches. */
+export const EVIDENCE_BATCH = 40;
+
+/**
+ * Frames spread over every segment of the final video (source time), at most `max` in total, at least one per segment.
+ * Without `everyMs` (Shorts): up to 6 per segment, about one per 2.5 s. With `everyMs` (long videos): one per `everyMs`
+ * of output time in every segment, however long the segment is.
+ */
+export function framePlan(segments: Segment[], max = 40, everyMs?: number): FramePick[] {
   const per = segments.map((s) => {
     const len = s.src_end_ms - s.src_start_ms;
-    const n = Math.max(1, Math.min(6, Math.floor(len / 2500)));
+    const n = everyMs ? Math.max(1, Math.round(len / (s.speed || 1) / everyMs)) : Math.max(1, Math.min(6, Math.floor(len / 2500)));
     return Array.from({ length: n }, (_, k) => {
       const src = Math.round(s.src_start_ms + ((k + 0.5) * len) / n);
       return { srcMs: src, outMs: Math.round(s.out_start_ms + (src - s.src_start_ms) / s.speed) };
@@ -37,7 +46,24 @@ export function framePlan(segments: Segment[], max = 40): FramePick[] {
   return out;
 }
 
-const mmss = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
+/** Splits the frames into batches for separate Gemini calls; every batch is numbered from 0 again. */
+export function evidenceBatches(frames: FramePick[], size = EVIDENCE_BATCH): { offset: number; frames: FramePick[] }[] {
+  const out: { offset: number; frames: FramePick[] }[] = [];
+  for (let offset = 0; offset < frames.length; offset += size) out.push({ offset, frames: frames.slice(offset, offset + size).map((f, k) => ({ ...f, index: k })) });
+  return out;
+}
+
+/** Joins the evidence of the batches back into one, with the frame numbers of the whole video. */
+export function mergeEvidence(parts: { offset: number; evidence: Evidence }[]): Evidence {
+  const sorted = [...parts].sort((a, b) => a.offset - b.offset);
+  return {
+    frames: sorted.flatMap((p) => p.evidence.frames.map((f) => ({ ...f, i: f.i + p.offset }))),
+    summary: sorted.map((p) => p.evidence.summary.trim()).filter(Boolean).join(" ").slice(0, 1500),
+    uncertain: [...new Set(sorted.flatMap((p) => p.evidence.uncertain))].slice(0, 8),
+  };
+}
+
+const mmss =(ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
 
 export function evidencePrompt(frames: FramePick[]): string {
   return [
