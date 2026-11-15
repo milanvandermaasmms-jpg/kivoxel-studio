@@ -37,6 +37,8 @@ import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen,
 import type { Research } from "./research.ts";
 import { applyVerification, contentStrength, coverage, evidencePrompt, expandPrompt, framePlan, groundingBlock, longestSilenceMs, mergeAdded, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
+import { polishPlan } from "../lib/youtube/editPolish.ts";
+import { totalMs } from "../lib/youtube/editor.ts";
 import { nicheQueries } from "../lib/ivar/insights.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
@@ -485,15 +487,23 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
       await reserve(job, evidence ? 4 : 1);
       const feedback = await previousFeedback(job, video.data.id, version);
-      let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
       let ev: { evidence: Evidence; frames: FramePick[] } | null = null;
+      let edit: { removedMs: number; cuts: [number, number][]; zooms: number } | null = null;
       if (evidence) {
         const { json } = await paid(job, () => ai.gemini.generateWithParts([...evidence.images, { text: evidencePrompt(evidence.frames) }]));
         const parsedEv = parseEvidence(json, evidence.frames.length);
         if ("error" in parsedEv) throw new Error(`Beeldbewijs onbruikbaar: ${parsedEv.error}`);
-        ev = { evidence: parsedEv, frames: evidence.frames };
-        prompt += groundingBlock(parsedEv, evidence.frames, video.data.format, plan.targetMs);
+        // Studio 2.0 editor: idle stretches out and zooms on real events, BEFORE the narration, so the lines land on the new timeline.
+        const polished = job.payload?.polish === false ? null : polishPlan(plan.segments, evidence.frames, parsedEv, video.data.format, video.data.plan_key);
+        if (polished) {
+          plan.segments = polished.segments;
+          plan.targetMs = totalMs(polished.segments);
+          edit = { removedMs: polished.removedMs, cuts: polished.cuts, zooms: polished.zooms };
+          ev = { evidence: polished.evidence, frames: polished.frames };
+        } else ev = { evidence: parsedEv, frames: evidence.frames };
       }
+      let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
+      if (ev) prompt += groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs);
       const { json } = await paid(job, () => ai.gemini.generateText(prompt));
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
@@ -532,6 +542,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
           added,
           strength: contentStrength(ev.evidence),
+          edit,
         };
       }
     }
