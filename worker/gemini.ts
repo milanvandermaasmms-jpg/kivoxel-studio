@@ -115,6 +115,8 @@ export function createGemini(apiKey: string, model = DEFAULT_MODEL, fetchImpl: t
       }
     },
     generateText: (prompt: string) => generateJson([{ text: prompt }], false),
+    /** Studio 2.0: frames (inline JPEG) plus a prompt in one call, for evidence from the real recording. */
+    generateWithParts: (parts: unknown[]) => generateJson(parts, false),
     /** Fase 3: an audio file (the voice-over) with a prompt; the upload is always deleted again. */
     async analyseFile(file: string, mimeType: string, prompt: string): Promise<{ json: unknown; usage: Usage }> {
       const uploaded = await upload(file, mimeType, "kivoxel-luistercheck");

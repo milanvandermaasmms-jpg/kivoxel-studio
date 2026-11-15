@@ -35,6 +35,8 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
+import { applyVerification, coverage, evidencePrompt, framePlan, groundingBlock, longestSilenceMs, parseEvidence, verifyPrompt, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { tmpdir } from "node:os";
 import { nicheQueries } from "../lib/ivar/insights.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
@@ -80,6 +82,8 @@ export type Ai = {
   cutProxy?: (proxy: string, startMs: number, lengthMs: number, options?: RunOptions) => Promise<string>;
   /** Fase 3: free FFmpeg signals (stillness, black, loud moments) before the paid analysis. Optional: without it the analysis works as before. */
   signals?: (file: string, fingerprint: string, durationMs: number, options?: RunOptions) => Promise<Signals>;
+  /** Studio 2.0: one full-quality frame of the recording (JPEG); without it scripts are written as before. */
+  frame?: (file: string, atMs: number, output: string) => Promise<void>;
 };
 
 type Job = { id: string; studio_id: string; recording_id: string | null; video_id: string | null; step: string; attempts: number; max_attempts: number; payload: Record<string, unknown> | null };
@@ -463,15 +467,43 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
     const plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
+    let grounding: Record<string, unknown> | null = null;
     if (video.data.is_test) draft = testScript(plan, moments);
     else {
       if (!ai) throw new Error(NO_KEY);
-      await reserve(job, 1);
+      // Studio 2.0: the gameplay is the source of truth. Frames of the real recording first (free), then Gemini reports
+      // only what is visible; the script must lean on that, and a check removes lines without support.
+      const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments);
+      await reserve(job, evidence ? 3 : 1);
       const feedback = await previousFeedback(job, video.data.id, version);
-      const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series)));
+      let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
+      let ev: { evidence: Evidence; frames: FramePick[] } | null = null;
+      if (evidence) {
+        const { json } = await paid(job, () => ai.gemini.generateWithParts([...evidence.images, { text: evidencePrompt(evidence.frames) }]));
+        const parsedEv = parseEvidence(json, evidence.frames.length);
+        if ("error" in parsedEv) throw new Error(`Beeldbewijs onbruikbaar: ${parsedEv.error}`);
+        ev = { evidence: parsedEv, frames: evidence.frames };
+        prompt += groundingBlock(parsedEv, evidence.frames, video.data.format, plan.targetMs);
+      }
+      const { json } = await paid(job, () => ai.gemini.generateText(prompt));
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
       draft = parsed.draft;
+      if (ev) {
+        const check = await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook })));
+        const v = applyVerification(draft.lines, check.json);
+        draft = { ...draft, lines: v.lines, ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
+        grounding = {
+          frames: ev.frames.length,
+          summary: ev.evidence.summary,
+          uncertain: ev.evidence.uncertain,
+          rewritten: v.rewritten,
+          dropped: v.dropped,
+          issues: v.issues,
+          spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),
+          longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
+        };
+      }
     }
     if (part && draft.titles) draft = { ...draft, titles: seriesTitles(draft.titles, part) };
     // A Short opens with the first hook by default: a greeting or a long first line goes to the back.
@@ -503,7 +535,31 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length };
+    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, ...(grounding ? { grounding } : {}) };
+  }
+
+  /**
+   * Frames of the montage plan from the recording on this pc (full quality, free). Null when frames cannot be made here
+   * (no frame helper or the recording is not on this pc): then the script is written as before and the result says so.
+   */
+  async function gatherEvidence(job: Job, recordingId: string | null, segments: Segment[]): Promise<{ frames: FramePick[]; images: unknown[] } | null> {
+    if (!ai?.frame || !recordingId) return null;
+    const rec = await db.from("yt_recordings").select("fingerprint").eq("id", recordingId).maybeSingle<{ fingerprint: string }>();
+    const local = rec.data ? await store.get(rec.data.fingerprint) : null;
+    if (!local) return null;
+    const frames = framePlan(segments);
+    const dir = await mkdtemp(join(tmpdir(), "kivoxel-bewijs-"));
+    try {
+      const images: unknown[] = [];
+      for (const f of frames) {
+        const out = join(dir, `f${f.index}.jpg`);
+        await ai.frame(join(store.recordingsDir, local.file), f.srcMs, out);
+        images.push({ inlineData: { mimeType: "image/jpeg", data: (await readFile(out)).toString("base64") } });
+      }
+      return { frames, images };
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   /** Render: cuts the edit plan into a preview with subtitles (the narrator follows with Google TTS). The file stays on this pc. */

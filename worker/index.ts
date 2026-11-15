@@ -87,6 +87,7 @@ const ai: Ai | null = env.GEMINI_API_KEY
         await runFfmpeg(ffmpeg, cutArgs(proxy, startMs, lengthMs, out), proxyDir, 10 * 60_000, options ?? {});
         return out;
       },
+      frame: (file, atMs, output) => extractFrame(ffmpeg, file, atMs, output),
       // Fase 3: the signal pass is free and runs on this pc; the result is kept so a retry does not redo it.
       signals: async (file, fingerprint, durationMs, options) => {
         const cache = join(signalsDir, `${fingerprint}.json`);
