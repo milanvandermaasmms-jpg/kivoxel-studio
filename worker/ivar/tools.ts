@@ -224,6 +224,8 @@ async function getProject(env: ToolEnv, a: { kind: ProjectKind; id: string }) {
     montage: render && { file: render.file_name, length: formatTimecode(render.duration_ms), size: `${render.width}×${render.height}`, voice: render.voice_name, made: render.created_at, checks: (render.qc?.items ?? []).map((i) => `${i.label}: ${i.level}${i.value ? ` (${i.value})` : ""}`) },
     publication: pub && { status: pub.status, title: pub.title, description: pub.description.slice(0, 400), tags: pub.tags, visibility: pub.visibility, publish_at: pub.publish_at },
     viral_score: viral.data ? Number(viral.data.overall) : null,
+    // Studio 2.0: what the evidence check of the newest script found (frames of the real recording).
+    evidence_check: ((await env.db.from("yt_jobs").select("result").eq("studio_id", env.studioId).eq("video_id", v.id).eq("step", "script").eq("status", "done").order("created_at", { ascending: false }).limit(1).maybeSingle<{ result: { grounding?: unknown } | null }>()).data?.result?.grounding) ?? "Nog geen script met beeldbewijs (gemaakt voor Studio 2.0).",
     steps: jobs,
   };
 }
