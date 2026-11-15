@@ -61,7 +61,12 @@ export function polishPlan(segments: Segment[], frames: FramePick[], e: Evidence
   const half = 1200;
 
   // 1. Idle stretches out (merged, at least 2 s in a Short / 4 s in a long video), but never below the minimum length.
-  let cuts = merge(picks.filter((f) => isIdle(factOf.get(f.index)!)).map((f) => [f.srcMs - half, f.srcMs + half] as [number, number])).filter(([a, b]) => b - a >= (short ? 2000 : 4000));
+  // A Short with real action elsewhere also loses its filler (no threat, no event), except the first 2 s: the length
+  // then follows what happens, so Shorts vary in length instead of always running to the same 30-45 s.
+  const action = picks.filter((f) => { const x = factOf.get(f.index)!; return x.mobs.length > 0 || isEvent(x); }).length;
+  const filler = (f: FrameFact) => isIdle(f) || (short && action >= 2 && !f.mobs.length && !f.events.length);
+  const first = picks[0]?.srcMs ?? 0;
+  let cuts = merge(picks.filter((f) => f.srcMs - first >= 2000 && filler(factOf.get(f.index)!)).map((f) => [f.srcMs - half, f.srcMs + half] as [number, number])).filter(([a, b]) => b - a >= (short ? 2000 : 4000));
   const min = (planKey ? targetFor(format, planKey) : TARGET[format]).minMs;
   const total = totalMs(segments);
   cuts.sort((a, b) => b[1] - b[0] - (a[1] - a[0]));

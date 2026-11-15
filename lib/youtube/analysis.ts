@@ -336,8 +336,9 @@ export type EditPlan = { segments: Segment[]; targetMs: number; warnings: string
 
 /** Target lengths from the research (start values to test, not a proven optimum). */
 export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
-  A: { minMs: 30_000, maxMs: 45_000 },
-  B: { minMs: 30_000, maxMs: 45_000 },
+  // Studio 2.0 (Milan, 15-11): Shorts may be short; the length follows what really happens (15-45 s), not a fixed 30 s.
+  A: { minMs: 15_000, maxMs: 45_000 },
+  B: { minMs: 15_000, maxMs: 45_000 },
   C: { minMs: 8 * 60_000, maxMs: 15 * 60_000 },
 };
 /** One part of a recording told in full: about 7.5 minutes of footage plus the cold open. */

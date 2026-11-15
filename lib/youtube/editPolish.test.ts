@@ -78,3 +78,17 @@ describe("stronger montage", () => {
     expect(planChanges(segments)).toBe(0);
   });
 });
+
+describe("Shorts vary in length", () => {
+  it("cuts filler (mining without threat) in a Short with action, down to as little as 15 s", () => {
+    const segs = [seg(0, 40_000, 0)];
+    const fr: FramePick[] = [1, 5, 10, 15, 20, 25, 30, 35].map((s, index) => ({ index, srcMs: s * 1000, outMs: s * 1000, segment: 0 }));
+    const ev: Evidence = { frames: [fact(0, "fighting", ["zombie"]), fact(1, "mining"), fact(2, "mining"), fact(3, "fighting", ["zombie"], ["damage taken"]), fact(4, "mining"), fact(5, "mining"), fact(6, "running", ["creeper"], ["explosion"]), fact(7, "mining")], summary: "", uncertain: [] };
+    const p = polishPlan(segs, fr, ev, "A");
+    const len = p.segments.reduce((n, s) => n + (s.src_end_ms - s.src_start_ms), 0);
+    expect(len).toBeLessThan(30_000);
+    expect(len).toBeGreaterThanOrEqual(15_000);
+    expect(srcToOut(p.segments, 15_000)).not.toBeNull();
+    expect(srcToOut(p.segments, 30_000)).not.toBeNull();
+  });
+});
