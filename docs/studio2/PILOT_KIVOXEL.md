@@ -39,3 +39,15 @@ Video `5f00829a`, Short 0:33. Milans notitie: "klopt niet! het is niet donker en
 - Twee montages, zelfde script (gratis): `C:\Users\famdj\FamilieMK-YouTube\renders\144be595-ef43-458d-867b-b5919476eca1-v2-1e2ac913.mp4` (Charon) en `...-v2-f158e514.mp4` (Fenrir). Oud: `...-v1-ac8052d2.mp4` (Charon).
 - QC: techniek groen; **"Shotritme: 0 beeldwissels"** — één doorlopend shot van 34,6 s. Volgende stap = montage-editor (fase 5): knippen naar de momenten in het bewijs, zoom op de ontploffing, kortere aanloop.
 - De video bleef "goedgekeurd"; versie 2 is een concept naast de oude. Niets gepubliceerd.
+
+## Night Ambush, versie 3 (editor + vollere zinnen)
+- Spreektijd **69%** (v2: 45%, doel 70%), langste stilte 4 s, 0 zinnen afgekeurd. Voorbeeld: "Watch out for that huge explosion right beside you!" (zoom op de creeper).
+- Editor: 1 leeg stuk eruit (1,8 s), **5 zooms** op dreiging/gebeurtenissen, 14 montagestukken (v2: 3).
+- QC techniek groen (−15,3 LUFS, geen stiltes, ondertitels gelijk met de stem, eerste actie op 0 s). "Shotritme 0" blijft oranje: de controle meet alleen harde scènewissels.
+- Gevoeligere meting (scene > 0,1): v1 9, v2 11, **v3 13** beeldwissels in ± 32 s. Eerlijk: winst in beeldritme is bescheiden; de grootste winst zit in kloppende, vollere verteltekst.
+- Bestand: `C:\Users\famdj\FamilieMK-YouTube\renders\144be595-ef43-458d-867b-b5919476eca1-v3-e419ceac.mp4` (Charon).
+
+## Volgende verbeteringen (voorstel)
+1. Kwaliteitscontrole: beeldwissels óók tellen uit het montageplan (knippen/zooms), niet alleen uit scènedetectie.
+2. Sterkere maar korte "punch-in" (iets dieper zoomen, 0,3 s overgang) bij de één of twee belangrijkste gebeurtenissen.
+3. Keuring van alle 49 (± € 1) → A/B/C/D-lijst; alleen A/B opnieuw maken met de nieuwe standaard.
