@@ -322,17 +322,20 @@ if (!qcOnly) {
   await writeFile(join(out, "pieces.txt"), files.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
   // Join as one continuous H.264 stream and number the frames again at exactly 24 per second. Joining the mp4 pieces
   // directly left gaps in the timestamps (the player then holds and jumps: visible as judder).
+  log("Stap: Samenvoegen tot één bestand");
   await ff(["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", join(out, "pieces.txt"), "-c", "copy", "-bsf:v", "h264_mp4toannexb", "-f", "h264", join(out, "video.h264")]);
   await ff(["-y", "-v", "error", "-fflags", "+genpts", "-r", String(FPS), "-i", join(out, "video.h264"), "-c", "copy", join(out, "video.mp4")]);
   await rm(join(out, "video.h264"), { force: true });
   await ff(["-y", "-v", "error", "-i", join(out, "video.mp4"), "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", final]);
   log(`Render klaar in ${Math.round((Date.now() - started) / 60000)} min: ${final}`);
 }
+log("Stap: Controle per minuut (beeld en geluid)");
 const result = await qc(final, totalS);
 await writeFile(join(out, "qc.json"), JSON.stringify(result, null, 1));
 await writeFile(join(out, "qc.html"), qcPage(result));
 log(`QC ${result.ok ? "✅" : "❌"}: ${[...result.video.problems, ...result.audio.flatMap((a) => a.problems.map((p) => `${a.part}: ${p}`))].slice(0, 12).join(" | ") || "alles in orde"}`);
 // Preview for Milan (± 3 min, 720p): start, the move to falling asleep, a sleep moment, the end.
+log("Stap: Preview van 3 minuten maken");
 const cuts = [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]];
 // Each cut as its own small file first, then one join over those small files. Four inputs of the same hour-long file in
 // one concat filter hung FFmpeg for 12 hours (incident 15-11-2026, docs/incident-dreamnest-93.md).

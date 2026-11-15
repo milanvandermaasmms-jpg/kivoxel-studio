@@ -196,7 +196,7 @@ function EpisodeBoard({ episode, jobs, busy, isAdmin, act, studioId, channel }: 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold">
-                      {i + 1}. {v.flow.label} <span className={`ml-1 rounded px-1.5 py-0.5 text-xs font-medium ${STATE_TONE[v.state]}`}>{STATE_LABEL[v.state]}{v.state === "running" && job?.progress ? ` ${Math.round(job.progress)}%` : ""}</span>
+                      {i + 1}. {v.flow.label} <span className={`ml-1 rounded px-1.5 py-0.5 text-xs font-medium ${STATE_TONE[v.state]}`}>{STATE_LABEL[v.state]}{v.state === "running" ? (job?.progress ? ` ${Math.round(job.progress)}%` : typeof job?.result?.stage === "string" ? ` · ${job.result.stage}` : "") : ""}</span>
                     </p>
                     <p className="text-xs text-slate-500">
                       {v.flow.about} {v.flow.maxCents > 0 ? `Hoogstens ${euro(v.flow.maxCents)}; wat al gemaakt is, komt uit de opslag (gratis).` : "Gratis, op de pc."}

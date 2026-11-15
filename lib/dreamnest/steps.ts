@@ -67,6 +67,12 @@ export function scriptFor(step: DnStep, durationMin: number, payload: StepPayloa
 }
 
 /** "[09:12:27] Render 54% (50/73), nog ± 20 min" -> 54. Only the render reports a percentage. */
+/** "Stap: Controle per minuut" from the script: a new part of the step whose length is unknown (no made-up percentage). */
+export function parseStage(line: string): string | null {
+  const m = /Stap: (.{1,60})$/.exec(line.trim());
+  return m ? m[1].trim() : null;
+}
+
 export function parseProgress(line: string): number | null {
   const m = /Render (\d{1,3})%/.exec(line);
   return m ? Math.min(100, Number(m[1])) : null;

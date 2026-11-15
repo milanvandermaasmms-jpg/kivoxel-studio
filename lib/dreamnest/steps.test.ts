@@ -38,3 +38,11 @@ describe("Dreamnest steps in the Studio", () => {
     for (const bad of ["../secret.mp4", "fase4/../../x.mp4", "C:/x.mp4", "/etc/x.png", "a//b.png", "fase4/qc.json", "x.html", "a\b.mp4"]) expect(safeMediaPath(bad)).toBe(false);
   });
 });
+
+import { parseStage } from "./steps.ts";
+describe("Dreamnest stages (no stale percentage)", () => {
+  it("reads a stage line", () => {
+    expect(parseStage("[07:26:20] Stap: Controle per minuut (beeld en geluid)")).toBe("Controle per minuut (beeld en geluid)");
+    expect(parseStage("Render 93%")).toBeNull();
+  });
+});

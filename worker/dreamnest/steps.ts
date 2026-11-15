@@ -7,7 +7,7 @@ import { constants, setPriority } from "node:os";
 import { join, resolve } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DnStep } from "../../lib/dreamnest/core.ts";
-import { FLOW, parseProgress, renderFolder, scriptFor, type StepPayload } from "../../lib/dreamnest/steps.ts";
+import { FLOW, parseProgress, parseStage, renderFolder, scriptFor, type StepPayload } from "../../lib/dreamnest/steps.ts";
 import type { DnHandler, DnJob } from "./lane.ts";
 import { createLedger } from "./ledger.ts";
 
@@ -79,13 +79,20 @@ export function createDnHandlers(o: { db: SupabaseClient; dataDir: string; log: 
     const before = await spent();
     let lastWrite = 0;
     let progress: number | null = null;
+    let stage: string | null = null;
     try {
       await run(plan.script, plan.args, (line) => {
+        const st = parseStage(line);
+        if (st) {
+          stage = st;
+          progress = null;
+          lastWrite = 0;
+        }
         progress = parseProgress(line) ?? progress;
         o.log(`Dreamnest ${job.step}: ${line.replace(/^\[\d\d:\d\d:\d\d\] /, "")}`);
         if (Date.now() - lastWrite < 5000) return;
         lastWrite = Date.now();
-        void o.db.from("dn_render_jobs").update({ heartbeat_at: new Date().toISOString(), result: { last: line.slice(0, 300) }, ...(progress !== null ? { progress } : {}) }).eq("id", job.id).then(() => undefined);
+        void o.db.from("dn_render_jobs").update({ heartbeat_at: new Date().toISOString(), result: { last: line.slice(0, 300), ...(stage ? { stage } : {}) }, progress }).eq("id", job.id).then(() => undefined);
       }, { WORKER_DATA_DIR: o.dataDir, ...(o.envFile ? { DREAMNEST_ENV_FILE: o.envFile } : {}) });
     } finally {
       // Also after a failure (e.g. the budget ceiling): what was paid is booked on the episode.
