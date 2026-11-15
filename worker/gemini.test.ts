@@ -83,3 +83,12 @@ describe("broken JSON from Gemini", () => {
     await expect(createGemini("k", undefined, fake).generateText("p")).rejects.toMatchObject({ usage: { inputTokens: 20, outputTokens: 10 } });
   });
 });
+
+describe("JSON with trailing text", () => {
+  it("takes the first complete object", async () => {
+    const { extractJson, firstObject } = await import("./gemini");
+    expect(extractJson('{"a":"x}{"} trailing {"b":2}')).toEqual({ a: "x}{" });
+    expect(firstObject('no json')).toBeNull();
+    expect(() => extractJson('{"lines": [')).toThrow(/JSON/);
+  });
+});

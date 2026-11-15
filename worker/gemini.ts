@@ -1,7 +1,9 @@
 // Gemini API (paid tier only; approved by Milan on 11-11-2026 with a cap of €5 per month).
 // The key lives in worker/.env.local as GEMINI_API_KEY and never goes into the app or Git.
 // Footage goes up as a small proxy (FFmpeg), is analysed once and is deleted from Google straight after.
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const BASE = "https://generativelanguage.googleapis.com";
 export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
@@ -25,8 +27,35 @@ export function extractJson(text: string): unknown {
   try {
     return JSON.parse(trimmed);
   } catch {
+    // Sometimes there is text after the object (or a second object): take the first complete object.
+    const first = firstObject(trimmed);
+    if (first !== null) {
+      try {
+        return JSON.parse(first);
+      } catch {
+        /* fall through */
+      }
+    }
     throw new Error("De analysedienst gaf geen geldige JSON terug");
   }
+}
+
+/** The first balanced {...} in the text (string-aware), or null. */
+export function firstObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
 }
 
 type GenerateResponse = {
@@ -116,7 +145,14 @@ export function createGemini(apiKey: string, model = DEFAULT_MODEL, fetchImpl: t
     try {
       return { json: extractJson(text), usage };
     } catch (e) {
-      throw Object.assign(e as Error, { usage });
+      const reason = body.candidates?.[0]?.finishReason ?? "onbekend";
+      // Kept for diagnosis (no keys in it): the raw answer in the temp folder of this pc.
+      const file = join(tmpdir(), `kivoxel-gemini-onleesbaar-${Date.now()}.txt`);
+      await writeFile(file, `finishReason: ${reason}
+usage: ${JSON.stringify(usage)}
+
+${text}`).catch(() => undefined);
+      throw Object.assign(new Error(`${(e as Error).message} (${reason}, ${text.length} tekens; bewaard in ${file})`), { usage });
     }
   }
 
