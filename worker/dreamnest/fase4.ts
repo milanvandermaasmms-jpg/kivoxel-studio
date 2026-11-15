@@ -6,9 +6,9 @@
 // Output on this pc: <WORKER_DATA_DIR>/dreamnest/fase4/<minutes>min/ (dreamnest-<minutes>min.mp4, qc.json, qc.html, preview.mp4).
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { constants, homedir, setPriority } from "node:os";
+import { constants, homedir, setPriority, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { judgeAudio, parseEbur128, parseSilences, TARGETS } from "../../lib/dreamnest/audioqc.ts";
 import { calmEndFrame } from "../../lib/dreamnest/motion.ts";
@@ -52,10 +52,37 @@ const STEPS = `setpts=N/${24}/TB,split[x][y];[y]trim=start_frame=1,setpts=N/${24
 /** Every clip is brought to this average brightness (0-255) before the dim curve; the clips are around 70-85. */
 const LUMA_TARGET = 78;
 
-/** FFmpeg at low priority, so KIVOXEL and Milan's pc keep running smoothly. */
+/** Stall guard (incident 15-11-2026): FFmpeg writes progress to a small file; no new progress for this long = stuck. */
+const STALL_MS = Number(env.DN_FFMPEG_STALL_MIN || 10) * 60_000;
+let ffCall = 0;
+
+/** FFmpeg at low priority, so KIVOXEL and Milan's pc keep running smoothly. Stopped with a clear error when it stalls. */
 function ff(args: string[]): Promise<string> {
+  const progress = join(tmpdir(), `dn-ffprogress-${process.pid}-${++ffCall}.txt`);
   return new Promise((ok, no) => {
-    const child = execFile(ffmpeg, ["-hide_banner", ...args], { maxBuffer: 1024 * 1024 * 1024, windowsHide: true }, (e, so, se) => (e ? no(new Error(String(se).slice(-800))) : ok(`${so}\n${se}`)));
+    let stalled = false;
+    let lastSize = -1;
+    let lastChange = Date.now();
+    const child = execFile(ffmpeg, ["-hide_banner", "-progress", progress, "-stats_period", "5", ...args], { maxBuffer: 1024 * 1024 * 1024, windowsHide: true }, (e, so, se) => {
+      clearInterval(guard);
+      void rm(progress, { force: true });
+      if (stalled) return no(new Error(`FFmpeg vastgelopen: ${Math.round(STALL_MS / 60000)} min geen voortgang (gestopt door de bewaking)`));
+      return e ? no(new Error(String(se).slice(-800))) : ok(`${so}\n${se}`);
+    });
+    const guard = setInterval(() => {
+      let size = 0;
+      try {
+        size = statSync(progress).size;
+      } catch {}
+      if (size !== lastSize) {
+        lastSize = size;
+        lastChange = Date.now();
+      } else if (Date.now() - lastChange > STALL_MS) {
+        stalled = true;
+        log(`FFmpeg maakt al ${Math.round(STALL_MS / 60000)} min geen voortgang: gestopt (${args.filter((a) => a.endsWith(".mp4")).pop() ?? "uitvoer onbekend"})`);
+        child.kill();
+      }
+    }, 30_000);
     try {
       if (child.pid) setPriority(child.pid, constants.priority.PRIORITY_BELOW_NORMAL);
     } catch {}
@@ -307,5 +334,15 @@ await writeFile(join(out, "qc.html"), qcPage(result));
 log(`QC ${result.ok ? "✅" : "❌"}: ${[...result.video.problems, ...result.audio.flatMap((a) => a.problems.map((p) => `${a.part}: ${p}`))].slice(0, 12).join(" | ") || "alles in orde"}`);
 // Preview for Milan (± 3 min, 720p): start, the move to falling asleep, a sleep moment, the end.
 const cuts = [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]];
-await ff(["-y", "-v", "error", ...cuts.flatMap(([s, l]) => ["-ss", String(s), "-t", String(l), "-i", final]), "-filter_complex", cuts.map((_, i) => `[${i}:v]scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${cuts[i][1] - 1}:d=1[v${i}];[${i}:a]afade=t=in:d=1,afade=t=out:st=${cuts[i][1] - 1}:d=1[a${i}]`).join(";") + ";" + cuts.map((_, i) => `[v${i}][a${i}]`).join("") + `concat=n=${cuts.length}:v=1:a=1[v][a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "24", "-c:a", "aac", "-b:a", "160k", join(out, "preview.mp4")]);
+// Each cut as its own small file first, then one join over those small files. Four inputs of the same hour-long file in
+// one concat filter hung FFmpeg for 12 hours (incident 15-11-2026, docs/incident-dreamnest-93.md).
+const cutFiles: string[] = [];
+for (const [i, [s, l]] of cuts.entries()) {
+  const f = join(out, `preview-cut-${i}.mp4`);
+  // Length on the output side with a fixed frame count (an input-side -t gave 215 s of picture for 90 s of sound).
+  await ff(["-y", "-v", "error", "-ss", String(s), "-i", final, "-t", String(l), "-frames:v", String(l * FPS), "-vf", `setpts=N/${FPS}/TB,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${l - 1}:d=1`, "-af", `asetpts=PTS-STARTPTS,afade=t=in:d=1,afade=t=out:st=${l - 1}:d=1`, "-c:v", "libx264", "-crf", "24", "-r", "24", "-c:a", "aac", "-b:a", "160k", f]);
+  cutFiles.push(f);
+}
+await ff(["-y", "-v", "error", ...cutFiles.flatMap((f) => ["-i", f]), "-filter_complex", `${cutFiles.map((_, i) => `[${i}:v][${i}:a]`).join("")}concat=n=${cutFiles.length}:v=1:a=1[v][a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "24", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
+for (const f of cutFiles) await rm(f, { force: true });
 log(`Preview: ${join(out, "preview.mp4")}`);
