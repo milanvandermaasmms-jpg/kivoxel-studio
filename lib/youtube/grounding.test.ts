@@ -168,3 +168,18 @@ describe("titles are checked too", () => {
     expect(applyVerification(lines, { lines: [], titles: ["x"] }).titles).toBeNull();
   });
 });
+
+describe("story text goes to the front", () => {
+  it("lists diary text once, never settings text", () => {
+    const e: Evidence = { frames: [
+      { i: 0, light: "day", health: "full", mobs: [], action: "in menu", events: ["text: Dark Mode deactivated, Seasons Realism"] },
+      { i: 1, light: "day", health: "full", mobs: [], action: "in menu", events: ["text: HE is here"] },
+      { i: 2, light: "day", health: "full", mobs: [], action: "in menu", events: ["text: HE is here"] },
+    ], summary: "", uncertain: [] };
+    const frames = [0, 1, 2].map((index) => ({ index, srcMs: index * 6000, outMs: index * 6000, segment: 0 }));
+    const block = groundingBlock(e, frames, "C", 60_000);
+    expect(block).toContain('0:06: "HE is here"');
+    expect(block.match(/"HE is here"/g)).toHaveLength(1);
+    expect(block).not.toContain('"Dark Mode');
+  });
+});

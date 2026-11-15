@@ -17,7 +17,9 @@ const LONG_HALF = 3200;
 
 /** Reading a book, diary or sign is story (lore, a mystery), not an idle menu. */
 const READING = /\b(book|diary|diaries|journal|note|letter|sign|reading|lore)\b/i;
-export const isReading = (f: FrameFact) => READING.test(f.action) || f.events.some((e) => /^text:/i.test(e));
+// Settings, world and add-on menus also show text; those stay filler. Story text (a diary page in a menu) counts.
+const UI_TEXT = /\b(settings?|options?|resource packs?|behaviou?r packs?|add-?ons?|difficulty|game ?mode|dark mode|realism|toggle|activate|deactivate|create world|play|load|seed|cheats|controls|video|audio|marketplace)\b/i;
+export const isReading = (f: FrameFact) => (READING.test(f.action) && !/\bsettings?\b/i.test(f.action)) || f.events.some((e) => /^text:/i.test(e) && !UI_TEXT.test(e));
 export const isIdle = (f: FrameFact) => (MENU.test(f.action) && !isReading(f)) || (!f.mobs.length && !f.events.length && (IDLE.test(f.action) || !f.action));
 export const isEvent = (f: FrameFact) => f.events.some((e) => EVENT.test(e) && !MENU.test(e) && !/^text:/i.test(e));
 

@@ -123,6 +123,21 @@ export function withEvidence(prompt: string): string {
 }
 
 /** Added to the existing script prompt: the evidence per moment of the final video and the hard rules that follow from it. */
+/** Story text the player read on screen (diaries, signs), in time order: the strongest material for a mystery. */
+function readableText(e: Evidence, at: Map<number, number>): string[] {
+  const seen = new Set<string>();
+  const quotes: string[] = [];
+  for (const f of e.frames)
+    for (const x of f.events) {
+      const m = /^text:\s*(.+)$/i.exec(x);
+      const q = m?.[1].trim();
+      if (!q || seen.has(q.toLowerCase()) || /\b(settings?|options?|resource packs?|add-?ons?|dark mode|realism|toggle|activate|deactivate)\b/i.test(q)) continue;
+      seen.add(q.toLowerCase());
+      quotes.push(`- ${mmss(at.get(f.i) ?? 0)}: "${q.replace(/"/g, "'")}"`);
+    }
+  return quotes.length ? ["Story text read on screen (quote these words in the narration at that time; they are the mystery of this part):", ...quotes.slice(0, 12)] : [];
+}
+
 export function groundingBlock(e: Evidence, frames: FramePick[], format: Format, durationMs: number): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   const healthSeen = e.frames.some((f) => f.health !== "not_visible");
@@ -134,6 +149,7 @@ export function groundingBlock(e: Evidence, frames: FramePick[], format: Format,
     "VERIFIED EVIDENCE from frames of the real recording (this overrides anything above when they disagree):",
     ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; ${f.mobs.length ? `mobs ${f.mobs.join(", ")}; ` : ""}action ${f.action || "-"}${f.events.length ? `; events ${f.events.join(", ")}` : ""}`),
     `Overall: ${e.summary}`,
+    ...readableText(e, at),
     ...(e.uncertain.length ? [`Not visible / uncertain: ${e.uncertain.join("; ")}`] : []),
     "HARD RULES:",
     "- Every factual statement (mobs, damage, health, darkness, falls, deaths, finds, numbers) must match the evidence at that time. Jokes and excitement are fine; invented events are not.",

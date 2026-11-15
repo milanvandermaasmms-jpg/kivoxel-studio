@@ -121,3 +121,10 @@ describe("reading is story", () => {
     expect(isIdle(fact(0, "in inventory"))).toBe(true);
   });
 });
+
+describe("settings text is not story", () => {
+  it("cuts a settings screen but keeps a diary page shown in a menu", () => {
+    expect(isIdle(fact(0, "in menu", [], ["text: Dark Mode deactivated"]))).toBe(true);
+    expect(isIdle(fact(0, "in menu", [], ["text: HE is here"]))).toBe(false);
+  });
+});
