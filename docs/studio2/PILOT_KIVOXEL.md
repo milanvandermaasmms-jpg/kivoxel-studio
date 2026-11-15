@@ -58,3 +58,10 @@ Video `5f00829a`, Short 0:33. Milans notitie: "klopt niet! het is niet donker en
 - Gezien op het contactblad (1 beeld per 2 s): creeper groot in beeld bij "Watch out for that massive explosion right beside you!", bouwen bij "Build your base up to stay safe from the night!", tekst klopt met wat je ziet.
 - Nog te verbeteren: de vaste toptekst ("HUGE EXPLOSION") staat de hele video; de opening belooft de ontploffing al op 0 s (hook-teaser, is toegestaan maar mag dichter op het beeld).
 - Bestand: `C:\Users\famdj\FamilieMK-YouTube\renders\144be595-ef43-458d-867b-b5919476eca1-v4-3ea40ded.mp4` (Charon).
+
+# Part 1 "the one who watches" opnieuw (15-11-2026, ± 13:20)
+- Beeldbewijs nu per ± 6 s bij lange video's (55 beelden, batches van 40). Uitkomst: in 0:00-5:21 **geen vijanden**; wel instellingen, sneeuwdorp, dagboeken ("HE is here", "everywhere I see HIS eyes"), hout/mijnen, boot. De oude v1 ("zombie ambush", "shipwreck") was verzonnen.
+- Onderweg gevonden en gerepareerd: menu-stukken bleven staan (venster 1,2 s bij beelden 6 s uit elkaar), planlabels in de stem ("Deel 1 van 5", "Hoofdstuk 1"), de controle las het antwoord niet en keurde dan alles goed, een mislukte batch viel stil weg, kapotte JSON, titels niet gecontroleerd, dagboeken weggeknipt als menu, dubbele zinnen.
+- v8: 4:28 (69 s menu's eruit), spreektijd 57%, 32/32 regels gecontroleerd, langste stilte in het script 20 s; montage Charon: 12 groen, 1 oranje (stilte 4,8 s), −14,9 LUFS. Bestand `renders\01820ce5-faa2-4dbf-94b5-e1a7fd57e5c0-v8-d00b6813.mp4`.
+- Milan keurde goed; oude upload `zolkMshhSBU` door Milan verwijderd; publicatie via SQL (klembord) terug naar concept met de nieuwe montage, titel en beschrijving. Inplannen/publiceren = Milans klik.
+- Eerlijk: keuring 47 (zwak materiaal: rustig begin). Het mysterie van de dagboeken is de haak.
