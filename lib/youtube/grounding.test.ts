@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyVerification, coverage, dropMetaLines, evidenceBatches, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, longestSilenceMs, mergeEvidence, parseEvidence, targetWords, type Evidence } from "./grounding.ts";
+import { applyVerification, coverage, dropMetaLines, dropRepeats, evidenceBatches, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, longestSilenceMs, mergeEvidence, parseEvidence, targetWords, verifyPrompt, type Evidence } from "./grounding.ts";
 import type { Segment } from "./analysis.ts";
 
 const seg = (src: number, len: number, out: number, speed = 1): Segment => ({ part: "build", src_start_ms: src, src_end_ms: src + len, out_start_ms: out, speed, effects: [], note: "" });
@@ -181,5 +181,21 @@ describe("story text goes to the front", () => {
     expect(block).toContain('0:06: "HE is here"');
     expect(block.match(/"HE is here"/g)).toHaveLength(1);
     expect(block).not.toContain('"Dark Mode');
+  });
+});
+
+describe("no repeated lines", () => {
+  it("drops a line that (nearly) repeats an earlier one", () => {
+    const lines = [
+      { at_ms: 40_000, text: "Mining blocks right here in the snow to gather helpful resources for survival." },
+      { at_ms: 48_000, text: "Mining blocks right here in the snow to gather helpful resources for survival." },
+      { at_ms: 126_000, text: "Walking through the snowy plains while keeping our eyes wide open." },
+      { at_ms: 134_000, text: "Walking through the snowy plains while keeping our eyes wide open for trouble." },
+      { at_ms: 140_000, text: "Day nineteen: he is here. Who is he?" },
+    ];
+    expect(dropRepeats(lines).map((l) => l.at_ms)).toEqual([40_000, 126_000, 140_000]);
+  });
+  it("the check gets a wider window for long videos", () => {
+    expect(verifyPrompt([], { frames: [], summary: "", uncertain: [] }, [], { windowS: 10 })).toContain("within about 10 s");
   });
 });

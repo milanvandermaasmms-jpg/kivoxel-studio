@@ -163,10 +163,11 @@ export function groundingBlock(e: Evidence, frames: FramePick[], format: Format,
   ].join("\n");
 }
 
-export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], extra: { topLine?: string; hook?: string; titles?: string[] } = {}): string {
+export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], extra: { topLine?: string; hook?: string; titles?: string[]; windowS?: number } = {}): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
+  const w = extra.windowS ?? 3;
   return [
-    "Check a Minecraft narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (a few seconds before or after). Excitement, humour and opinions are fine.",
+    `Check a Minecraft narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (within about ${w} s before or after; the frames are samples, so what is seen just before or after still counts). Excitement, humour, tension and opinions are fine.`,
     "Evidence:",
     ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; mobs ${f.mobs.join(", ") || "-"}; action ${f.action || "-"}; events ${f.events.join(", ") || "-"}`),
     `Summary: ${e.summary}`,
@@ -175,7 +176,7 @@ export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick
     ...(extra.topLine ? [`top_line: ${extra.topLine}`] : []),
     ...(extra.hook ? [`hook: ${extra.hook}`] : []),
     ...(extra.titles?.length ? [`titles: ${JSON.stringify(extra.titles)}`] : []),
-    "For every unsupported line give a rewrite with the same energy and roughly the same length that IS supported (or an empty rewrite to drop it). Also fix top_line, hook and titles when they claim something that is not in the evidence anywhere (titles keep their style and any \"(Part n)\").",
+    "For every unsupported line give a rewrite with the same energy and roughly the same length that IS supported (or an empty rewrite to drop it). A rewrite must say something new: never repeat or closely paraphrase another line, and prefer the story thread (readable text, the mystery, tension) over a plain 'walking'/'mining' description. Also fix top_line, hook and titles when they claim something that is not in the evidence anywhere (titles keep their style and any \"(Part n)\").",
     'Answer with JSON only: {"lines":[{"index":0,"supported":true,"issue":"","rewrite":""}],"top_line":"... or empty when fine","hook":"... or empty when fine","titles":["... only when one needed fixing: all titles, fixed"]}',
   ].join("\n");
 }
@@ -273,6 +274,22 @@ export function expandPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick
     `Add about ${extraWords} words in total, as short lines placed inside those gaps (at_ms inside a gap, at least 1.5 s after the previous line). Do not repeat what is already said.`,
     'Answer with JSON only: {"lines":[{"at_ms":0,"text":"..."}]}',
   ].join("\n");
+}
+
+/** Lines (nearly) the same as an earlier one are dropped: a narrator never says the same thing twice. */
+export function dropRepeats(lines: ScriptLine[]): ScriptLine[] {
+  const words = (t: string) => new Set(t.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((x) => x.length > 2));
+  const kept: { line: ScriptLine; w: Set<string> }[] = [];
+  for (const line of [...lines].sort((a, b) => a.at_ms - b.at_ms)) {
+    const w = words(line.text);
+    const same = kept.some((k) => {
+      const inter = [...w].filter((x) => k.w.has(x)).length;
+      const union = new Set([...w, ...k.w]).size;
+      return union > 0 && inter / union >= 0.7;
+    });
+    if (!same) kept.push({ line, w });
+  }
+  return kept.map((k) => k.line);
 }
 
 /** "1:15" or "75000": the gap-filler sometimes answers in minutes:seconds. */

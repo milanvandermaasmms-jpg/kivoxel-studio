@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, withEvidence, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, dropRepeats, withEvidence, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
@@ -510,7 +510,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       draft = { ...draft, lines: meta.lines };
       if (ev) {
         // The check must really judge the lines; an answer without verdicts is asked once more, and then stops the step.
-        const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook, titles: draft.titles ?? [] })))).json;
+        const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook, titles: draft.titles ?? [], windowS: video.data.format === "C" ? 10 : 3 })))).json;
         let checkJson = await askCheck();
         let v = applyVerification(draft.lines, checkJson);
         if (v.checked < draft.lines.length * 0.8) v = applyVerification(draft.lines, (checkJson = await askCheck()));
@@ -519,7 +519,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           await writeFile(file, JSON.stringify(checkJson, null, 1)).catch(() => undefined);
           throw new Error(`De controle op het beeld gaf maar ${v.checked} van ${draft.lines.length} oordelen; script niet opgeslagen (antwoord in ${file})`);
         }
-        draft = { ...draft, lines: v.lines, ...(v.titles ? { titles: v.titles } : {}), ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
+        draft = { ...draft, lines: dropRepeats(v.lines), ...(v.titles ? { titles: v.titles } : {}), ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
         // Too little narration: fill the silent gaps with supported lines, and check those again.
         let added = 0;
         const expandLog: { gaps: number; asked: number; returned: number; inGaps: number; kept: number }[] = [];
@@ -535,13 +535,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             const returned = Array.isArray((more.json as { lines?: unknown })?.lines) ? (more.json as { lines: unknown[] }).lines.length : 0;
             expandLog.push({ gaps: gaps.length, asked: extra, returned, inGaps: merged.length - draft.lines.length, kept: 0 });
             if (merged.length > draft.lines.length) {
-              const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames)));
+              const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames, { windowS: video.data.format === "C" ? 10 : 3 })));
               const v2 = applyVerification(merged, recheck.json);
               if (v2.checked < merged.length * 0.8) continue;
               added += v2.lines.length - draft.lines.length;
               expandLog[expandLog.length - 1].kept = v2.lines.length - draft.lines.length;
               v.issues.push(...v2.issues);
-              draft = { ...draft, lines: v2.lines };
+              draft = { ...draft, lines: dropRepeats(v2.lines) };
             }
           }
         }
