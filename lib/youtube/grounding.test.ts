@@ -199,3 +199,18 @@ describe("no repeated lines", () => {
     expect(verifyPrompt([], { frames: [], summary: "", uncertain: [] }, [], { windowS: 10 })).toContain("within about 10 s");
   });
 });
+
+describe("a natural voice", () => {
+  it("turns stiff written English into spoken English", async () => {
+    const { naturalize } = await import("./grounding.ts");
+    expect(naturalize("Let us check it. We are walking and it is cold! What is that?")).toBe("Let's check it. We're walking and it's cold! What's that?");
+    expect(naturalize("We have found it, we will win and I am scared.")).toBe("We've found it, we'll win and I'm scared.");
+  });
+  it("adds the owner's story with the part", async () => {
+    const { storyBlock } = await import("./grounding.ts");
+    const b = storyBlock("We survive; the Watcher scares us; in the end he kills us in the cave.", { index: 0, count: 5 }).join("\n");
+    expect(b).toContain("part 1 of 5");
+    expect(b).toContain("the Watcher scares us");
+    expect(storyBlock("  ")).toEqual([]);
+  });
+});

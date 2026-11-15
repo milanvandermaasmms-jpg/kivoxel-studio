@@ -69,6 +69,7 @@ export function evidencePrompt(frames: FramePick[]): string {
   return [
     `You get ${frames.length} frames from a Minecraft (PS5, Bedrock) gameplay recording, in time order. Frame k is at ${frames.map((f) => `k=${f.index}: ${mmss(f.outMs)}`).join(", ")} of the final video.`,
     "Report ONLY what is clearly visible in each frame. Never guess what happens between frames. If the health bar (hearts) is not clearly readable, use not_visible.",
+    "Horror add-ons can add a creepy figure (a tall dark or black shape, often with glowing eyes, standing far away or suddenly close): when you see one, list it in mobs as \"watcher\".",
     `light: one of ${LIGHTS.join(", ")} (cave_dark = really dark, hard to see; cave_lit = underground but clearly visible).`,
     `health: one of ${HEALTHS.join(", ")} from the hearts in the HUD (full = 10 hearts, most = 7-9, half = 4-6, low = 1-3).`,
     "mobs: visible mobs (creeper, zombie, skeleton, spider, enderman, ...). action: what the player does (mining, walking, fighting, falling, building, swimming, in menu/inventory). events: only clear events (explosion, damage taken, death screen, item found, fall, block placed). When a book, diary, sign or other readable text is on screen, add an event \"text: <the visible words, at most 15>\".",
@@ -167,7 +168,7 @@ export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   const w = extra.windowS ?? 3;
   return [
-    `Check a Minecraft narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (within about ${w} s before or after; the frames are samples, so what is seen just before or after still counts). Excitement, humour, tension and opinions are fine.`,
+    `Check a Minecraft narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (within about ${w} s before or after; the frames are samples, so what is seen just before or after still counts). Excitement, humour, tension and opinions are fine, and so are feelings, fears and questions ('Is he watching us?'): only concrete events, mobs, damage and places are claims.`,
     "Evidence:",
     ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; mobs ${f.mobs.join(", ") || "-"}; action ${f.action || "-"}; events ${f.events.join(", ") || "-"}`),
     `Summary: ${e.summary}`,
@@ -326,4 +327,38 @@ export function mergeAdded(lines: ScriptLine[], raw: unknown, gaps: [number, num
     .map((l) => ({ at_ms: lineAt(l.at_ms), text: String(l.text ?? "").replace(/[<>]/g, "").trim().slice(0, 300) }))
     .filter((l) => Number.isFinite(l.at_ms) && l.at_ms >= 0 && l.at_ms < durationMs && l.text && gaps.some(([a, b]) => l.at_ms >= a && l.at_ms < b));
   return [...lines, ...ok].sort((a, b) => a.at_ms - b.at_ms);
+}
+
+// ---------- A natural voice and the owner's story ----------
+
+const CONTRACTIONS: [RegExp, string][] = [
+  [/\bLet us\b/g, "Let's"], [/\blet us\b/g, "let's"],
+  [/\b(W|w)e are\b/g, "$1e're"], [/\b(Y|y)ou are\b/g, "$1ou're"], [/\b(T|t)hey are\b/g, "$1hey're"],
+  [/\b(I) am\b/g, "I'm"], [/\b(I|i)t is\b/g, "$1t's"], [/\b(T|t)hat is\b/g, "$1hat's"], [/\b(W|w)hat is\b/g, "$1hat's"],
+  [/\b(T|t)here is\b/g, "$1here's"], [/\b(W|w)e have got\b/g, "$1e've got"], [/\b(W|w)e have\b(?= (just|already|never|finally|got|been|made|found))/g, "$1e've"],
+  [/\b(D|d)o not\b/g, "$1on't"], [/\b(C|c)annot\b/g, "$1an't"], [/\b(I|i)s not\b/g, "$1sn't"], [/\b(A|a)re not\b/g, "$1ren't"],
+  [/\b(W|w)ill not\b/g, "$1on't"], [/\b(W|w)e will\b/g, "$1e'll"], [/\b(I) will\b/g, "I'll"],
+];
+
+/** Spoken English: contractions instead of stiff written forms ("Let us" -> "Let's"), so the TTS voice sounds like a person. */
+export function naturalize(text: string): string {
+  let t = text;
+  for (const [re, to] of CONTRACTIONS) t = t.replace(re, to);
+  return t.replace(/\s{2,}/g, " ").trim();
+}
+
+/**
+ * What the owner told about the whole recording (the true story arc, in his words). It guides the drama of every
+ * part; facts at a given time still have to match the evidence of that part.
+ */
+export function storyBlock(story: string, part?: { index: number; count: number }): string[] {
+  const s = story.trim().slice(0, 1200);
+  if (!s) return [];
+  return [
+    "THE OWNER'S STORY OF THE WHOLE RECORDING (true; use it as the story arc and the mood, and build toward it):",
+    s,
+    part ? `This is part ${part.index + 1} of ${part.count}: tell only what happens in this part, but feel the arc (early parts: tension and hints, later parts: it gets closer, last part: the ending).` : "",
+    "Tell it as a story kids want to hear: what we feel, what we fear, what we plan, what just happened. Never a list of actions ('walking', 'mining', 'checking the inventory'): turn calm stretches into tension ('Is he out there?'), quick plans or jokes.",
+    "Use spoken English with contractions (let's, we're, it's), short sentences, '...' for a tense pause and '!' for reactions.",
+  ].filter(Boolean);
 }

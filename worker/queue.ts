@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, dropRepeats, withEvidence, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, dropRepeats, withEvidence, naturalize, storyBlock, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
@@ -500,6 +500,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
       let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
       if (ev) prompt = withEvidence(prompt) + groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs);
+      // Milan's own story of the whole recording (payload.story): the arc and the mood for every part.
+      const story = typeof job.payload?.story === "string" ? job.payload.story : "";
+      if (story.trim()) prompt += "\n" + storyBlock(story, part ?? undefined).join("\n");
       const { json } = await paid(job, () => ai.gemini.generateText(prompt));
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
@@ -566,6 +569,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (part && draft.titles) draft = { ...draft, titles: seriesTitles(draft.titles, part) };
     // A Short opens with the first hook by default: a greeting or a long first line goes to the back.
     if (video.data.format !== "C") draft = { ...draft, hooks: rankShortHooks(draft.hooks) };
+    // Spoken English for the TTS voice: contractions instead of stiff written forms.
+    draft = { ...draft, hook: naturalize(draft.hook), lines: draft.lines.map((l) => ({ ...l, text: naturalize(l.text) })), loopLine: draft.loopLine ? naturalize(draft.loopLine) : draft.loopLine, hooks: draft.hooks.map((h) => ({ ...h, first_line: naturalize(h.first_line) })) };
     const row = {
       studio_id: job.studio_id,
       video_id: video.data.id,
