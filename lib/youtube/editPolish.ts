@@ -7,6 +7,7 @@ import { relayout, totalMs, ZOOM } from "./editor.ts";
 import { cutPlan } from "./viral.ts";
 import type { Evidence, FrameFact, FramePick } from "./grounding.ts";
 
+export const STRONG = "zoom_strong";
 const MENU = /\b(menu|inventory|inventaris|chest|crafting|pause|settings|loading)\b/i;
 const IDLE = /\b(walk|walking|idle|stand|standing|looking|wandering)\b/i;
 const EVENT = /\b(explo|damage|hit|death|died|dies|fall|fell|found|find|kill|attack|boom|ignite|burn)/i;
@@ -24,30 +25,34 @@ function merge(ranges: [number, number][]): [number, number][] {
   const out: [number, number][] = [];
   for (const r of [...ranges].sort((a, b) => a[0] - b[0])) {
     const last = out[out.length - 1];
-    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    // Neighbouring idle frames (a few hundred ms apart) form one stretch.
+    if (last && r[0] <= last[1] + 600) last[1] = Math.max(last[1], r[1]);
     else out.push([...r]);
   }
   return out;
 }
 
-/** Splits the segment containing [a, b) (source time) and marks the middle part with a zoom. */
-function zoomAt(segments: Segment[], a: number, b: number): Segment[] {
+const KEY = /\b(explo|boom|death|died|dies|damage|hit|fall|fell)/i;
+export const isKeyEvent = (f: FrameFact) => f.events.some((e) => KEY.test(e));
+
+/** Splits the segment containing [a, b) (source time) and marks the middle part with a zoom (or a strong punch-in). */
+function zoomAt(segments: Segment[], a: number, b: number, effect: string = ZOOM): Segment[] {
   const out: Segment[] = [];
   for (const s of segments) {
     const from = Math.max(a, s.src_start_ms);
     const to = Math.min(b, s.src_end_ms);
-    if (to - from < 400 || s.effects.includes(ZOOM)) {
+    if (to - from < 400 || s.effects.includes(ZOOM) || s.effects.includes(STRONG)) {
       out.push(s);
       continue;
     }
     if (from - s.src_start_ms >= 300) out.push({ ...s, src_end_ms: from });
-    out.push({ ...s, src_start_ms: from, src_end_ms: to, effects: [...s.effects, ZOOM], note: `${s.note} (zoom: gebeurtenis)`.trim() });
+    out.push({ ...s, src_start_ms: from, src_end_ms: to, effects: [...s.effects, effect], note: `${s.note} (${effect === STRONG ? "punch-in: belangrijkste moment" : "zoom: gebeurtenis"})`.trim() });
     if (s.src_end_ms - to >= 300) out.push({ ...s, src_start_ms: to });
   }
   return out;
 }
 
-export type Polished = { segments: Segment[]; frames: FramePick[]; evidence: Evidence; removedMs: number; cuts: [number, number][]; zooms: number };
+export type Polished = { segments: Segment[]; frames: FramePick[]; evidence: Evidence; removedMs: number; cuts: [number, number][]; zooms: number; punchIns: number };
 
 export function polishPlan(segments: Segment[], frames: FramePick[], e: Evidence, format: Format, planKey?: string | null): Polished {
   const short = format !== "C";
@@ -77,11 +82,14 @@ export function polishPlan(segments: Segment[], frames: FramePick[], e: Evidence
   const zoomSrc: number[] = [];
   const budget = short ? Math.max(1, Math.floor(totalMs(segs) / 4000)) : Math.max(1, picks.filter((f) => isEvent(factOf.get(f.index)!)).length);
   const candidates = [...picks.filter((f) => isEvent(factOf.get(f.index)!)), ...(short ? picks.filter((f) => !isEvent(factOf.get(f.index)!) && factOf.get(f.index)!.mobs.length) : [])];
+  let strong = 0;
   for (const f of candidates) {
     if (zoomSrc.length >= budget) break;
     if (srcToOut(segs, f.srcMs) === null || zoomSrc.some((z) => Math.abs(z - f.srcMs) < 3000)) continue;
     zoomSrc.push(f.srcMs);
-    segs = relayout(zoomAt(segs, f.srcMs - 600, f.srcMs + 1400));
+    const key = strong < 2 && isKeyEvent(factOf.get(f.index)!);
+    if (key) strong++;
+    segs = relayout(zoomAt(segs, f.srcMs - 600, f.srcMs + 1400, key ? STRONG : ZOOM));
   }
   segs = relayout(segs);
 
@@ -92,5 +100,5 @@ export function polishPlan(segments: Segment[], frames: FramePick[], e: Evidence
     if (out !== null) kept.push({ ...f, outMs: out });
   }
   const keptIdx = new Set(kept.map((f) => f.index));
-  return { segments: segs, frames: kept, evidence: { ...e, frames: e.frames.filter((f) => keptIdx.has(f.i)) }, removedMs, cuts: cuts.map(([a, b]) => [Math.round(a), Math.round(b)]), zooms: zoomSrc.length };
+  return { segments: segs, frames: kept, evidence: { ...e, frames: e.frames.filter((f) => keptIdx.has(f.i)) }, removedMs, cuts: cuts.map(([a, b]) => [Math.round(a), Math.round(b)]), zooms: zoomSrc.length, punchIns: strong };
 }

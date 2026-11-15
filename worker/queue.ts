@@ -47,7 +47,7 @@ import { CancelledError, type RunOptions } from "./ffmpeg.ts";
 import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
-import { firstActionMs, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
+import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
 import { thumbArgs, thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
 import { costCents, type Gemini, type Usage } from "./gemini.ts";
@@ -747,6 +747,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             firstActionMs: firstActionMs(cut.segments, moments),
             hasVoice: voice.length > 0,
             captionsInSafeZone: true,
+            planChanges: planChanges(cut.segments),
           });
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };

@@ -39,6 +39,8 @@ export type QcContext = {
   targetMs: { min: number; max: number };
   /** Output time of the first analysed moment in the montage; null when unknown. */
   firstActionMs: number | null;
+  /** Studio 2.0: visible changes from the montage plan itself (jump cuts, zoom in/out); optional. */
+  planChanges?: number;
   hasVoice: boolean;
   /** Captions are placed by our own subtitle settings, not measured on the picture. */
   captionsInSafeZone: boolean;
@@ -83,7 +85,7 @@ export function qcChecklist(p: QcProbe, log: QcLog, c: QcContext): QcItem[] {
   const freeze = longest(log.freezeSeconds);
   items.push({ key: "freeze", label: "Stilstaand beeld", level: freeze >= 3 ? "orange" : "green", value: freeze ? `langste ${sec(freeze)}` : "geen", note: "Startwaarde: korter dan 3 s" });
 
-  const changes = log.sceneTimes.length;
+  const changes = Math.max(log.sceneTimes.length, c.planChanges ?? 0);
   const perChange = p.durationMs / 1000 / (changes + 1);
   items.push({
     key: "rhythm",
@@ -139,4 +141,16 @@ export function pickLoudnessFix(before: Loudness, candidates: (Loudness & { id: 
   const clipped = before.truePeakDb !== null && before.truePeakDb > SAFE_PEAK_DB;
   const ok = candidates.filter((c) => c.integratedLufs !== null && c.truePeakDb !== null && c.truePeakDb <= SAFE_PEAK_DB && (clipped ? c.integratedLufs >= before.integratedLufs! - 1 : c.integratedLufs > before.integratedLufs! + 1));
   return ok.sort((a, b) => b.integratedLufs! - a.integratedLufs!)[0] ?? null;
+}
+
+/** Visible changes the montage plan makes: a jump in the recording between segments, or a zoom that starts or stops. */
+export function planChanges(segments: { src_start_ms: number; src_end_ms: number; effects?: string[] }[]): number {
+  let n = 0;
+  const zoomOf = (s: { effects?: string[] }) => (s.effects ?? []).find((e) => e === "zoom" || e === "zoom_strong") ?? "";
+  for (let i = 1; i < segments.length; i++) {
+    const a = segments[i - 1];
+    const b = segments[i];
+    if (Math.abs(b.src_start_ms - a.src_end_ms) > 200 || zoomOf(a) !== zoomOf(b)) n++;
+  }
+  return n;
 }

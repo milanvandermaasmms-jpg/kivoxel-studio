@@ -37,8 +37,8 @@ describe("evidence-driven editor", () => {
   it("cuts menus and idle walking, zooms on the explosion, and keeps the evidence on the new timeline", () => {
     const p = polishPlan(segments, frames, evidence, "A");
     expect(p.removedMs).toBeGreaterThan(8000);
-    expect(p.cuts.length).toBeGreaterThanOrEqual(2);
-    const zoomed = p.segments.filter((s) => s.effects.includes("zoom"));
+    expect(p.cuts.length).toBe(2);
+    const zoomed = p.segments.filter((s) => s.effects.includes("zoom") || s.effects.includes("zoom_strong"));
     expect(zoomed.length).toBeGreaterThanOrEqual(1);
     expect(zoomed.some((s) => s.src_start_ms <= 132_000 && s.src_end_ms > 132_000)).toBe(true);
     // segments are contiguous on the output
@@ -56,5 +56,25 @@ describe("evidence-driven editor", () => {
     const ev: Evidence = { frames: [fact(0, "walking"), fact(1, "walking"), fact(2, "walking"), fact(3, "walking")], summary: "", uncertain: [] };
     const p = polishPlan(tiny, fr, ev, "A");
     expect(p.segments.reduce((n, s) => n + (s.src_end_ms - s.src_start_ms), 0)).toBeGreaterThanOrEqual(12_000);
+  });
+});
+
+import { planChanges } from "./qc.ts";
+import { usableSegments } from "./render.ts";
+describe("stronger montage", () => {
+  it("gives the explosion a strong punch-in and other threats a normal zoom", () => {
+    const p = polishPlan(segments, frames, evidence, "A");
+    expect(p.punchIns).toBe(1);
+    expect(p.segments.some((s) => s.effects.includes("zoom_strong") && s.src_start_ms <= 132_000 && s.src_end_ms > 132_000)).toBe(true);
+  });
+  it("renders a punch-in deeper than a zoom", () => {
+    const [a, b] = usableSegments([{ ...segments[0], effects: ["zoom"] }, { ...segments[0], effects: ["zoom_strong"] }], 1_000_000);
+    expect([a.crop, b.crop]).toEqual([0.8, 0.65]);
+  });
+  it("counts jump cuts and zoom changes from the plan", () => {
+    const p = polishPlan(segments, frames, evidence, "A");
+    expect(planChanges(p.segments)).toBeGreaterThanOrEqual(p.cuts.length + p.zooms);
+    expect(p.cuts.length).toBe(2);
+    expect(planChanges(segments)).toBe(0);
   });
 });

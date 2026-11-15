@@ -156,7 +156,8 @@ export function usableSegments(segments: Segment[], recordingMs: number) {
       const start = Math.max(0, Math.min(s.src_start_ms, recordingMs));
       const end = Math.max(start, Math.min(s.src_end_ms, recordingMs));
       const speed = Math.min(2, Math.max(0.5, Number.isFinite(s.speed) && s.speed > 0 ? s.speed : 1));
-      return { start, end, speed, zoom: s.effects?.includes("zoom") ?? false, text: s.text?.trim() || null };
+      const zoom = s.effects?.includes("zoom_strong") ? 0.65 : s.effects?.includes("zoom") ? 0.8 : null;
+      return { start, end, speed, zoom: zoom !== null, crop: zoom, text: s.text?.trim() || null };
     })
     .filter((s) => s.end - s.start >= 100);
 }
@@ -188,7 +189,7 @@ export function renderArgs(input: RenderInput): RenderPlan {
     // Blur first, on the full recording, so the corners are covered before a Short is cut from the middle.
     if (blur.length) filters.push(...blurFilter(`[${i}:v]`, `[p${i}]`, blur, `s${i}`));
     // Zoom (editor, fase C3): the middle 80% of the picture, so the cut is a visible change in the shot rhythm.
-    filters.push(`${blur.length ? `[p${i}]` : `[${i}:v]`}setpts=(PTS-STARTPTS)/${p.speed},${p.zoom ? "crop=iw*0.8:ih*0.8," : ""}${fit},fps=${fps},setsar=1,format=yuv420p[v${i}]`);
+    filters.push(`${blur.length ? `[p${i}]` : `[${i}:v]`}setpts=(PTS-STARTPTS)/${p.speed},${p.crop ? `crop=iw*${p.crop}:ih*${p.crop},` : ""}${fit},fps=${fps},setsar=1,format=yuv420p[v${i}]`);
     filters.push(
       input.hasAudio
         ? `[${i}:a]asetpts=PTS-STARTPTS,${p.speed === 1 ? "" : `atempo=${p.speed},`}aresample=48000,aformat=channel_layouts=stereo[a${i}]`
