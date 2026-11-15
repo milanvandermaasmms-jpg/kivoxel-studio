@@ -51,3 +51,10 @@ Video `5f00829a`, Short 0:33. Milans notitie: "klopt niet! het is niet donker en
 1. Kwaliteitscontrole: beeldwissels óók tellen uit het montageplan (knippen/zooms), niet alleen uit scènedetectie.
 2. Sterkere maar korte "punch-in" (iets dieper zoomen, 0,3 s overgang) bij de één of twee belangrijkste gebeurtenissen.
 3. Keuring van alle 49 (± € 1) → A/B/C/D-lijst; alleen A/B opnieuw maken met de nieuwe standaard.
+
+## Night Ambush, versie 4 (sterkere montage)
+- Script: spreektijd 68%, 6 zooms waarvan 1 **punch-in (65%) op de creeper/ontploffing**, 1 leeg stuk eruit; de controle herschreef 1 onjuiste zin ("boot plaatsen en ontsnappen" → bouwen).
+- Montage: **alle 14 controles groen**, ook **shotritme: 15 beeldwissels, gemiddeld elke 2,1 s** (richtlijn Shorts 2-3 s). Was in v1-v3 oranje.
+- Gezien op het contactblad (1 beeld per 2 s): creeper groot in beeld bij "Watch out for that massive explosion right beside you!", bouwen bij "Build your base up to stay safe from the night!", tekst klopt met wat je ziet.
+- Nog te verbeteren: de vaste toptekst ("HUGE EXPLOSION") staat de hele video; de opening belooft de ontploffing al op 0 s (hook-teaser, is toegestaan maar mag dichter op het beeld).
+- Bestand: `C:\Users\famdj\FamilieMK-YouTube\renders\144be595-ef43-458d-867b-b5919476eca1-v4-3ea40ded.mp4` (Charon).
