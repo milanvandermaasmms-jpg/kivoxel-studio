@@ -112,3 +112,12 @@ describe("long parts lose their menu stretches", () => {
     expect(srcToOut(p.segments, 153_000)).not.toBeNull();
   });
 });
+
+describe("reading is story", () => {
+  it("a diary on screen is not idle, an inventory is", async () => {
+    const { isReading } = await import("./editPolish.ts");
+    expect(isIdle(fact(0, "reading a diary in a menu"))).toBe(false);
+    expect(isReading(fact(0, "in menu", [], ["text: The one who watches is near"]))).toBe(true);
+    expect(isIdle(fact(0, "in inventory"))).toBe(true);
+  });
+});

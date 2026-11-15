@@ -510,7 +510,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       draft = { ...draft, lines: meta.lines };
       if (ev) {
         // The check must really judge the lines; an answer without verdicts is asked once more, and then stops the step.
-        const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook })))).json;
+        const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook, titles: draft.titles ?? [] })))).json;
         let checkJson = await askCheck();
         let v = applyVerification(draft.lines, checkJson);
         if (v.checked < draft.lines.length * 0.8) v = applyVerification(draft.lines, (checkJson = await askCheck()));
@@ -519,7 +519,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           await writeFile(file, JSON.stringify(checkJson, null, 1)).catch(() => undefined);
           throw new Error(`De controle op het beeld gaf maar ${v.checked} van ${draft.lines.length} oordelen; script niet opgeslagen (antwoord in ${file})`);
         }
-        draft = { ...draft, lines: v.lines, ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
+        draft = { ...draft, lines: v.lines, ...(v.titles ? { titles: v.titles } : {}), ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
         // Too little narration: fill the silent gaps with supported lines, and check those again.
         let added = 0;
         const expandLog: { gaps: number; asked: number; returned: number; inGaps: number; kept: number }[] = [];

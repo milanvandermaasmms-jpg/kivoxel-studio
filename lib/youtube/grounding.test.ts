@@ -160,3 +160,11 @@ describe("the check answers in other shapes", () => {
     expect(applyVerification(lines, { lines: [{ index: 7, supported: false }] }).checked).toBe(0);
   });
 });
+
+describe("titles are checked too", () => {
+  it("takes fixed titles from the check, ignores a lonely one", () => {
+    const lines = [{ at_ms: 0, text: "a" }];
+    expect(applyVerification(lines, { lines: [{ index: 0, supported: true }], titles: ["Minecraft Snow Diaries (Part 1)", "Who Wrote These Diaries? (Part 1)", "3 Diaries Found (Part 1)"] }).titles).toHaveLength(3);
+    expect(applyVerification(lines, { lines: [], titles: ["x"] }).titles).toBeNull();
+  });
+});

@@ -71,7 +71,7 @@ export function evidencePrompt(frames: FramePick[]): string {
     "Report ONLY what is clearly visible in each frame. Never guess what happens between frames. If the health bar (hearts) is not clearly readable, use not_visible.",
     `light: one of ${LIGHTS.join(", ")} (cave_dark = really dark, hard to see; cave_lit = underground but clearly visible).`,
     `health: one of ${HEALTHS.join(", ")} from the hearts in the HUD (full = 10 hearts, most = 7-9, half = 4-6, low = 1-3).`,
-    "mobs: visible mobs (creeper, zombie, skeleton, spider, enderman, ...). action: what the player does (mining, walking, fighting, falling, building, swimming, in menu/inventory). events: only clear events (explosion, damage taken, death screen, item found, fall, block placed).",
+    "mobs: visible mobs (creeper, zombie, skeleton, spider, enderman, ...). action: what the player does (mining, walking, fighting, falling, building, swimming, in menu/inventory). events: only clear events (explosion, damage taken, death screen, item found, fall, block placed). When a book, diary, sign or other readable text is on screen, add an event \"text: <the visible words, at most 15>\".",
     "Then summary: 2-3 sentences about what really happens over the whole clip, and uncertain: things you cannot tell from the frames.",
     'Answer with JSON only: {"frames":[{"i":0,"light":"...","health":"...","mobs":[],"action":"...","events":[]}],"summary":"...","uncertain":["..."]}',
   ].join("\n");
@@ -84,7 +84,7 @@ export function parseEvidence(raw: unknown, count: number): Evidence | { error: 
   for (const f of r.frames as Record<string, unknown>[]) {
     const i = Number(f?.i);
     if (!Number.isInteger(i) || i < 0 || i >= count) continue;
-    const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 40)).filter(Boolean).slice(0, 8) : []);
+    const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, /^text:/i.test(String(x)) ? 120 : 40)).filter(Boolean).slice(0, 8) : []);
     frames.push({
       i,
       light: LIGHTS.includes(f.light as Light) ? (f.light as Light) : "unknown",
@@ -141,12 +141,13 @@ export function groundingBlock(e: Evidence, frames: FramePick[], format: Format,
     dark ? "- Only call it dark where the evidence says cave_dark or night." : "- It is never really dark: do NOT call it dark.",
     "- No falls, deaths, explosions or kills unless they are in the events.",
     "- Write full, lively sentences of 6-14 words (a narrator telling the story to a friend), not 2-3 word shouts; vary the rhythm.",
+    ...(format === "C" ? ["- Long video: give the part a story thread from what is visible (a goal, a question, the mystery in any readable text such as diaries or signs) and come back to it; no filler like 'walking through the snow is so peaceful'. Quote or paraphrase visible text when it builds tension."] : []),
     ...(format === "C" ? [`- Long video: write at least ${Math.ceil(durationMs / 8000)} lines (about one every 6-8 s), so the whole story is told; quiet stretches get a short reaction or what the player is doing.`] : []),
     `- Length: about ${words} words in total (±10%), spread over the whole video, the line at_ms on the moment it talks about; no stretch longer than ${maxGap} s without narration unless it is a deliberate pause before a payoff.`,
   ].join("\n");
 }
 
-export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], extra: { topLine?: string; hook?: string } = {}): string {
+export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], extra: { topLine?: string; hook?: string; titles?: string[] } = {}): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   return [
     "Check a Minecraft narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (a few seconds before or after). Excitement, humour and opinions are fine.",
@@ -157,12 +158,13 @@ export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick
     ...lines.map((l, i) => `${i}. [${mmss(l.at_ms)}] ${l.text}`),
     ...(extra.topLine ? [`top_line: ${extra.topLine}`] : []),
     ...(extra.hook ? [`hook: ${extra.hook}`] : []),
-    "For every unsupported line give a rewrite with the same energy and roughly the same length that IS supported (or an empty rewrite to drop it). Also fix top_line and hook when they claim something unsupported.",
-    'Answer with JSON only: {"lines":[{"index":0,"supported":true,"issue":"","rewrite":""}],"top_line":"... or empty when fine","hook":"... or empty when fine"}',
+    ...(extra.titles?.length ? [`titles: ${JSON.stringify(extra.titles)}`] : []),
+    "For every unsupported line give a rewrite with the same energy and roughly the same length that IS supported (or an empty rewrite to drop it). Also fix top_line, hook and titles when they claim something that is not in the evidence anywhere (titles keep their style and any \"(Part n)\").",
+    'Answer with JSON only: {"lines":[{"index":0,"supported":true,"issue":"","rewrite":""}],"top_line":"... or empty when fine","hook":"... or empty when fine","titles":["... only when one needed fixing: all titles, fixed"]}',
   ].join("\n");
 }
 
-export type Verified = { lines: ScriptLine[]; rewritten: number; dropped: number; issues: string[]; topLine: string | null; hook: string | null; /** Lines the check really gave a verdict on. */ checked: number };
+export type Verified = { titles: string[] | null; lines: ScriptLine[]; rewritten: number; dropped: number; issues: string[]; topLine: string | null; hook: string | null; /** Lines the check really gave a verdict on. */ checked: number };
 
 /** Applies the check: unsupported lines are rewritten, or dropped when no supported rewrite exists. */
 export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
@@ -194,7 +196,8 @@ export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
     } else dropped++;
   });
   const fix = (v: unknown) => (typeof v === "string" && v.trim() ? v.replace(/[<>]/g, "").trim().slice(0, 300) : null);
-  return { lines: out, rewritten, dropped, issues: issues.slice(0, 12), topLine: fix(r?.top_line), hook: fix(r?.hook), checked: lines.filter((_, i) => verdicts.has(i)).length };
+  const titles = Array.isArray((r as { titles?: unknown })?.titles) ? ((r as { titles: unknown[] }).titles.map(fix).filter(Boolean) as string[]).map((t) => t.slice(0, 100)) : [];
+  return { titles: titles.length >= 2 ? titles.slice(0, 3) : null, lines: out, rewritten, dropped, issues: issues.slice(0, 12), topLine: fix(r?.top_line), hook: fix(r?.hook), checked: lines.filter((_, i) => verdicts.has(i)).length };
 }
 
 // ---------- Moment keuring (Studio 2.0) ----------
@@ -210,7 +213,7 @@ export function contentStrength(e: Evidence): Strength {
   const n = Math.max(1, e.frames.length);
   const menus = e.frames.filter((f) => MENU.test(f.action) || f.events.some((x) => MENU.test(x))).length;
   const withMobs = e.frames.filter((f) => f.mobs.length).length;
-  const events = e.frames.reduce((s, f) => s + f.events.filter((x) => !MENU.test(x)).length, 0);
+  const events = e.frames.reduce((s, f) => s + f.events.filter((x) => !MENU.test(x) && !/^text:/i.test(x)).length, 0);
   const actions = new Set(e.frames.map((f) => f.action.toLowerCase().split(/\s+/)[0]).filter(Boolean)).size;
   const reasons: string[] = [];
   let score = 50;
@@ -276,7 +279,7 @@ export function dropMetaLines(lines: ScriptLine[], labels: string[]): { lines: S
   const dropped: string[] = [];
   const kept = lines.filter((l) => {
     const t = norm(l.text);
-    const meta = META.test(l.text.trim()) || /the player/i.test(l.text) || known.some((k) => t.includes(k) || (t.length >= 8 && k.includes(t)));
+    const meta = META.test(l.text.trim()) || /\bthe player\b/i.test(l.text) || known.some((k) => t.includes(k) || (t.length >= 8 && k.includes(t)));
     if (meta) dropped.push(l.text);
     return !meta;
   });

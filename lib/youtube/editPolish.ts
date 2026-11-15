@@ -15,8 +15,11 @@ const EVENT = /\b(explo|damage|hit|death|died|dies|fall|fell|found|find|kill|att
 /** Half the window around a menu frame in a long video (frames ~6 s apart), so neighbouring menu frames join up. */
 const LONG_HALF = 3200;
 
-export const isIdle = (f: FrameFact) => MENU.test(f.action) || (!f.mobs.length && !f.events.length && (IDLE.test(f.action) || !f.action));
-export const isEvent = (f: FrameFact) => f.events.some((e) => EVENT.test(e) && !MENU.test(e));
+/** Reading a book, diary or sign is story (lore, a mystery), not an idle menu. */
+const READING = /\b(book|diary|diaries|journal|note|letter|sign|reading|lore)\b/i;
+export const isReading = (f: FrameFact) => READING.test(f.action) || f.events.some((e) => /^text:/i.test(e));
+export const isIdle = (f: FrameFact) => (MENU.test(f.action) && !isReading(f)) || (!f.mobs.length && !f.events.length && (IDLE.test(f.action) || !f.action));
+export const isEvent = (f: FrameFact) => f.events.some((e) => EVENT.test(e) && !MENU.test(e) && !/^text:/i.test(e));
 
 /** Where a moment of the recording lands in the final video (null when it was cut). */
 export function srcToOut(segments: Segment[], srcMs: number): number | null {
@@ -36,7 +39,7 @@ function merge(ranges: [number, number][]): [number, number][] {
 }
 
 const KEY = /\b(explo|boom|death|died|dies|damage|hit|fall|fell)/i;
-export const isKeyEvent = (f: FrameFact) => f.events.some((e) => KEY.test(e));
+export const isKeyEvent = (f: FrameFact) => f.events.some((e) => KEY.test(e) && !/^text:/i.test(e));
 
 /** Splits the segment containing [a, b) (source time) and marks the middle part with a zoom (or a strong punch-in). */
 function zoomAt(segments: Segment[], a: number, b: number, effect: string = ZOOM): Segment[] {
@@ -73,7 +76,7 @@ export function polishPlan(segments: Segment[], frames: FramePick[], e: Evidence
   // Long videos have a frame per ~6 s: two or more menu/inventory frames in a row are one menu stretch, cut as a whole
   // (a single menu frame can be a quick glance and stays).
   if (!short) {
-    const menus = merge(picks.filter((f) => f.srcMs - first >= 2000 && MENU.test(factOf.get(f.index)!.action)).map((f) => [f.srcMs - LONG_HALF, f.srcMs + LONG_HALF] as [number, number])).filter(([a, b]) => b - a > 2 * LONG_HALF + 500);
+    const menus = merge(picks.filter((f) => f.srcMs - first >= 2000 && MENU.test(factOf.get(f.index)!.action) && !isReading(factOf.get(f.index)!)).map((f) => [f.srcMs - LONG_HALF, f.srcMs + LONG_HALF] as [number, number])).filter(([a, b]) => b - a > 2 * LONG_HALF + 500);
     cuts = merge([...cuts, ...menus]);
   }
   const min = (planKey ? targetFor(format, planKey) : TARGET[format]).minMs;
