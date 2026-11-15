@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
@@ -504,9 +504,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const parsed = parseScript(json, plan.targetMs);
       if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
       draft = parsed.draft;
+      // Labels from the plan (promise, chapter notes, moment kinds) are never narration.
+      const labels = [video.data.promise ?? "", ...plan.segments.map((s) => s.note), ...moments.map((m) => m.reason)];
+      const meta = dropMetaLines(draft.lines, labels);
+      draft = { ...draft, lines: meta.lines };
       if (ev) {
-        const check = await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook })));
-        const v = applyVerification(draft.lines, check.json);
+        // The check must really judge the lines; an answer without verdicts is asked once more, and then stops the step.
+        let v = applyVerification(draft.lines, (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook })))).json);
+        if (v.checked < draft.lines.length * 0.8) v = applyVerification(draft.lines, (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook })))).json);
+        if (v.checked < draft.lines.length * 0.8) throw new Error(`De controle op het beeld gaf maar ${v.checked} van ${draft.lines.length} oordelen; script niet opgeslagen`);
         draft = { ...draft, lines: v.lines, ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
         // Too little narration: fill the silent gaps with supported lines, and check those again.
         let added = 0;
@@ -522,6 +528,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             if (merged.length > draft.lines.length) {
               const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames)));
               const v2 = applyVerification(merged, recheck.json);
+              if (v2.checked < merged.length * 0.8) continue;
               added += v2.lines.length - draft.lines.length;
               v.issues.push(...v2.issues);
               draft = { ...draft, lines: v2.lines };
@@ -533,6 +540,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           summary: ev.evidence.summary,
           uncertain: ev.evidence.uncertain,
           rewritten: v.rewritten,
+          checked: v.checked,
+          metaDropped: meta.dropped.length,
           dropped: v.dropped,
           issues: v.issues,
           spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),

@@ -156,7 +156,7 @@ export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick
   ].join("\n");
 }
 
-export type Verified = { lines: ScriptLine[]; rewritten: number; dropped: number; issues: string[]; topLine: string | null; hook: string | null };
+export type Verified = { lines: ScriptLine[]; rewritten: number; dropped: number; issues: string[]; topLine: string | null; hook: string | null; /** Lines the check really gave a verdict on. */ checked: number };
 
 /** Applies the check: unsupported lines are rewritten, or dropped when no supported rewrite exists. */
 export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
@@ -181,7 +181,7 @@ export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
     } else dropped++;
   });
   const fix = (v: unknown) => (typeof v === "string" && v.trim() ? v.replace(/[<>]/g, "").trim().slice(0, 300) : null);
-  return { lines: out, rewritten, dropped, issues: issues.slice(0, 12), topLine: fix(r?.top_line), hook: fix(r?.hook) };
+  return { lines: out, rewritten, dropped, issues: issues.slice(0, 12), topLine: fix(r?.top_line), hook: fix(r?.hook), checked: lines.filter((_, i) => verdicts.has(i)).length };
 }
 
 // ---------- Moment keuring (Studio 2.0) ----------
@@ -243,11 +243,38 @@ export function expandPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick
   ].join("\n");
 }
 
+/** "1:15" or "75000": the gap-filler sometimes answers in minutes:seconds. */
+function lineAt(v: unknown): number {
+  if (typeof v === "string" && /^\d{1,2}:\d{2}$/.test(v.trim())) {
+    const [m, sec] = v.trim().split(":").map(Number);
+    return (m * 60 + sec) * 1000;
+  }
+  return Math.round(Number(v));
+}
+
+/**
+ * Lines that are not narration but labels from the plan leaking into the voice-over: the viewer promise ("Deel 1 van 5:
+ * ..."), chapter notes ("Hoofdstuk 1: Aankomst"), moment labels ("Bijna dood: The player ..."). They are dropped.
+ */
+export function dropMetaLines(lines: ScriptLine[], labels: string[]): { lines: ScriptLine[]; dropped: string[] } {
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9à-ÿ ]+/g, " ").replace(/\s+/g, " ").trim();
+  const known = labels.map(norm).filter((l) => l.length >= 8);
+  const META = /^(deel \d|hoofdstuk \d|chapter \d+:|part \d+ of \d+:|bijna dood|grappig|spanning|vondst|gevecht|the player )/i;
+  const dropped: string[] = [];
+  const kept = lines.filter((l) => {
+    const t = norm(l.text);
+    const meta = META.test(l.text.trim()) || /the player/i.test(l.text) || known.some((k) => t.includes(k) || (t.length >= 8 && k.includes(t)));
+    if (meta) dropped.push(l.text);
+    return !meta;
+  });
+  return { lines: kept, dropped };
+}
+
 /** Merges added lines that fall inside a gap; never on top of an existing line. */
 export function mergeAdded(lines: ScriptLine[], raw: unknown, gaps: [number, number][], durationMs: number): ScriptLine[] {
   const added = Array.isArray((raw as { lines?: unknown })?.lines) ? ((raw as { lines: unknown[] }).lines as Record<string, unknown>[]) : [];
   const ok = added
-    .map((l) => ({ at_ms: Math.round(Number(l.at_ms)), text: String(l.text ?? "").replace(/[<>]/g, "").trim().slice(0, 300) }))
+    .map((l) => ({ at_ms: lineAt(l.at_ms), text: String(l.text ?? "").replace(/[<>]/g, "").trim().slice(0, 300) }))
     .filter((l) => Number.isFinite(l.at_ms) && l.at_ms >= 0 && l.at_ms < durationMs && l.text && gaps.some(([a, b]) => l.at_ms >= a && l.at_ms < b));
   return [...lines, ...ok].sort((a, b) => a.at_ms - b.at_ms);
 }

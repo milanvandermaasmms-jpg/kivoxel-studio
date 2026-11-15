@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyVerification, coverage, evidenceBatches, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, longestSilenceMs, mergeEvidence, parseEvidence, targetWords, type Evidence } from "./grounding.ts";
+import { applyVerification, coverage, dropMetaLines, evidenceBatches, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, longestSilenceMs, mergeEvidence, parseEvidence, targetWords, type Evidence } from "./grounding.ts";
 import type { Segment } from "./analysis.ts";
 
 const seg = (src: number, len: number, out: number, speed = 1): Segment => ({ part: "build", src_start_ms: src, src_end_ms: src + len, out_start_ms: out, speed, effects: [], note: "" });
@@ -116,5 +116,29 @@ describe("filling silence", () => {
     const gaps: [number, number][] = [[2000, 20_000]];
     const merged = mergeAdded(lines, { lines: [{ at_ms: 8000, text: "New supported line" }, { at_ms: 21_000, text: "outside" }, { at_ms: 9000, text: "" }] }, gaps, 35_000);
     expect(merged.map((l) => l.text)).toEqual(["one two three four five", "New supported line", "six seven"]);
+  });
+});
+
+describe("no plan labels in the voice-over", () => {
+  it("drops the promise, chapter notes and moment labels, keeps real narration", () => {
+    const lines = [
+      { at_ms: 0, text: "An incredible journey begins in this snowy world!" },
+      { at_ms: 3000, text: "Deel 1 van 5: Eén survival-avontuur van begin tot eind, verteld als een verhaal." },
+      { at_ms: 90_000, text: "Hoofdstuk 1: Aankomst (Part 1)." },
+      { at_ms: 225_000, text: "Bijna dood: The player encounters a hostile entity on a snowy bank." },
+      { at_ms: 120_000, text: "Who wrote these strange diaries in the chest?" },
+    ];
+    const r = dropMetaLines(lines, ["Deel 1 van 5: Eén survival-avontuur van begin tot eind, verteld als een verhaal.", "Hoofdstuk 1: Aankomst"]);
+    expect(r.lines.map((l) => l.at_ms)).toEqual([0, 120_000]);
+    expect(r.dropped).toHaveLength(3);
+  });
+  it("counts how many lines the check really judged", () => {
+    const lines = [{ at_ms: 0, text: "a" }, { at_ms: 1000, text: "b" }];
+    expect(applyVerification(lines, null).checked).toBe(0);
+    expect(applyVerification(lines, { lines: [{ index: 0, supported: true }, { index: 1, supported: false, rewrite: "c" }] }).checked).toBe(2);
+  });
+  it("accepts gap lines given in minutes:seconds", () => {
+    const merged = mergeAdded([{ at_ms: 0, text: "start" }], { lines: [{ at_ms: "1:15", text: "Across the frozen lake we go." }] }, [[60_000, 90_000]], 200_000);
+    expect(merged.map((l) => l.at_ms)).toEqual([0, 75_000]);
   });
 });
