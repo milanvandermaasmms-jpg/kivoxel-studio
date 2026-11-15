@@ -506,7 +506,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         let added = 0;
         const share = video.data.format === "C" ? 0.5 : 0.7;
         if (coverage(draft.lines, plan.targetMs) < share * 0.8) {
-          const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 8000 : 3000);
+          const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 6000 : 1800);
           const have = draft.lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
           const extra = Math.max(0, targetWords(video.data.format, plan.targetMs) - have);
           if (gaps.length && extra >= 5) {

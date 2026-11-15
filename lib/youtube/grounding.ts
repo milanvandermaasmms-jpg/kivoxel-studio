@@ -109,6 +109,7 @@ export function groundingBlock(e: Evidence, frames: FramePick[], format: Format,
     healthSeen ? "- Mention health only as the evidence shows it (full/most/half/low); never say 'one heart' or 'half a heart' unless health is low." : "- Health is never clearly visible: do NOT mention hearts or health at all (also not in top_line, hooks or titles).",
     dark ? "- Only call it dark where the evidence says cave_dark or night." : "- It is never really dark: do NOT call it dark.",
     "- No falls, deaths, explosions or kills unless they are in the events.",
+    "- Write full, lively sentences of 6-14 words (a narrator telling the story to a friend), not 2-3 word shouts; vary the rhythm.",
     `- Length: about ${words} words in total (±10%), spread over the whole video, the line at_ms on the moment it talks about; no stretch longer than ${maxGap} s without narration unless it is a deliberate pause before a payoff.`,
   ].join("\n");
 }
