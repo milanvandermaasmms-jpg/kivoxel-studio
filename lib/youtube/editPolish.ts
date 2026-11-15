@@ -12,6 +12,9 @@ const MENU = /\b(menu|inventory|inventaris|chest|crafting|pause|settings|loading
 const IDLE = /\b(walk|walking|idle|stand|standing|looking|wandering)\b/i;
 const EVENT = /\b(explo|damage|hit|death|died|dies|fall|fell|found|find|kill|attack|boom|ignite|burn)/i;
 
+/** Half the window around a menu frame in a long video (frames ~6 s apart), so neighbouring menu frames join up. */
+const LONG_HALF = 3200;
+
 export const isIdle = (f: FrameFact) => MENU.test(f.action) || (!f.mobs.length && !f.events.length && (IDLE.test(f.action) || !f.action));
 export const isEvent = (f: FrameFact) => f.events.some((e) => EVENT.test(e) && !MENU.test(e));
 
@@ -67,6 +70,12 @@ export function polishPlan(segments: Segment[], frames: FramePick[], e: Evidence
   const filler = (f: FrameFact) => isIdle(f) || (short && action >= 2 && !f.mobs.length && !f.events.length);
   const first = picks[0]?.srcMs ?? 0;
   let cuts = merge(picks.filter((f) => f.srcMs - first >= 2000 && filler(factOf.get(f.index)!)).map((f) => [f.srcMs - half, f.srcMs + half] as [number, number])).filter(([a, b]) => b - a >= (short ? 2000 : 4000));
+  // Long videos have a frame per ~6 s: two or more menu/inventory frames in a row are one menu stretch, cut as a whole
+  // (a single menu frame can be a quick glance and stays).
+  if (!short) {
+    const menus = merge(picks.filter((f) => f.srcMs - first >= 2000 && MENU.test(factOf.get(f.index)!.action)).map((f) => [f.srcMs - LONG_HALF, f.srcMs + LONG_HALF] as [number, number])).filter(([a, b]) => b - a > 2 * LONG_HALF + 500);
+    cuts = merge([...cuts, ...menus]);
+  }
   const min = (planKey ? targetFor(format, planKey) : TARGET[format]).minMs;
   const total = totalMs(segments);
   cuts.sort((a, b) => b[1] - b[0] - (a[1] - a[0]));

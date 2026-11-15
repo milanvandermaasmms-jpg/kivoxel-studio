@@ -92,3 +92,23 @@ describe("Shorts vary in length", () => {
     expect(srcToOut(p.segments, 30_000)).not.toBeNull();
   });
 });
+
+describe("long parts lose their menu stretches", () => {
+  // A 6 min part with a frame every 6 s; 60-90 s is one long menu/settings stretch, 150 s a single quick inventory glance.
+  const long = [seg(0, 360_000, 0)];
+  const fr: FramePick[] = Array.from({ length: 60 }, (_, index) => ({ index, srcMs: index * 6000 + 3000, outMs: index * 6000 + 3000, segment: 0 }));
+  const ev: Evidence = {
+    frames: fr.map((f) => (f.srcMs > 60_000 && f.srcMs < 90_000 ? fact(f.index, "in settings menu") : f.index === 25 ? fact(f.index, "in inventory") : fact(f.index, "mining"))),
+    summary: "",
+    uncertain: [],
+  };
+  it("cuts the whole menu stretch but keeps a single glance", () => {
+    const p = polishPlan(long, fr, ev, "C", "rec:C:part:1/5:0-360000");
+    expect(p.cuts).toHaveLength(1);
+    const [a, b] = p.cuts[0];
+    expect(a).toBeLessThanOrEqual(63_000);
+    expect(b).toBeGreaterThanOrEqual(87_000);
+    expect(srcToOut(p.segments, 75_000)).toBeNull();
+    expect(srcToOut(p.segments, 153_000)).not.toBeNull();
+  });
+});

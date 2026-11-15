@@ -341,8 +341,9 @@ export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
   B: { minMs: 15_000, maxMs: 45_000 },
   C: { minMs: 8 * 60_000, maxMs: 15 * 60_000 },
 };
-/** One part of a recording told in full: about 7.5 minutes of footage plus the cold open. */
-export const PART_TARGET = { minMs: 5 * 60_000, maxMs: 15 * 60_000 };
+/** One part of a recording told in full: about 7.5 minutes of footage plus the cold open. After the editor cuts menus and
+ * idle stretches a part may end up shorter: better 3:30 that is all story than 5:00 with menus in it. */
+export const PART_TARGET = { minMs: 3 * 60_000, maxMs: 15 * 60_000 };
 /** The target length of a video: a part of a story told in parts has its own. */
 export const targetFor = (format: Format, planKey?: string | null) => (format === "C" && parseSeriesKey(planKey) ? PART_TARGET : TARGET[format]);
 /** "Deel 2 van 5" for a part, null for any other video. */
