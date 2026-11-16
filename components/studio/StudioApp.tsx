@@ -295,7 +295,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
           <h1 className="text-xl font-semibold tracking-tight">
             KIVOXEL Studio <span className="text-sm font-normal text-violet-700">{flowReady?.board.channels.find((c) => c.id === channel)?.name ?? "alle kanalen"}</span>
           </h1>
-          <p className="text-sm text-slate-500">Er gaat niets online zonder jouw klik. Geen gezicht, naam, stem of gamertag van Maes in beeld.</p>
+          <p className="text-sm text-slate-500">Er gaat niets online zonder jouw klik. Geen achternaam, school, woonplaats of chat van anderen in beeld.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => chooseTab("upload")}>

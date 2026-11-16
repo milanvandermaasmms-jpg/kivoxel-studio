@@ -7,7 +7,7 @@ import { hostname, homedir } from "node:os";
 import { join } from "node:path";
 import { WORKER_PORT, type WorkerHealth } from "../lib/youtube/protocol.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
-import { boostLoudness, cutArgs, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
+import { audioDurationMs, normalizeLoudness, boostLoudness, cutArgs, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
 import { createGemini } from "./gemini.ts";
 import { createResearch } from "./research.ts";
 import { createTts, createUsageCounter } from "./tts.ts";
@@ -29,6 +29,13 @@ import { createDnPublish } from "./dreamnest/publish.ts";
 import { createIvarLane } from "./ivar/lane.ts";
 import { createIvarModel } from "./ivar/model.ts";
 import { DEFAULT_MODEL } from "./gemini.ts";
+import { checkThumbnailHeader, fontPath } from "./brandCheck.ts";
+import { createEventStore } from "./eventTimeline.ts";
+import { createPhraseLog } from "./phraseLog.ts";
+import { createMediaLibrary } from "./mediaLibrary.ts";
+import { bestLocalTts } from "./localTts.ts";
+import { configProblems, resolveSettings } from "../lib/kivoxel/config.ts";
+import { brandProblems } from "../lib/kivoxel/brand.ts";
 
 const VERSION = "65.0";
 
@@ -109,11 +116,26 @@ const montage: Montage | null = version
       measure: (file, cwd, options) => measureRender(ffmpeg, ffprobe, file, cwd, options),
       boost: (input, output, cwd, options) => boostLoudness(ffmpeg, input, output, cwd, options),
       loudness: (file, cwd) => measureLoudness(ffmpeg, file, cwd),
+      headerCheck: (thumb, assFile, size, cwd) => checkThumbnailHeader(ffmpeg, thumb, assFile, size, cwd),
+      events: createEventStore(ffmpeg, dataDir),
+      duration: (file) => audioDurationMs(ffprobe, file),
+      phrases: createPhraseLog(join(dataDir, "kivoxel-phrases.json")),
+      normalize: (input, output, cwd, target, options) => normalizeLoudness(ffmpeg, input, output, cwd, target, options),
+      media: createMediaLibrary(dataDir, join(import.meta.dirname, "..", "assets", "kivoxel", "sfx"), log),
       // Narrator: Google TTS, free tier only; the character counter lives next to the recordings.
       voice: env.GOOGLE_TTS_API_KEY ? { tts: createTts(env.GOOGLE_TTS_API_KEY), usage: createUsageCounter(join(dataDir, "tts-usage.json")) } : null,
     }
   : null;
 if (montage) await mkdir(montage.tmpDir, { recursive: true });
+// KIVOXEL fase 1, section 8: the best voice on this pc without cloud credits (Piper, Kokoro, else Windows).
+if (montage) {
+  const v = resolveSettings(null).voice;
+  montage.localVoice = await bestLocalTts(dataDir, v.local_order, v.kokoro_voice).catch(() => undefined);
+  if (montage.localVoice) log(`Lokale stem (terugval zonder Google): ${montage.localVoice.name}`);
+}
+// KIVOXEL fase 1: a typo in config/kivoxel or brand/ shows up here, in Dutch, when the worker starts.
+for (const problem of [...configProblems(), ...brandProblems()]) log(`Config: ${problem}`);
+if (!fontPath()) log("Config: het lettertype van de thumbnail-header (brand/thumbnail_header.json) is niet geïnstalleerd; thumbnails worden afgekeurd.");
 
 // YouTube connection (fase D1): the key that encrypts the tokens on this pc. Missing? Make one and keep it in .env.local.
 if (!/^[0-9a-f]{64}$/i.test(env.YT_TOKEN_KEY ?? "")) {

@@ -75,12 +75,12 @@ export function UploadCard({
     <Section title="Opname toevoegen" intro="De opname gaat rechtstreeks naar de werker op de pc en blijft daar. Een afgebroken upload gaat verder waar hij stopte, ook als je later hetzelfde bestand opnieuw kiest.">
       {!workerOnline && <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">Uploaden kan alleen op de pc waarop de werker draait. Start eerst de werker.</p>}
       <div className="space-y-3">
-        <Field label="Naam van de opname" hint="Bijvoorbeeld de datum en wat er gebeurt. Gebruik geen echte naam of gamertag.">
+        <Field label="Naam van de opname" hint="Bijvoorbeeld de datum en wat er gebeurt. Gebruik geen achternaam, school of woonplaats.">
           <input className={inputClass} value={label} maxLength={200} placeholder="bijv. 11-11 grot met creepers" onChange={(e) => setLabel(e.target.value)} disabled={busy || paused} />
         </Field>
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={isTest} onChange={(e) => setIsTest(e.target.checked)} disabled={busy || paused} className="h-4 w-4 accent-emerald-600" />
-          Testdata (geen echte gameplay van Maes; wordt gratis en zonder AI verwerkt)
+          Testdata (geen echte gameplay; wordt gratis en zonder AI verwerkt)
         </label>
         <Field label="Videobestand" hint="mp4, webm, mkv of mov. Grote bestanden (meerdere GB) mogen.">
           <input

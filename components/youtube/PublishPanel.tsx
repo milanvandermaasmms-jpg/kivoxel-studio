@@ -549,9 +549,9 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1">
             <span className="font-medium">Taal van de video</span>
-            <select value={draft.language} onChange={(e) => set({ language: e.target.value as "en" | "nl" })} className={field}>
+            {/* KIVOXEL videos are English, always (Milan, 16-11-2026). */}
+            <select value="en" onChange={() => set({ language: "en" })} className={field}>
               <option value="en">Engels</option>
-              <option value="nl">Nederlands</option>
             </select>
           </label>
           <div className="grid gap-1">

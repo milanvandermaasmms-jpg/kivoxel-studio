@@ -5,6 +5,7 @@ import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, partLabel, PRIVACY_LABEL, SERIES_MIN_MS, SERIES_PART_MS, targetFor, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
+import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwitch";
 import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, queueSeries, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { ViralCard } from "@/components/youtube/ViralCard";
 import { pageVisible } from "@/lib/visible";
@@ -249,7 +250,7 @@ function RealGameplayFix({ canAnalyse, onConfirm }: { canAnalyse: boolean; onCon
   if (!open)
     return (
       <button type="button" onClick={() => setOpen(true)} className="mt-1 text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700">
-        Is dit toch echte gameplay van Maes?
+        Is dit toch echte gameplay?
       </button>
     );
   return (
@@ -258,7 +259,7 @@ function RealGameplayFix({ canAnalyse, onConfirm }: { canAnalyse: boolean; onCon
         De opname krijgt een nieuwe naam, de gratis testanalyse en de testvideo&apos;s verdwijnen, en de werker analyseert hem opnieuw met Gemini (betaald, binnen het maandplafond).
       </p>
       <label className="grid gap-1">
-        <span className="text-xs text-slate-500">Nieuwe naam (geen echte naam of gamertag)</span>
+        <span className="text-xs text-slate-500">Nieuwe naam (geen echte achternaam, school of woonplaats)</span>
         <input value={label} maxLength={200} onChange={(e) => setLabel(e.target.value)} placeholder="bijv. 11-11 grot met creepers" className="rounded-md border border-slate-300 bg-transparent px-2 py-1" />
       </label>
       {!canAnalyse && <p className="text-xs text-amber-800">Eerst betaalde verwerking aanzetten en de werker met een Gemini-sleutel starten.</p>}
@@ -561,6 +562,7 @@ function MontageBlock({ video, approved, scripts, montage, act, studioId, worker
           </Button>
         )}
       </div>
+      {approved && !busy && renders.length > 0 && <AudioModeSwitch studioId={studioId} script={approved} attempt={jobs.length + 1} current={renderAudio(shown)} act={act} onQueued={() => onWatch?.(video.id)} />}
       {!approved && <p className="text-xs text-slate-500">Keur eerst een script goed; daarna kan de werker de montage maken.</p>}
       {latest && (
         <p className={`text-xs ${latest.status === "failed" ? "text-red-700" : "text-slate-600"}`}>
@@ -639,7 +641,7 @@ function VoiceCard({ voice, connected, dutchScripts, onSave }: { voice: VoiceSet
               </option>
             ))}
           </select>
-          {!dutchScripts && <span className="text-xs text-slate-500">De scripts zijn Engels; Nederlandse stemmen verschijnen zodra er Nederlandse scripts zijn.</span>}
+          <span className="text-xs text-slate-500">KIVOXEL-video&apos;s zijn altijd Engels: alleen Engelse stemmen.</span>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-slate-600">Tempo van de verteller: {draft.speaking_rate.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}×</span>
@@ -727,9 +729,9 @@ function PrivacyCard({ privacy, onSave }: { privacy: PrivacySettings; onSave: (p
         {!valid && <p className="text-xs text-amber-800">Elk vlak moet minstens 8% breed en hoog zijn en binnen het beeld vallen.</p>}
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={draft.mute_flagged_voice} onChange={(e) => setDraft({ ...draft, mute_flagged_voice: e.target.checked })} />
-          Gamegeluid helemaal uit als de analyse een stem hoort (de verteller blijft)
+          Gamegeluid helemaal uit als de analyse een stem hoort (standaard uit: de kinderen mogen gehoord worden)
         </label>
-        {!draft.privacy_blur && <p className="text-xs text-amber-800">Zonder vervagen kan een video met een gamertag, chat of melding niet worden goedgekeurd.</p>}
+        {!draft.privacy_blur && <p className="text-xs text-amber-800">Zonder vervagen kan een video met chat of een melding van anderen niet worden goedgekeurd.</p>}
         <div className="flex gap-2">
           <Button disabled={!changed || !valid} onClick={() => void onSave(draft)}>
             Opslaan

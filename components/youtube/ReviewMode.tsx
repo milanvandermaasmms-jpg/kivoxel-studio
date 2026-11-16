@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/Dialog";
 import { formatTimecode } from "@/lib/youtube/analysis";
 import type { ReviewItem } from "@/lib/youtube/board";
 import { approveConcept, approveFinal, rejectConcept, rejectFinal, sendBackConcept, type BoardState } from "@/lib/youtube/boardData";
+import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwitch";
+import { MiniReport } from "@/components/youtube/MiniReport";
 import { changedCount, scriptDiff } from "@/lib/youtube/scriptDiff";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers, reviewChecks } from "@/lib/youtube/review";
@@ -151,6 +153,15 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               ) : (
                 <p className="rounded-md border border-slate-200 px-3 py-2 text-slate-600">{render ? "De video staat op de pc. Start de werker om hem hier te bekijken." : "Er is nog geen montage."}</p>
               ))}
+            {item.kind === "final" && render && script?.status === "approved" && !renderBusy && (
+              <AudioModeSwitch
+                studioId={studioId}
+                script={script}
+                attempt={board.jobs.filter((j) => j.step === "render" && (j as { payload?: { script_id?: string } | null }).payload?.script_id === script.id).length + 1}
+                current={renderAudio(render)}
+                act={act}
+              />
+            )}
 
             {script && (
               <section className="space-y-2 rounded-md border border-slate-200 p-3">
@@ -203,6 +214,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 ))}
               </ul>
             )}
+            {item.kind === "final" && render && <MiniReport qc={render.qc as Parameters<typeof MiniReport>[0]["qc"]} topLine={script?.top_line ?? null} model={(script as { model?: string | null } | undefined)?.model} short={render.height > render.width} />}
             {checks.length > 0 && blockers.length === 0 && (
               <ul className="list-disc space-y-0.5 pl-5 text-slate-700">
                 {checks.map((c) => (

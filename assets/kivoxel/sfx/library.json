@@ -1,0 +1,51 @@
+{
+  "$comment": "Self-made with FFmpeg (scripts/kivoxel-make-media.ts): no rights of others.",
+  "source": "eigen (KIVOXEL, gesynthetiseerd)",
+  "license": "eigen werk",
+  "sfx": [
+    {
+      "file": "whoosh-1.wav",
+      "kind": "whoosh",
+      "db": 8
+    },
+    {
+      "file": "whoosh-2.wav",
+      "kind": "whoosh",
+      "db": 8
+    },
+    {
+      "file": "whoosh-3.wav",
+      "kind": "whoosh",
+      "db": 8
+    },
+    {
+      "file": "impact-1.wav",
+      "kind": "impact"
+    },
+    {
+      "file": "impact-2.wav",
+      "kind": "impact"
+    },
+    {
+      "file": "impact-3.wav",
+      "kind": "impact"
+    },
+    {
+      "file": "scratch-1.wav",
+      "kind": "scratch"
+    },
+    {
+      "file": "scratch-2.wav",
+      "kind": "scratch"
+    },
+    {
+      "file": "pop-1.wav",
+      "kind": "pop"
+    },
+    {
+      "file": "riser-1.wav",
+      "kind": "riser",
+      "db": -4
+    }
+  ]
+}

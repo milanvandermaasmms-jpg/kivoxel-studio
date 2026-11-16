@@ -1,0 +1,97 @@
+{
+  "$comment": "KIVOXEL fase 1: alles wat smaak is. Getallen in milliseconden (ms) of decibel (dB). Een preset overschrijft alleen wat hij noemt; de rest komt uit 'base'. Zie docs/kivoxel-presets.md.",
+  "version": 1,
+  "channel_default": { "preset": "standaard", "audio_mode": "vo_muziek", "engine": "auto" },
+
+  "base": {
+    "audio_mode": "vo_muziek",
+
+    "audio_modes": {
+      "vo_muziek": { "label": "Stem + muziek", "voice": true, "music": true, "game": true, "game_db": -10, "music_db": -20, "duck_db": -12, "storytelling": "voice_and_captions" },
+      "muziek_geen_vo": { "label": "Muziek, geen stem", "voice": false, "music": true, "game": true, "game_db": -4, "music_db": -14, "duck_db": -8, "storytelling": "text_overlays" },
+      "alleen_game": { "label": "Alleen gamegeluid", "voice": false, "music": false, "game": true, "game_db": 0, "music_db": null, "duck_db": null, "storytelling": "text_overlays_and_sfx" }
+    },
+
+    "sync": {
+      "lead_min_ms": 300,
+      "lead_max_ms": 1500,
+      "peak_quiet_ms": 500,
+      "max_speed": 1.08,
+      "max_attempts": 3
+    },
+
+    "mix": {
+      "target_lufs": -14,
+      "lufs_tolerance": 1,
+      "true_peak_db": -1,
+      "voice_chain": { "highpass_hz": 90, "presence_db": 2.5, "compress_ratio": 3, "room_reverb_mix": 0.08 }
+    },
+
+    "shorts": {
+      "width": 1080,
+      "height": 1920,
+      "fps": "source",
+      "safe_zone": { "top_px": 220, "bottom_px": 480, "right_px": 140, "left_px": 60 },
+      "length_buckets": [
+        { "key": "loop", "label": "Loop", "min_ms": 7000, "max_ms": 14000 },
+        { "key": "kort", "label": "Kort", "min_ms": 15000, "max_ms": 25000 },
+        { "key": "midden", "label": "Midden", "min_ms": 26000, "max_ms": 40000 },
+        { "key": "verhaal", "label": "Verhaal", "min_ms": 41000, "max_ms": 58000, "needs_buildup": true }
+      ],
+      "no_same_bucket_in_a_row": true,
+      "first_action_max_ms": 500
+    },
+
+    "long": { "width": 1920, "height": 1080, "chapters": true, "visual_reset_ms": [20000, 40000] },
+
+    "hooks": { "max_words": 4, "min_words": 2, "no_repeat_within": 10, "pop_in_ms": 300, "shake_on_payoff": true },
+
+    "features": {
+      "hook_first_second": true,
+      "payoff_tease": false,
+      "cut_dead_air": true,
+      "max_pause_ms": 700,
+      "pattern_interrupts": true,
+      "interrupt_every_ms": [2000, 4000],
+      "interrupts": ["zoom_punch", "speed_ramp", "freeze_text", "shake", "sfx_accent"],
+      "word_captions": true,
+      "loop_ending": true,
+      "sfx_layer": true,
+      "cold_open": true,
+      "kids_reactions": true
+    },
+
+    "variation": {
+      "$comment": "Tegen 'inauthentic content': deze keuzes rouleren, en hetzelfde wordt pas na zoveel video's opnieuw gekozen.",
+      "zoom_styles": ["punch", "slow_push", "whip"],
+      "caption_styles": ["pop", "bounce", "highlight"],
+      "transitions": ["cut", "whoosh", "flash"],
+      "music_no_repeat_within": 6,
+      "sfx_no_repeat_within": 3,
+      "opener_no_repeat_within": 8
+    },
+
+    "voice": {
+      "$comment": "Zonder Google (geen sleutel, gratis deel op, of gratis modus) spreekt de eerste lokale stem die op deze pc staat. Kies na het luisteren naar testrenders/stemmen.",
+      "local_order": ["kokoro", "piper", "windows"],
+      "kokoro_voice": "am_puck"
+    },
+
+    "music": { "library_dir": "music", "beat_sync": true, "fade_in_ms": 300, "fade_out_ms": 900 },
+    "sfx": { "library_dir": "sfx" }
+  },
+
+  "presets": {
+    "standaard": { "label": "Standaard (alles aan)" },
+    "rustig_bouwen": {
+      "label": "Rustig bouwen",
+      "features": { "interrupt_every_ms": [3500, 6000], "interrupts": ["zoom_punch", "freeze_text"] },
+      "audio_modes": { "vo_muziek": { "music_db": -22 } }
+    },
+    "chaos": {
+      "label": "Chaos (maximale energie)",
+      "features": { "interrupt_every_ms": [1500, 3000], "payoff_tease": true }
+    },
+    "zonder_muziek": { "label": "Stem zonder muziek (zoals vóór 16-11)", "audio_mode": "vo_muziek", "audio_modes": { "vo_muziek": { "music": false, "music_db": null, "duck_db": null } } }
+  }
+}

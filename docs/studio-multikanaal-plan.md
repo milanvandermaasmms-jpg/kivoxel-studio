@@ -6,7 +6,7 @@ Bron: `C:\Users\famdj\Downloads\SUPERPROMPT_STUDIO.md`. Opgesteld 13-11-2026. Ni
 
 | Botsing | Besluit |
 |---|---|
-| Kinderen (superprompt: echte stem, facecam, voornaam) | **Huisregel blijft.** Maes nooit met gezicht, stem, naam of gamertag. AI-verteller + gameplay. Shorts met facecam/split-screen en "reactie van de kinderen" vervallen. De privacy-scan wordt wél gebouwd, als harde blokkade. |
+| Kinderen (superprompt: echte stem, facecam, voornaam) | **Vervallen op 16-11-2026 (migratie 056):** gezicht, stem en gamertag van de kinderen mogen; nooit echte naam, school of woonplaats. Oorspronkelijk: Maes nooit met gezicht, stem, naam of gamertag. AI-verteller + gameplay. Shorts met facecam/split-screen en "reactie van de kinderen" vervallen. De privacy-scan wordt wél gebouwd, als harde blokkade. |
 | Kosten (superprompt: Claude, ElevenLabs, Suno, Kling/Veo/Runway) | **Wisselbaar, gratis standaard.** Provider-stekkers bouwen, maar alles draait op Gemini Flash-Lite (≤ € 5/maand) en Google TTS (gratis deel). Elke betaalde dienst pas na akkoord + budget van Milan. |
 | Database (superprompt: familie-Supabase, schema `studio`) | **Eigen project `kivoxel-studio`**, de bestaande `yt_*`-tabellen uitbreiden. Geen herbouw, geen apart schema. |
 | Dreamnest | **Eerst KIVOXEL.** Dreamnest krijgt alvast profiel, Lumi-bible, opdrachtscherm en de gratis checks; de dure render pas als Milan een videogenerator, muziekdienst en budget kiest. |
@@ -37,7 +37,7 @@ Elke fase begint pas als de vorige op `main` staat en de samenvoeg-sessie klaar 
 
 ### Fase B: Poortwachter (harde checks)
 - Status "Geblokkeerd" met reden op de kaart.
-- Privacy-scan op transcript en tekst in beeld (Gemini, binnen het budget): namen, school, woonplaats, telefoonnummers, gamertags. Gevonden → vervagen/dempen voorstellen + blokkeren tot Milan keurt. Maes-regel als vaste check.
+- Privacy-scan op transcript en tekst in beeld (Gemini, binnen het budget): namen, school, woonplaats, telefoonnummers, gamertags. Gevonden → vervagen/dempen voorstellen + blokkeren tot Milan keurt. (Maes-regel vervallen op 16-11-2026.)
 - Tekst-linter per kanaal (verboden woorden, "Lumi" nooit los), Made for Kids per video, geen "zie eindscherm"-teksten bij Made for Kids.
 - Poortwachter-widget: groen/oranje/rood per regel met uitleg.
 

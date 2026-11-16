@@ -1,0 +1,39 @@
+{
+  "$comment": "Lines for the free script engine (no AI). ENGLISH ONLY, always. Tone: explosive gamer hype, never soft. Rule 1: say what is ABOUT to happen, never what is already on screen. 'anticipation' ends just before the peak; the engine picks a shorter one when the voice does not fit. {hearts} = number of hearts. Kid-friendly: no swearing, no mocking.",
+  "version": 2,
+  "opener": {
+    "fail": ["This is about to go SO wrong.", "He has NO idea what's coming.", "Bro. BRO. Don't do it!", "Worst. Decision. EVER.", "He's about to lose EVERYTHING."],
+    "bijna_dood": ["He is NOT surviving this!", "One more hit and it's OVER!", "This is the closest call EVER!", "He should be DEAD right now!", "Hardcore. One life. Watch this!"],
+    "geluk": ["You will NOT believe this!", "This almost NEVER happens!", "Wait. WAIT. Is that…?!", "The luckiest moment EVER!"],
+    "bouw": ["From NOTHING to THIS!", "Wait for the end. Trust me!", "This build is INSANE!"],
+    "grap": ["What is he even DOING?!", "This makes ZERO sense!", "Bro had ONE job!"],
+    "jumpscare": ["Turn your sound UP!", "Something is RIGHT behind him!", "Do NOT look away!"]
+  },
+  "anticipation": {
+    "fail": [
+      "One wrong step and it's ALL gone…",
+      "He's walking STRAIGHT into it…",
+      "No no no NO NO!",
+      "Don't jump. DON'T JUMP!",
+      "Here it comes!",
+      "Oh, he's DONE!"
+    ],
+    "bijna_dood": [
+      "{hearts} hearts left and he's STILL going!",
+      "One more hit and the world is GONE!",
+      "Careful. CAREFUL!",
+      "Don't. Look. DOWN!",
+      "He's not gonna make it!",
+      "Move. MOVE!"
+    ],
+    "geluk": ["Look at the RIGHT side!", "Something's shining down there!", "Wait for it… WAIT for it!", "LOOK!"],
+    "bouw": ["And now the part that took FOREVER!", "Watch it ALL come together!", "Last block!"],
+    "grap": ["He actually thinks this will work!", "Watch THIS!", "Here we GO!"],
+    "jumpscare": ["It's quiet. WAY too quiet…", "Turn around. TURN AROUND!", "Behind you!"]
+  },
+  "open_loop": ["Watch his hearts. SERIOUSLY.", "Remember this spot. It MATTERS.", "Keep your eyes on the bottom!", "Something's off here. You'll SEE."],
+  "bridge": ["But it gets WORSE!", "And then THIS happened!", "Okay. Next disaster!", "It's NOT over yet!"],
+  "build": ["Keep watching. KEEP WATCHING.", "This is getting SKETCHY…", "I don't like this. At ALL.", "Oh, this is BAD…", "Something is about to happen…", "Careful… CAREFUL…", "He's pushing his luck!", "Any second now…"],
+  "cold_open_bridge": ["But how did we even GET here?", "Okay. Rewind. How did THIS happen?", "Let's go back. To where it ALL started…"],
+  "loop_end": ["And that's EXACTLY how it started…", "Wait. We've been here BEFORE…", "One wrong step…"]
+}

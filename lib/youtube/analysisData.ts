@@ -50,7 +50,6 @@ export const VOICES: { name: string; label: string }[] = [
   { name: "en-US-Chirp3-HD-Fenrir", label: "Fenrir · Amerikaans Engels, mannelijk, enthousiast (aanrader voor kinderen)" },
   { name: "en-US-Chirp3-HD-Kore", label: "Kore · Amerikaans Engels, vrouwelijk" },
   { name: "en-GB-Chirp3-HD-Charon", label: "Charon · Brits Engels, mannelijk" },
-  { name: "nl-NL-Chirp3-HD-Charon", label: "Charon · Nederlands, mannelijk" },
 ];
 
 export type AnalysisState =
@@ -111,7 +110,7 @@ async function loadMontage(studioId: string): Promise<MontageState> {
   }
   return {
     voice: voice.data ? { voice_name: voice.data.voice_name, speaking_rate: Number(voice.data.speaking_rate), game_volume: Number(voice.data.game_volume) } : DEFAULT_VOICE,
-    privacy: voice.data && "privacy_regions" in voice.data ? { privacy_blur: voice.data.privacy_blur !== false, privacy_regions: cleanRegions(voice.data.privacy_regions), mute_flagged_voice: voice.data.mute_flagged_voice !== false } : null,
+    privacy: voice.data && "privacy_regions" in voice.data ? { privacy_blur: voice.data.privacy_blur !== false, privacy_regions: cleanRegions(voice.data.privacy_regions), mute_flagged_voice: voice.data.mute_flagged_voice === true } : null,
     renders: renders.data ?? [],
     jobs: (jobs.data ?? []).filter((j) => j.payload?.script_id).map((j) => ({ script_id: j.payload!.script_id!, status: j.status, error: j.error, created_at: j.created_at })),
   };
@@ -131,9 +130,11 @@ export async function savePrivacySettings(studioId: string, p: PrivacySettings):
 }
 
 /** "Montage maken": queues a montage of an approved script. Each click is a new attempt (render:<script>:<n>). */
-export async function queueRender(studioId: string, script: DbScript, attempt: number): Promise<void> {
+export async function queueRender(studioId: string, script: DbScript, attempt: number, audioMode?: string): Promise<void> {
   if (script.status !== "approved") throw new Error("Keur het script eerst goed.");
-  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: `render:${script.id}:${attempt}`, payload: { script_id: script.id } });
+  // KIVOXEL fase 1: the audio mode travels with the job (no new column); without it the worker uses the channel default.
+  const payload = audioMode ? { script_id: script.id, audio_mode: audioMode } : { script_id: script.id };
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: `render:${script.id}:${attempt}`, payload });
   if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
   // A new montage needs a new check: an earlier approval no longer counts. The worker sets "review" when it is done.
   await setVideoStatus(script.video_id, "rendering", ["idea", "scripted", "review", "approved"]);

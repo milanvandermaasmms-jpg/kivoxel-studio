@@ -1,12 +1,14 @@
 // FFmpeg/ffprobe on Milan's pc (installed with winget: Gyan.FFmpeg).
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
+import { rename } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { promisify } from "node:util";
 import { checkStall, createProgressParser, type FfmpegSnapshot } from "../lib/youtube/progress.ts";
 import type { ProbeInfo } from "../lib/youtube/protocol.ts";
 import { parseQcLog, type QcProbe } from "../lib/youtube/qc.ts";
 import { createSignalParser, signalArgs, type Signals } from "../lib/youtube/footage.ts";
+import { correctArgs, measureArgs, parseMeasured, trimArgs, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 
 const run = promisify(execFile);
 
@@ -286,4 +288,35 @@ export async function detectSignals(ffmpeg: string, file: string, durationMs: nu
   // Long recordings decode at several times real time; allow an hour as an outer limit (the stall watchdog stops a stuck run sooner).
   await runFfmpeg(ffmpeg, signalArgs(file), cwd, 60 * 60_000, { ...options, onStderr: (c) => { parser.feed(c); options.onStderr?.(c); } });
   return parser.finish();
+}
+
+/** Length of an audio file (a spoken script line) in ms, measured by ffprobe. */
+export async function audioDurationMs(ffprobe: string, file: string): Promise<number> {
+  const { stdout } = await run(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file], { timeout: 30_000 });
+  const s = Number(stdout.trim());
+  if (!Number.isFinite(s) || s <= 0) throw new Error(`Lengte van ${file} niet te meten`);
+  return Math.round(s * 1000);
+}
+
+/** Makes a spoken line a little faster without changing the pitch (the sync gate allows at most 1.08x). */
+export const tempoArgs = (input: string, output: string, speed: number) => ["-hide_banner", "-loglevel", "error", "-y", "-i", input, "-filter:a", `atempo=${speed.toFixed(3)}`, "-ar", "48000", output];
+
+/** KIVOXEL fase 1: exact loudness in two passes (lib/kivoxel/loudness.ts); the picture is copied. Returns false when pass 1 printed no measurement. */
+export async function normalizeLoudness(ffmpeg: string, input: string, output: string, cwd: string, target: LoudnessTarget, options: RunOptions = {}): Promise<boolean> {
+  let log = "";
+  await runFfmpeg(ffmpeg, measureArgs(input, target), cwd, 10 * 60_000, { ...options, onStderr: (c) => { log = (log + c).slice(-20_000); options.onStderr?.(c); } });
+  const measured = parseMeasured(log);
+  if (!measured) return false;
+  await runFfmpeg(ffmpeg, correctArgs(input, output, target, measured), cwd, 10 * 60_000, options);
+  // Measure again; off by more than 0.4 LU: a small gain + limiter pass (at most twice).
+  for (let i = 0; i < 2; i++) {
+    let check = "";
+    await runFfmpeg(ffmpeg, measureArgs(output, target), cwd, 10 * 60_000, { ...options, onStderr: (c) => { check = (check + c).slice(-20_000); } });
+    const now = Number(parseMeasured(check)?.input_i);
+    if (!Number.isFinite(now) || Math.abs(now - target.lufs) <= 0.4) break;
+    const trimmed = output.replace(/\.mp4$/, `.trim${i}.mp4`);
+    await runFfmpeg(ffmpeg, trimArgs(output, trimmed, target, now), cwd, 10 * 60_000, options);
+    await rename(trimmed, output);
+  }
+  return true;
 }

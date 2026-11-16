@@ -1,0 +1,21 @@
+{
+  "$comment": "HEILIG: de gele header bovenaan elke thumbnail. Alle thumbnails lezen alleen dit bestand. Overgenomen uit de thumbnail-code van 14-11-2026 (thumbAss). Wijzig alleen bewust: de automatische check vergelijkt elke thumbnail hiermee.",
+  "version": 1,
+  "font": { "family": "Arial Black", "windows_file": "ariblk.ttf", "bold": true },
+  "color_hex": "#FFE500",
+  "outline_hex": "#000000",
+  "shadow_hex": "#000000",
+  "shadow_alpha": 150,
+  "uppercase": true,
+  "max_words": 4,
+  "position": "top_center",
+  "margin_side_px": 40,
+  "short": { "width": 1080, "height": 1920, "size_px": 130, "outline_px": 10, "shadow_px": 4, "margin_top_px": 220 },
+  "long": { "width": 1280, "height": 720, "size_px": 110, "outline_px": 8, "shadow_px": 4, "margin_top_px": 36 },
+  "check": {
+    "$comment": "Na elke thumbnail: de pixels waar de letters horen te staan moeten deze kleur hebben (JPEG geeft een kleine afwijking).",
+    "max_channel_diff": 48,
+    "min_match_share": 0.9,
+    "min_text_pixels": 400
+  }
+}

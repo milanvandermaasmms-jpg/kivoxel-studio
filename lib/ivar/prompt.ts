@@ -19,7 +19,7 @@ export type PromptContext = {
 
 const CHANNEL_NOTES: Record<ChannelKind, string> = {
   kivoxel:
-    "KIVOXEL: faceless Minecraft-gameplay van eigen opnames, Shorts en lange video's, Engelse voice-over voor kinderen. Let op opening (eerste seconden), duidelijkheid van de uitdaging, spanningsopbouw, tempo, overbodige stukken, voice-over, ondertiteling en geschikte Shortfragmenten; koppel elk voorstel aan tijdcodes. Het kind in de gameplay (Maes) nooit met naam, gezicht, stem of gamertag noemen of tonen.",
+    "KIVOXEL: faceless Minecraft-gameplay van eigen opnames, Shorts en lange video's, Engelse voice-over voor kinderen. Let op opening (eerste seconden), duidelijkheid van de uitdaging, spanningsopbouw, tempo, overbodige stukken, voice-over, ondertiteling en geschikte Shortfragmenten; koppel elk voorstel aan tijdcodes. De kinderen mogen met gezicht, stem en gamertag in beeld; nooit hun echte naam, school of woonplaats noemen.",
   dreamnest:
     "Dreamnest / Lumi: rustgevende slaapcontent met Lumi als herkenbaar personage (slaapwerelden, zachte muziek, rustige animaties, lange video's en Shorts). Let op herkenbaarheid van Lumi, zichtbare ademhaling, natuurlijke beweging, levendige omgeving, overgangen, loopnaden, beeldrust en plotselinge geluidswisselingen; onderscheid bewuste rust van onbedoeld stilstaand beeld. Nooit medische claims over slaap, baby's of frequenties.",
   other: "Een ander kanaal: volg de kanaalrichtlijnen en het geheugen.",

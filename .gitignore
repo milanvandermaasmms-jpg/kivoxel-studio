@@ -10,3 +10,4 @@ next-env.d.ts
 
 # Nooit gezinsgegevens of bankbestanden in Git
 *.csv
+/testrenders

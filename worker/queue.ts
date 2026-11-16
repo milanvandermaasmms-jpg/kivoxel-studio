@@ -49,10 +49,34 @@ import type { Uploader } from "./youtubeUpload.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
-import { thumbArgs, thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
+import { thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
 import { costCents, type Gemini, type Usage } from "./gemini.ts";
 import type { Store } from "./store.ts";
 import type { Tts } from "./tts.ts";
+import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
+import type { EventStore } from "./eventTimeline.ts";
+import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
+import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
+import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
+import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
+import { FREE_ENGINE_MODEL, fillSilences, freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
+import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
+import type { GameEvent } from "../lib/kivoxel/events.ts";
+import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
+import { chooseHook, hookChecks, hookEvents, hookStyle, hookType } from "../lib/kivoxel/hookText.ts";
+import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
+import type { PhraseLog } from "./phraseLog.ts";
+import type { LocalTts } from "./localTts.ts";
+import { AUDIO_MODES, type AudioMode } from "../lib/kivoxel/config.ts";
+import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
+import { beatStart, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
+import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
+import { momentsFromTimeline } from "../lib/kivoxel/freeMoments.ts";
+import { loudnessCheck, targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
+import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
+import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
+import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
+import { speakWithGate } from "./voiceGate.ts";
 
 /**
  * FFmpeg montage on this pc: previews go to `rendersDir`, work files to a temporary folder in `tmpDir`.
@@ -67,6 +91,25 @@ export type Montage = {
   boost?: (input: string, output: string, cwd: string, options?: RunOptions & { limit?: number }) => Promise<void>;
   loudness?: (file: string, cwd: string) => Promise<{ integratedLufs: number | null; truePeakDb: number | null }>;
   voice: { tts: Tts; usage: { reserve: (characters: number) => Promise<unknown> } } | null;
+  /** KIVOXEL fase 1: proves a thumbnail's yellow header matches brand/thumbnail_header.json. Optional for older setups. */
+  headerCheck?: (thumb: string, assFile: string, size: { width: number; height: number }, cwd: string) => Promise<HeaderCheck>;
+  /** KIVOXEL fase 1: the Event Timeline per recording (free signals + AI moments), cached on this pc. */
+  events?: EventStore;
+  /** Length of a spoken line in ms (ffprobe), for the sync gate. */
+  duration?: (file: string) => Promise<number>;
+  /** Recently used phrases (rotation), on this pc. */
+  phrases?: PhraseLog;
+  /** KIVOXEL fase 1, section 8: a voice without cloud credits (Piper, Kokoro or Windows), WAV out. */
+  localVoice?: LocalTts;
+  /** KIVOXEL fase 1: exact loudness in two passes (picture copied); false when FFmpeg gave no measurement. */
+  normalize?: (input: string, output: string, cwd: string, target: LoudnessTarget, options?: RunOptions) => Promise<boolean>;
+  /** KIVOXEL fase 1: the local music and SFX libraries, and which tracks/SFX were used lately (rotation). */
+  media?: {
+    music: () => Promise<{ dir: string; tracks: Track[] }>;
+    sfx: () => Promise<{ dir: string; items: Sfx[] }>;
+    musicLog: PhraseLog;
+    sfxLog: PhraseLog;
+  };
 };
 
 /** YouTube upload (fase D3); null while YouTube is not set up in worker/.env.local. */
@@ -369,7 +412,36 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
       return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source: "replan", rejected: [] as string[] };
     }
-    const { moments: found, rejected } = row.is_test ? { moments: testMoments(row.duration_ms), rejected: [] as string[] } : await aiMoments(job, { ...row, duration_ms: row.duration_ms }, lv);
+    // KIVOXEL fase 1, section 8: without a key, without credits, with the service down or in free mode, the moments
+    // come from the free Event Timeline instead of the paid analysis.
+    // A holder object: the closure below changes it (a plain variable would be narrowed by TypeScript).
+    const used: { engine: "test" | "ai" | "free"; note: string | null } = { engine: row.is_test ? "test" : "ai", note: null };
+    const freeAnalysis = async (why: string) => {
+      const local = await store.get(row.fingerprint);
+      if (!local || !montage?.events) throw new Error(`${why}; de gratis analyse kan hier niet (geen FFmpeg of bestand)`);
+      await lv.phase("Gratis analyse: hartjes, doodscherm, klappen en harde geluiden", 0);
+      const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+      used.engine = "free";
+      used.note = why;
+      await lv.event("note", `${why}: momenten uit de gratis analyse (${t.events.length} events)`);
+      return { moments: momentsFromTimeline(t, durationMs), rejected: [] as string[] };
+    };
+    const wantsFreeAnalysis = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
+    let result: { moments: Moment[]; rejected: string[] };
+    if (row.is_test) result = { moments: testMoments(row.duration_ms), rejected: [] };
+    else if (wantsFreeAnalysis) result = await freeAnalysis("Gratis modus");
+    else if (!ai) result = await freeAnalysis("Geen analysedienst (GEMINI_API_KEY ontbreekt)");
+    else {
+      try {
+        result = await aiMoments(job, { ...row, duration_ms: row.duration_ms }, lv);
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        // Credits gone, budget cap reached, key refused or the service is down: carry on for free.
+        result = await freeAnalysis(`Analysedienst niet beschikbaar (${e instanceof Error ? e.message.slice(0, 120) : "onbekend"})`);
+      }
+    }
+    const { moments: found, rejected } = result;
+    // yt_moments.source only knows test/ai/manual (migration 009); the free engine is recorded in "model".
     const source = row.is_test ? "test" : "ai";
     const rows = found.map((m) => ({
       studio_id: job.studio_id,
@@ -388,7 +460,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       privacy_flags: m.privacyFlags,
       suggested_format: m.suggestedFormat,
       source,
-      model: row.is_test ? null : ai?.gemini.model,
+      model: row.is_test ? null : used.engine === "free" ? FREE_ENGINE_MODEL : (ai?.gemini.model ?? null),
       is_test: row.is_test,
     }));
     const saved = await db.from("yt_moments").upsert(rows, { onConflict: "studio_id,recording_id,kind,start_ms" }).select(MOMENT_COLUMNS).returns<MomentRow[]>();
@@ -408,8 +480,26 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     }
 
+    // KIVOXEL fase 1: the Event Timeline (when what happens), free signals plus these moments. Never blocks the analysis.
+    let events: { events: number; top: string[] } | null = null;
+    // The free analysis built the timeline already; merging its own moments back in would count them twice.
+    if (!row.is_test && montage?.events && used.engine !== "free") {
+      try {
+        await lv.phase("Event Timeline maken (hartjes, doodscherm, geluidspieken)", 0);
+        const local = await store.get(row.fingerprint);
+        if (local) {
+          const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { moments, signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+          events = { events: t.events.length, top: topPayoffs(t, 3).map((e) => `${formatTimecode(e.t_peak)} ${e.description}`) };
+          await lv.event("note", `Event Timeline: ${t.events.length} events${events.top.length ? `, beste: ${events.top.join("; ")}` : ""}`);
+        }
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        await lv.event("error", `Event Timeline niet gelukt: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
     const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
-    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected };
+    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
   }
 
   /** Plans the videos of a recording and queues a script per video; returns how many videos were planned. */
@@ -444,13 +534,39 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { note, previous: { hook: prev.data.hook, topLine: prev.data.top_line, lines: prev.data.lines } };
   }
 
+  /** KIVOXEL fase 1: the length bucket of the Short made just before this one from the same recording (batch order). */
+  async function previousShortBucket(studioId: string, video: { id: string; recording_id: string | null; created_at?: string }, s: ReturnType<typeof resolveSettings>): Promise<string | null> {
+    if (!video.recording_id || !video.created_at) return null;
+    const prev = await db.from("yt_videos").select("id").eq("studio_id", studioId).eq("recording_id", video.recording_id).neq("format", "C").neq("id", video.id).lt("created_at", video.created_at).order("created_at", { ascending: false }).limit(1).returns<{ id: string }[]>();
+    const prevId = prev.data?.[0]?.id;
+    if (prev.error || !prevId) return null;
+    const sc = await db.from("yt_scripts").select("target_ms").eq("video_id", prevId).order("version", { ascending: false }).limit(1).returns<{ target_ms: number }[]>();
+    const ms = sc.data?.[0]?.target_ms;
+    return typeof ms === "number" ? (bucketOf(ms, s.shorts.length_buckets)?.key ?? null) : null;
+  }
+
+  /** KIVOXEL fase 1: the hooks (top line) of the latest Shorts in the studio, oldest first; never fails the script. */
+  async function recentShortHooks(studioId: string, exceptVideo: string): Promise<string[]> {
+    const r = await db.from("yt_scripts").select("video_id, top_line, yt_videos!inner(format)").eq("studio_id", studioId).neq("video_id", exceptVideo).neq("yt_videos.format", "C").order("created_at", { ascending: false }).limit(60).returns<{ video_id: string; top_line: string | null }[]>();
+    if (r.error || !Array.isArray(r.data)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const row of r.data) {
+      if (seen.has(row.video_id) || !row.top_line) continue;
+      seen.add(row.video_id);
+      out.push(row.top_line);
+      if (out.length === 10) break;
+    }
+    return out.reverse();
+  }
+
   /** Script: hook, top line, narration and edit plan with timecodes for one video, as a new version. */
   async function script(job: Job) {
     if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
     const version = Number(job.payload?.version ?? 1);
     if (!Number.isInteger(version) || version < 1) throw new Error("Ongeldige versie");
-    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null };
-    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null; created_at?: string };
+    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key, created_at").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     const linked = await db.from("yt_video_moments").select(`position, yt_moments(${MOMENT_COLUMNS})`).eq("video_id", video.data.id).order("position").returns<Array<{ position: number; yt_moments: MomentRow }>>();
     if (linked.error) throw new Error(linked.error.message);
@@ -467,103 +583,192 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const others = all.data.map(fromRow);
       series = { part, previous: others.filter((m) => m.peakMs < part.startMs).slice(-2), next: others.filter((m) => m.peakMs >= part.endMs).slice(0, 2) };
     }
-    const plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
+    let plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
     let grounding: Record<string, unknown> | null = null;
+    let shortInfo: { bucket: string; reason: string; cutMs: number; hook: string; hookRepeated: boolean } | null = null;
+    let longCutMsOut = 0;
+    // KIVOXEL fase 1: "ai" = Gemini writes the lines, "free" = the template engine (no credits needed).
+    let engine: "test" | "ai" | "free" = "test";
+    let engineNote: string | null = null;
     if (video.data.is_test) draft = testScript(plan, moments);
-    else {
-      if (!ai) throw new Error(NO_KEY);
-      // Studio 2.0: the gameplay is the source of truth. Frames of the real recording first (free), then Gemini reports
-      // only what is visible; the script must lean on that, and a check removes lines without support.
-      const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments, video.data.format === "C" && job.payload?.assess !== true);
+    else if (job.payload?.assess === true) {
       // Studio 2.0 keuring: only look at the material (no script written), to sort the library into strong and weak.
-      if (job.payload?.assess === true) {
-        if (!evidence) throw new Error("Keuren kan alleen met de opname op deze pc");
-        await reserve(job, 2);
-        const ev0 = await describeEvidence(job, evidence);
-        return { assess: true, frames: evidence.frames.length, strength: contentStrength(ev0), summary: ev0.summary, uncertain: ev0.uncertain };
+      if (!ai) throw new Error(NO_KEY);
+      const evidence = await gatherEvidence(job, video.data.recording_id, plan.segments, false);
+      if (!evidence) throw new Error("Keuren kan alleen met de opname op deze pc");
+      await reserve(job, 2);
+      const ev0 = await describeEvidence(job, evidence);
+      return { assess: true, frames: evidence.frames.length, strength: contentStrength(ev0), summary: ev0.summary, uncertain: ev0.uncertain };
+    } else {
+      const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
+      const wantsFree = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
+      const short = video.data.format !== "C";
+      // The Event Timeline of the recording (free; built once and kept on this pc).
+      let timeline: EventTimeline | null = null;
+      if (montage?.events && video.data.recording_id) {
+        const recRow = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).maybeSingle<{ fingerprint: string }>();
+        const local = recRow.data ? await store.get(recRow.data.fingerprint) : null;
+        if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs).catch(() => null);
       }
-      await reserve(job, evidence ? 3 + evidenceBatches(evidence.frames).length : 1);
-      const feedback = await previousFeedback(job, video.data.id, version);
-      let ev: { evidence: Evidence; frames: FramePick[] } | null = null;
-      let edit: { removedMs: number; cuts: [number, number][]; zooms: number } | null = null;
-      if (evidence) {
-        const parsedEv = await describeEvidence(job, evidence);
-        // Studio 2.0 editor: idle stretches out and zooms on real events, BEFORE the narration, so the lines land on the new timeline.
-        const polished = job.payload?.polish === false ? null : polishPlan(plan.segments, evidence.frames, parsedEv, video.data.format, video.data.plan_key);
-        if (polished) {
-          plan.segments = polished.segments;
-          plan.targetMs = totalMs(polished.segments);
-          edit = { removedMs: polished.removedMs, cuts: polished.cuts, zooms: polished.zooms };
-          ev = { evidence: polished.evidence, frames: polished.frames };
-        } else ev = { evidence: parsedEv, frames: evidence.frames };
+      const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
+      // Long video (section 7.2): menus, standing still and black screens out of every piece, before the script is written.
+      let longCutMs = 0;
+      if (!short && timeline && kSettings.features.cut_dead_air) {
+        const cd = cutDeadInPlan(plan.segments, timeline);
+        const total = cd.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
+        if (cd.segments.length && total > 0) {
+          plan = { ...plan, segments: cd.segments, targetMs: total };
+          longCutMs = cd.cutMs;
+        }
       }
-      let prompt = scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series);
-      if (ev) prompt = withEvidence(prompt) + groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs);
+      longCutMsOut = longCutMs;
+      // KIVOXEL fase 1, sections 5 and 6: a Short gets its length from the content and a hook from the library.
+      let shortEvent: GameEvent | null = null;
+      let shortHook: string | null = null;
+      if (short && timeline?.events.length) {
+        const main = moments[0];
+        const near = timeline.events.filter((e) => Math.abs(e.t_peak - main.peakMs) <= 6000).sort((a, b) => (b.type ? 1 : 0) - (a.type ? 1 : 0) || b.payoff - a.payoff)[0];
+        shortEvent = near ?? { id: `moment-${main.peakMs}`, kind: "ai_moment", type: eventTypeForMoment(main.kind), t_start: main.startMs, t_peak: main.peakMs, t_end: main.endMs, intensity: main.score / 100, payoff: main.score, description: main.reason, t_thumb: main.peakMs, sources: [`ai:${main.kind}`] };
+        const previousBucket = await previousShortBucket(job.studio_id, video.data, kSettings);
+        const sp = planShort(shortEvent, timeline, kSettings, seeded(`${video.data.id}:len:${version}`), previousBucket);
+        plan = { segments: sp.segments, targetMs: sp.targetMs, warnings: [...plan.warnings.filter((w) => !/lengte|duur|seconden/i.test(w))] };
+        const recentHooks = await recentShortHooks(job.studio_id, video.data.id);
+        const h = chooseHook(shortEvent.type ?? eventTypeForMoment(main.kind), recentHooks, seeded(`${video.data.id}:hook:${version}`), kSettings.hooks.no_repeat_within, hookFile, shortEvent.kind === "death");
+        shortHook = h.hook;
+        shortInfo = { bucket: sp.bucket, reason: sp.reason, cutMs: sp.cutMs, hook: h.hook, hookRepeated: h.repeated };
+      }
+      const free = () => {
+        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short });
+        const overlay = shortHook ?? pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
+        void montage?.phrases?.add([...f.used, overlay]).catch(() => {});
+        return { topLine: overlay, hook: f.hook, lines: f.lines, hooks: [], loopLine: null, titles: [] } satisfies ScriptDraft;
+      };
+      // The hook at the top comes from the library (fits the real event, not used in the last 10 Shorts).
+      const withShortHook = (d: ScriptDraft): ScriptDraft => (shortHook ? { ...d, topLine: shortHook, hooks: d.hooks.map((h) => ({ ...h, overlay: shortHook! })) } : d);
       // Milan's own story of the whole recording (payload.story): the arc and the mood for every part.
       const story = typeof job.payload?.story === "string" ? job.payload.story : "";
-      if (story.trim()) prompt += "\n" + storyBlock(story, part ?? undefined).join("\n");
-      const { json } = await paid(job, () => ai.gemini.generateText(prompt));
-      const parsed = parseScript(json, plan.targetMs);
-      if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
-      draft = parsed.draft;
-      // Labels from the plan (promise, chapter notes, moment kinds) are never narration.
-      const labels = [video.data.promise ?? "", ...plan.segments.map((s) => s.note), ...moments.map((m) => m.reason)];
-      const meta = dropMetaLines(draft.lines, labels);
-      draft = { ...draft, lines: meta.lines };
-      if (ev) {
-        // The check must really judge the lines; an answer without verdicts is asked once more, and then stops the step.
-        const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev!.evidence, ev!.frames, { topLine: draft.topLine, hook: draft.hook, titles: draft.titles ?? [], windowS: video.data.format === "C" ? 10 : 3 })))).json;
-        let checkJson = await askCheck();
-        let v = applyVerification(draft.lines, checkJson);
-        if (v.checked < draft.lines.length * 0.8) v = applyVerification(draft.lines, (checkJson = await askCheck()));
-        if (v.checked < draft.lines.length * 0.8) {
-          const file = join(tmpdir(), `kivoxel-controle-onleesbaar-${Date.now()}.json`);
-          await writeFile(file, JSON.stringify(checkJson, null, 1)).catch(() => undefined);
-          throw new Error(`De controle op het beeld gaf maar ${v.checked} van ${draft.lines.length} oordelen; script niet opgeslagen (antwoord in ${file})`);
-        }
-        draft = { ...draft, lines: dropRepeats(v.lines), ...(v.titles ? { titles: v.titles } : {}), ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
-        // Too little narration: fill the silent gaps with supported lines, and check those again.
-        let added = 0;
-        const expandLog: { gaps: number; asked: number; returned: number; inGaps: number; kept: number }[] = [];
-        const share = video.data.format === "C" ? 0.5 : 0.7;
-        // Long videos get a second round: one pass rarely fills minutes of silence.
-        for (let round = 0; round < (video.data.format === "C" ? 2 : 1) && coverage(draft.lines, plan.targetMs) < share * (video.data.format === "C" ? 0.9 : 0.8); round++) {
-          const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 6000 : 1800);
-          const have = draft.lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
-          const extra = Math.max(0, targetWords(video.data.format, plan.targetMs) - have);
-          if (gaps.length && extra >= 5) {
-            const more = await paid(job, () => ai.gemini.generateText(expandPrompt(draft.lines, ev!.evidence, ev!.frames, gaps, extra)));
-            const merged = mergeAdded(draft.lines, more.json, gaps, plan.targetMs);
-            const returned = Array.isArray((more.json as { lines?: unknown })?.lines) ? (more.json as { lines: unknown[] }).lines.length : 0;
-            expandLog.push({ gaps: gaps.length, asked: extra, returned, inGaps: merged.length - draft.lines.length, kept: 0 });
-            if (merged.length > draft.lines.length) {
-              const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev!.evidence, ev!.frames, { windowS: video.data.format === "C" ? 10 : 3 })));
-              const v2 = applyVerification(merged, recheck.json);
-              if (v2.checked < merged.length * 0.8) continue;
-              added += v2.lines.length - draft.lines.length;
-              expandLog[expandLog.length - 1].kept = v2.lines.length - draft.lines.length;
-              v.issues.push(...v2.issues);
-              draft = { ...draft, lines: dropRepeats(v2.lines) };
+      const storyText = story.trim() ? "\n" + storyBlock(story, part ?? undefined).join("\n") : "";
+      if (wantsFree || !ai) {
+        draft = free();
+        engine = "free";
+        engineNote = wantsFree ? "Gratis modus: script uit de sjabloon-engine" : "Geen analysedienst: script uit de gratis sjabloon-engine";
+      } else {
+        try {
+          // Studio 2.0: the gameplay is the source of truth. Frames of the real recording first (free), then Gemini reports
+          // only what is visible; the script must lean on that, and a check removes lines without support.
+          const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments, video.data.format === "C");
+          const feedback = await previousFeedback(job, video.data.id, version);
+          if (evidence) {
+            await reserve(job, 3 + evidenceBatches(evidence.frames).length);
+            let ev: { evidence: Evidence; frames: FramePick[] };
+            let edit: { removedMs: number; cuts: [number, number][]; zooms: number } | null = null;
+            const parsedEv = await describeEvidence(job, evidence);
+            // Studio 2.0 editor: idle stretches out and zooms on real events, BEFORE the narration. With an Event Timeline the
+            // plan is already cut by the timeline (and zooms come from the interrupts at render), so it is not cut twice.
+            const polished = job.payload?.polish === false || timeline ? null : polishPlan(plan.segments, evidence.frames, parsedEv, video.data.format, video.data.plan_key);
+            if (polished) {
+              plan.segments = polished.segments;
+              plan.targetMs = totalMs(polished.segments);
+              edit = { removedMs: polished.removedMs, cuts: polished.cuts, zooms: polished.zooms };
+              ev = { evidence: polished.evidence, frames: polished.frames };
+            } else ev = { evidence: parsedEv, frames: evidence.frames };
+            const prompt = withEvidence(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series)) + groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs) + storyText;
+            const { json } = await paid(job, () => ai.gemini.generateText(prompt));
+            const parsed = parseScript(json, plan.targetMs);
+            if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
+            draft = parsed.draft;
+            // Labels from the plan (promise, chapter notes, moment kinds) are never narration.
+            const labels = [video.data.promise ?? "", ...plan.segments.map((s) => s.note), ...moments.map((m) => m.reason)];
+            const meta = dropMetaLines(draft.lines, labels);
+            draft = { ...draft, lines: meta.lines };
+            // The check must really judge the lines; an answer without verdicts is asked once more, and then stops the step.
+            const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev.evidence, ev.frames, { topLine: draft.topLine, hook: draft.hook, titles: draft.titles ?? [], windowS: video.data.format === "C" ? 10 : 3 })))).json;
+            let checkJson = await askCheck();
+            let v = applyVerification(draft.lines, checkJson);
+            if (v.checked < draft.lines.length * 0.8) v = applyVerification(draft.lines, (checkJson = await askCheck()));
+            if (v.checked < draft.lines.length * 0.8) {
+              const file = join(tmpdir(), `kivoxel-controle-onleesbaar-${Date.now()}.json`);
+              await writeFile(file, JSON.stringify(checkJson, null, 1)).catch(() => undefined);
+              throw new Error(`De controle op het beeld gaf maar ${v.checked} van ${draft.lines.length} oordelen (antwoord in ${file})`);
             }
+            draft = { ...draft, lines: dropRepeats(v.lines), ...(v.titles ? { titles: v.titles } : {}), ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
+            // Too little narration: fill the silent gaps with supported lines, and check those again.
+            let added = 0;
+            const expandLog: { gaps: number; asked: number; returned: number; inGaps: number; kept: number }[] = [];
+            const share = video.data.format === "C" ? 0.5 : 0.7;
+            // Long videos get a second round: one pass rarely fills minutes of silence.
+            for (let round = 0; round < (video.data.format === "C" ? 2 : 1) && coverage(draft.lines, plan.targetMs) < share * (video.data.format === "C" ? 0.9 : 0.8); round++) {
+              const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 6000 : 1800);
+              const have = draft.lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
+              const extra = Math.max(0, targetWords(video.data.format, plan.targetMs) - have);
+              if (gaps.length && extra >= 5) {
+                const more = await paid(job, () => ai.gemini.generateText(expandPrompt(draft.lines, ev.evidence, ev.frames, gaps, extra)));
+                const merged = mergeAdded(draft.lines, more.json, gaps, plan.targetMs);
+                const returned = Array.isArray((more.json as { lines?: unknown })?.lines) ? (more.json as { lines: unknown[] }).lines.length : 0;
+                expandLog.push({ gaps: gaps.length, asked: extra, returned, inGaps: merged.length - draft.lines.length, kept: 0 });
+                if (merged.length > draft.lines.length) {
+                  const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev.evidence, ev.frames, { windowS: video.data.format === "C" ? 10 : 3 })));
+                  const v2 = applyVerification(merged, recheck.json);
+                  if (v2.checked < merged.length * 0.8) continue;
+                  added += v2.lines.length - draft.lines.length;
+                  expandLog[expandLog.length - 1].kept = v2.lines.length - draft.lines.length;
+                  v.issues.push(...v2.issues);
+                  draft = { ...draft, lines: dropRepeats(v2.lines) };
+                }
+              }
+            }
+            draft = withShortHook(draft);
+            engine = "ai";
+            grounding = {
+              frames: ev.frames.length,
+              summary: ev.evidence.summary,
+              uncertain: ev.evidence.uncertain,
+              rewritten: v.rewritten,
+              checked: v.checked,
+              metaDropped: meta.dropped.length,
+              dropped: v.dropped,
+              issues: v.issues,
+              spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),
+              longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
+              added,
+              expand: expandLog,
+              strength: contentStrength(ev.evidence),
+              edit,
+            };
+          } else {
+            // No frames on this pc: packaging (hooks, titles, top line) as before; then the lines against the timeline.
+            await reserve(job, 2);
+            const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series) + storyText));
+            const parsed = parseScript(json, plan.targetMs);
+            if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
+            draft = withShortHook(parsed.draft);
+            engine = "ai";
+            const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note });
+            const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
+            const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
+            if ("lines" in lines) {
+              // The AI may leave long silences: fill them with tension lines, like the free engine does.
+              const fillRnd = seeded(`${video.data.id}:fill:${version}`);
+              const usedNow: string[] = [];
+              const take = (options: string[]) => {
+                const t = pick(options, [...recent, ...usedNow], fillRnd);
+                usedNow.push(t);
+                return t;
+              };
+              const filled = fillSilences(lines.lines, take, fillRnd);
+              draft = { ...draft, lines: filled };
+              void montage?.phrases?.add(filled.map((l) => l.text)).catch(() => {});
+            } else engineNote = `Anticipatie-regels van de AI onbruikbaar (${lines.error}); de oude regels blijven`;
           }
+        } catch (e) {
+          if (e instanceof CancelledError) throw e;
+          // Credits gone, key refused, the check unreadable or the service down: carry on with the free engine (section 8).
+          draft = free();
+          engine = "free";
+          grounding = null;
+          engineNote = `Analysedienst niet beschikbaar (${e instanceof Error ? e.message.slice(0, 120) : "onbekend"}); script uit de gratis sjabloon-engine`;
         }
-        grounding = {
-          frames: ev.frames.length,
-          summary: ev.evidence.summary,
-          uncertain: ev.evidence.uncertain,
-          rewritten: v.rewritten,
-          checked: v.checked,
-          metaDropped: meta.dropped.length,
-          dropped: v.dropped,
-          issues: v.issues,
-          spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),
-          longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
-          added,
-          expand: expandLog,
-          strength: contentStrength(ev.evidence),
-          edit,
-        };
       }
     }
     if (part && draft.titles) draft = { ...draft, titles: seriesTitles(draft.titles, part) };
@@ -575,14 +780,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       studio_id: job.studio_id,
       video_id: video.data.id,
       version,
-      language: video.data.language,
+      language: VIDEO_LANGUAGE,
       top_line: draft.topLine || null,
       hook: draft.hook,
       lines: draft.lines,
       edit_plan: plan.segments,
       target_ms: Math.max(1, plan.targetMs),
+      // yt_scripts.source only knows test/ai (migration 009); the free engine is recorded in the job result.
       source: video.data.is_test ? "test" : "ai",
-      model: video.data.is_test ? null : ai?.gemini.model,
+      // "gratis-engine" when the free template engine wrote it (section 9: show in the review whether the fallback was used).
+      model: video.data.is_test ? null : engine === "free" ? FREE_ENGINE_MODEL : (ai?.gemini.model ?? null),
       is_test: video.data.is_test,
     };
     // Hook variants (migration 035): the first one is chosen by default, Milan can pick another in the review.
@@ -598,7 +805,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, ...(grounding ? { grounding } : {}) };
+    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}) };
   }
 
   /**
@@ -656,8 +863,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     type ScriptRow = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; hooks?: unknown; loop_line?: string | null; chosen_hook?: number | null };
     const s = await db.from("yt_scripts").select("*").eq("id", scriptId).eq("studio_id", job.studio_id).single<ScriptRow>();
     if (s.error) throw new Error(s.error.message);
-    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null };
-    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null; created_at?: string };
+    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key, created_at").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     if (!video.data.recording_id) throw new Error("De opname van deze video is verwijderd");
     const rec = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).single<{ fingerprint: string }>();
@@ -675,7 +882,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const flags = await db.from("yt_video_moments").select("position, yt_moments(privacy_flags, start_ms, end_ms, peak_ms)").eq("video_id", video.data.id).order("position").returns<FlagRow[]>();
     if (flags.error) throw new Error(flags.error.message);
     const voiceHeard = (flags.data ?? []).some((f) => f.yt_moments?.privacy_flags.includes("voice"));
-    const muteGame = privacyReady && settings.data!.mute_flagged_voice !== false && voiceHeard;
+    const muteGame = privacyReady && settings.data!.mute_flagged_voice === true && voiceHeard;
 
     // The hook Milan chose (fase C2) decides the opening; without hooks the stored script is used as it is.
     const hooks = parseHooks(s.data.hooks);
@@ -683,11 +890,32 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const main = flags.data?.[0]?.yt_moments ?? null;
     const cut = applyHook(s.data, chosen, main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null);
     const size = renderSize(video.data.format);
-    const spoken = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs);
+    let spoken = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs);
+    // KIVOXEL fase 1: a script written against the Event Timeline (its lines have a kind) goes through the sync gate.
+    const fase1 = (cut.lines as VoLine[]).some((l) => !!l.kind);
+    let timeline: EventTimeline | null = null;
+    if (montage.events && !video.data.is_test) {
+      timeline = await montage.events.timeline(rec.data.fingerprint, local.file, local.probe.durationMs, { signal: lv.signal }).catch(async (e) => {
+        if (e instanceof CancelledError) throw e;
+        await lv.event("error", `Event Timeline niet gelukt: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      });
+    }
+    let sync: { ok: boolean; flagged: boolean; summary: string; items: GateItem[] } | null = null;
+    /** Set when a local voice (no cloud) spoke this montage. */
+    let localVoiceName: string | null = null;
+    // KIVOXEL fase 1, section 3: the audio mode of this montage (chosen in the review, else the channel default).
+    const askedMode = typeof job.payload?.audio_mode === "string" && (AUDIO_MODES as readonly string[]).includes(job.payload.audio_mode) ? (job.payload.audio_mode as AudioMode) : null;
+    const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, askedMode ?? presetFile.channel_default.audio_mode);
+    const modeSpec = kSettings.audio_modes[kSettings.audio_mode];
+    let storyOverlays: StoryText[] = [];
+    let mixPlan: MixPlan | null = null;
+    let mixNote: string | null = null;
     const voice: VoiceClip[] = [];
-    // Studio 2.0: a voice for this montage only (comparing voices), else the studio setting.
+    // Studio 2.0: a voice for this montage only (comparing voices), else the studio setting. KIVOXEL videos are English,
+    // always: a non-English voice falls back to the English one.
     const voiceOverride = typeof job.payload?.voice_name === "string" && /^en-US-Chirp3-HD-[A-Za-z]{2,20}$/.test(job.payload.voice_name) ? job.payload.voice_name : null;
-    const voiceName = voiceOverride ?? settings.data?.voice_name ?? "en-US-Chirp3-HD-Fenrir";
+    const voiceName = voiceOverride ?? (/^en-/.test(settings.data?.voice_name ?? "") ? settings.data!.voice_name : "en-US-Chirp3-HD-Fenrir");
     const fileName = renderFileName(video.data.id, s.data.version, job.id);
     const output = join(montage.rendersDir, fileName);
     const partial = join(montage.rendersDir, fileName.replace(/\.mp4$/, ".part.mp4"));
@@ -698,7 +926,53 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       let note: string | null = null;
       let characters = 0;
       if (video.data.is_test) note = "Testdata: montage zonder stem";
-      else if (!montage.voice) note = "Montage zonder stem: stem nog te verbinden (GOOGLE_TTS_API_KEY in worker/.env.local)";
+      else if (fase1 && !modeSpec.voice) {
+        // No voice in this mode: the same anticipation lines become text in the picture (no TTS, no characters used).
+        const story = textOverlays(narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[], cut.segments, timeline, cut.targetMs, kSettings);
+        storyOverlays = story.overlays;
+        spoken = [];
+        note = `Audio-modus "${modeSpec.label}": geen stem, het verhaal staat als tekst in beeld (${story.overlays.length} teksten${story.dropped.length ? `, ${story.dropped.length} weggelaten` : ""})`;
+      } else if (fase1 && montage.duration && (montage.voice || montage.localVoice)) {
+        // Line by line, with the real spoken length; lines that do not fit are shortened (max 3 attempts) or left out.
+        // Google first (free tier); without a key, with the free tier used up, or in free mode: the best local voice.
+        await lv.phase("Voice-over maken");
+        const preferLocal = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
+        const lines = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[];
+        const gateWith = (tts: Parameters<typeof speakWithGate>[0]["tts"], reserve: (n: number) => Promise<unknown>) =>
+          speakWithGate({ lines, segments: cut.segments, timeline, targetMs: cut.targetMs, settings: kSettings, tts, voiceName, baseRate: Number(settings.data?.speaking_rate ?? 1.1), tmp, reserve, duration: montage.duration!, run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }) });
+        let g: Awaited<ReturnType<typeof speakWithGate>> | null = null;
+        let localWhy: string | null = preferLocal ? "gratis modus" : !montage.voice ? "geen Google-sleutel" : null;
+        if (montage.voice && !preferLocal) {
+          try {
+            g = await gateWith(montage.voice.tts, (n) => montage.voice!.usage.reserve(n));
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            localWhy = e instanceof Error ? e.message.slice(0, 160) : String(e);
+            if (!montage.localVoice) note = localWhy;
+          }
+        }
+        if (!g && montage.localVoice) {
+          try {
+            g = await gateWith(montage.localVoice, async () => undefined);
+            localVoiceName = montage.localVoice.name;
+            note = `Lokale stem ${montage.localVoice.name} (${localWhy ?? "terugval"})`;
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            note = `Lokale stem mislukt: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        }
+        if (g) {
+          voice.push(...g.clips);
+          spoken = g.spoken;
+          characters = localVoiceName ? 0 : g.characters;
+          sync = { ok: g.result.gate.ok && !g.result.flagged, flagged: g.result.flagged, summary: gateSummary(g.result.gate, g.result.attempts, g.result.dropped), items: g.result.gate.items };
+          await lv.event(sync.ok ? "note" : "error", `VO-sync: ${sync.summary}${localVoiceName ? ` (stem: ${localVoiceName})` : ""}`);
+        }
+        if (characters) {
+          const cost = await db.from("yt_costs").insert({ studio_id: job.studio_id, job_id: job.id, category: "voiceover", service: "Google TTS Chirp 3 HD", amount_cents: 0, is_estimate: false, description: `${characters} tekens, binnen het gratis deel (per zin, met sync-controle)` });
+          if (cost.error && cost.error.code !== "23505") log(`Stemgebruik van stap ${job.id} niet vastgelegd: ${cost.error.message}`);
+        }
+      } else if (!montage.voice) note = "Montage zonder stem: stem nog te verbinden (GOOGLE_TTS_API_KEY in worker/.env.local)";
       else {
         await lv.phase("Voice-over maken");
         const needed = spoken.reduce((sum, l) => sum + l.text.length, 0);
@@ -718,6 +992,55 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (cost.error && cost.error.code !== "23505") log(`Stemgebruik van stap ${job.id} niet vastgelegd: ${cost.error.message}`);
         }
       }
+      const isShort = video.data.format !== "C";
+      const inMontage = eventsInMontage(cut.segments, timeline);
+      const mainEvent = isShort ? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0] ?? null : null;
+      const montageMs = cut.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
+      // KIVOXEL fase 1, section 7.3/7.8: pattern interrupts, with a zoom style that rotates between videos.
+      const recentStyles = (await montage.phrases?.recent().catch(() => [] as string[])) ?? [];
+      const lastOf = (prefix: string) => [...recentStyles].reverse().find((x) => x.startsWith(prefix))?.slice(prefix.length) ?? null;
+      const rotate = <T extends string>(options: readonly T[], last: string | null, salt: string): T => {
+        const pool = options.filter((o) => o !== last);
+        return pool[Math.floor(seeded(`${job.id}:${salt}`)() * pool.length)] ?? options[0];
+      };
+      const zoomStyle = rotate(ZOOM_STYLES, lastOf("zoom:"), "zoom");
+      const captionStyle = rotate(CAPTION_STYLES, lastOf("caption:"), "caption");
+      const interrupts = fase1 && !video.data.is_test ? planInterrupts({ durationMs: montageMs, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff })), short: isShort, style: zoomStyle, settings: kSettings, rnd: seeded(`${job.id}:fx`) }) : [];
+      if (interrupts.length) void montage.phrases?.add([`zoom:${zoomStyle}`, `caption:${captionStyle}`]).catch(() => {});
+      // KIVOXEL fase 1, sections 3 and 7.6: music (on the beat of the payoff) and SFX, per audio mode.
+      if (fase1 && montage.media && !video.data.is_test) {
+        const media = montage.media;
+        const rnd = seeded(`${job.id}:mix`);
+        const cutMs = cut.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
+        const peakOut = (mainEvent ?? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0])?.peak_out ?? null;
+        let music: MusicChoice | null = null;
+        if (modeSpec.music) {
+          const lib = await media.music().catch(() => ({ dir: "", tracks: [] as Track[] }));
+          const recentTracks = await media.musicLog.recent().catch(() => [] as string[]);
+          const type = mainEvent?.type ?? inMontage.find((e) => e.type)?.type ?? "fail";
+          const track = pickTrack(lib.tracks, type, isShort ? 5 : 3, recentTracks, rnd, kSettings.variation.music_no_repeat_within);
+          if (track) {
+            music = { file: join(lib.dir, track.file), startMs: beatStart(track, peakOut, Math.floor(rnd() * 3)), title: `${track.title}${track.artist ? ` – ${track.artist}` : ""} (${track.source})` };
+            void media.musicLog.add([track.file]).catch(() => {});
+          } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
+        }
+        let sfx: SfxCue[] = [];
+        if (kSettings.features.sfx_layer) {
+          const lib = await media.sfx().catch(() => ({ dir: "", items: [] as Sfx[] }));
+          const recentSfx = await media.sfxLog.recent().catch(() => [] as string[]);
+          sfx = planSfx({ segments: cut.segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: lib.items, recent: recentSfx, rnd, withVoice: modeSpec.voice, noRepeatWithin: kSettings.variation.sfx_no_repeat_within, durationMs: cutMs }).map((c) => ({ ...c, file: join(lib.dir, c.file) }));
+          // A small accent on every interrupt (pop on a punch, whoosh on a whip), a bit softer than the main SFX.
+          if (kSettings.features.interrupts.includes("sfx_accent")) {
+            for (const a of interruptSfx(interrupts)) {
+              const options = lib.items.filter((x) => x.kind === a.kind);
+              const pickFile = options[Math.floor(rnd() * options.length)];
+              if (pickFile) sfx.push({ file: join(lib.dir, pickFile.file), atMs: a.atMs, db: (modeSpec.voice ? -14 : -9) + (pickFile.db ?? 0), kind: a.kind });
+            }
+          }
+          void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
+        }
+        mixPlan = { mode: kSettings.audio_mode, spec: modeSpec, music, sfx, voiceChain: true };
+      }
       const plan = renderArgs({
         recording: join(store.recordingsDir, local.file),
         recordingMs: local.probe.durationMs,
@@ -730,8 +1053,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         output: partial,
         blur,
         muteGame,
+        ...(mixPlan ? { mix: { plan: mixPlan, settings: kSettings } } : {}),
+        // Section 7.7: frame rate as the source (60 for PS5 60 fps, else 30) and a high bitrate for the new montages.
+        ...(fase1 ? { fps: (local.probe.fps ?? 30) >= 50 ? 60 : 30, highQuality: true, fx: interruptFilter(interrupts, size) || undefined } : {}),
       });
-      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs) }), "utf8");
+      // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
+      const hook = isShort && fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) } : undefined;
+      // Section 7.4: word-by-word captions in the safe zone for the spoken lines.
+      const words = fase1 && kSettings.features.word_captions && spoken.length ? { style: captionStyleLine(size, kSettings), events: captionEvents(timedFromSpoken(spoken as (ScriptLine & { ms?: number })[], plan.durationMs), captionStyle, size, kSettings, plan.durationMs) } : undefined;
+      // Section 7.1: after a teaser of the payoff, "N SECONDS EARLIER…".
+      const teaser = cut.segments.find((sg) => sg.part === "teaser" && sg.out_start_ms === 0);
+      if (teaser && fase1) {
+        const next = [...cut.segments].sort((a, b) => a.out_start_ms - b.out_start_ms)[1];
+        const tEnd = Math.round((teaser.src_end_ms - teaser.src_start_ms) / teaser.speed);
+        if (next) storyOverlays = [...storyOverlays, { startMs: tEnd, endMs: tEnd + 1100, text: `${Math.max(2, Math.round((teaser.src_start_ms - next.src_start_ms) / 1000))} SECONDS EARLIER…`, reaction: false }];
+      }
+      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs), hook, words, story: storyOverlays.length ? storyAss(storyOverlays, size, plan.durationMs) : undefined }), "utf8");
       if (lv.signal.aborted) throw new CancelledError();
       await lv.phase("Video renderen", 0);
       await lv.event("log", `FFmpeg gestart: ${plan.segments} fragmenten, ${size.width}×${size.height}${blur.length ? `, ${blur.length} hoeken vervaagd` : ""}${muteGame ? ", gamegeluid gedempt" : ""}`);
@@ -743,12 +1080,25 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           void lv.progress({ progress, metrics: { frame: snap.frame, fps: snap.fps, speed: snap.speed, out_ms: snap.outMs, total_ms: plan.durationMs, eta_ms: etaMs, elapsed_ms: Date.now() - started } });
         },
       });
+      // KIVOXEL fase 1: exact loudness (-14 LUFS, true peak <= -1 dB) in two passes; the picture is copied.
+      if (mixPlan && montage.normalize) {
+        await lv.phase("Geluid op -14 LUFS zetten");
+        const exact = partial.replace(/\.part\.mp4$/, ".loud.part.mp4");
+        try {
+          if (await montage.normalize(partial, exact, tmp, targetFrom(kSettings.mix), { signal: lv.signal })) await rename(exact, partial);
+        } catch (e) {
+          if (e instanceof CancelledError) throw e;
+          await lv.event("error", `Luidheid niet exact gezet (de montage blijft zoals hij is): ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          await rm(exact, { force: true });
+        }
+      }
       await lv.phase("Preview opslaan", 1);
       await rename(partial, output);
       // Fase D4b: the same captions as a separate file, for YouTube (search and accessibility).
       await writeFile(join(montage.rendersDir, srtFileName(fileName)), buildSrt(spoken, plan.durationMs), "utf8");
       const insert = await db.from("yt_renders").upsert(
-        { studio_id: job.studio_id, video_id: video.data.id, script_id: s.data.id, job_id: job.id, file_name: fileName, duration_ms: Math.max(1, plan.durationMs), width: size.width, height: size.height, voice_name: voice.length ? voiceName : null, tts_characters: characters, is_test: video.data.is_test, ...(privacyReady ? { privacy_blur: blur.length > 0, game_muted: muteGame } : {}) },
+        { studio_id: job.studio_id, video_id: video.data.id, script_id: s.data.id, job_id: job.id, file_name: fileName, duration_ms: Math.max(1, plan.durationMs), width: size.width, height: size.height, voice_name: voice.length && !localVoiceName ? voiceName : null, tts_characters: characters, is_test: video.data.is_test, ...(privacyReady ? { privacy_blur: blur.length > 0, game_muted: muteGame } : {}) },
         { onConflict: "job_id", ignoreDuplicates: true },
       );
       if (insert.error) throw new Error(insert.error.message);
@@ -793,9 +1143,46 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             captionsInSafeZone: true,
             planChanges: planChanges(cut.segments),
           });
+          // Section 9: first frame moves, no dead stretch > 0.7 s, interrupts often enough (Shorts), chapters (long).
+          if (fase1 && timeline) {
+            const moves = firstFrameMoves(cut.segments, timeline.dead);
+            items.push({ key: "first_frame", label: "Eerste frame beweegt", level: moves ? "green" : "red", value: moves ? "ja" : "nee", note: moves ? "start direct in de actie" : "de video begint in een menu, stilstand of zwart beeld" });
+            const dead = deadInMontage(cut.segments, timeline.dead, kSettings.features.max_pause_ms, inMontage.map((e) => e.t_peak));
+            items.push({ key: "dead_air", label: "Geen dode stukken > 0,7 s", level: dead.longestMs === 0 ? "green" : dead.longestMs < 2000 ? "orange" : "red", value: dead.longestMs ? `${(dead.longestMs / 1000).toFixed(1)} s` : "geen", note: dead.totalMs ? `${(dead.totalMs / 1000).toFixed(1)} s dood beeld over` : "alles eruit geknipt" });
+            if (isShort && kSettings.features.pattern_interrupts) {
+              const gap = longestQuiet(interrupts, plan.durationMs);
+              items.push({ key: "interrupts", label: "Pattern interrupt elke 2-4 s", level: gap <= 4500 ? "green" : gap <= 6500 ? "orange" : "red", value: `${interrupts.length}×, langste gat ${(gap / 1000).toFixed(1)} s`, note: `stijl: ${zoomStyle}, captions: ${captionStyle}` });
+            }
+            if (!isShort) {
+              const ch = chapters(cut.segments, timeline, plan.durationMs);
+              items.push({ key: "chapters", label: "Hoofdstukken", level: ch.length >= 3 ? "green" : "orange", value: ch.length ? `${ch.length}` : "geen", note: ch.length ? ch.join(" · ") : "te weinig grote momenten voor YouTube-hoofdstukken (minstens 3)" });
+            }
+          }
+          if (mixPlan) {
+            // Section 9: -14 LUFS ±1 and true peak <= -1 dB (stricter than the general loudness line above).
+            const lc = loudnessCheck(log.integratedLufs, log.truePeakDb, kSettings.mix);
+            items.push({ key: "loudness_target", label: "Luidheid op doel (−14 ±1 LUFS, piek ≤ −1 dB)", level: lc.ok ? "green" : "red", value: lc.value, note: lc.note });
+            const m = modeCheck(mixPlan, voice.length);
+            // An empty music library is something for Milan to fill, not a broken montage: orange instead of red.
+            items.push({ key: "audio_mode", label: "Audio-modus toegepast", level: m.ok ? "green" : mixNote ? "orange" : "red", value: m.value, note: mixNote ?? m.note });
+          }
+          if (sync) items.push({ key: "vo_sync", label: "VO-sync (stem vóór de piek)", level: sync.ok ? "green" : "red", value: sync.ok ? "op tijd" : sync.flagged ? "nakijken" : "fout", note: sync.summary.slice(0, 400) });
+          // Section 9: hook and length of a Short (fase-1 scripts only; older Shorts keep their old checks).
+          if (isShort && fase1) {
+            const recentHooks = await recentShortHooks(job.studio_id, video.data.id);
+            const checks = [
+              ...(cut.topLine ? hookChecks(cut.topLine, mainEvent?.type ?? null, recentHooks, kSettings, mainEvent?.kind === "death") : []),
+              ...lengthChecks(plan.durationMs, await previousShortBucket(job.studio_id, { id: video.data.id, recording_id: video.data.recording_id, created_at: video.data.created_at }, kSettings), kSettings),
+            ];
+            for (const c of checks) items.push({ key: c.key, label: c.label, level: c.ok ? "green" : c.key === "hook_fresh" || c.key === "length_varies" ? "orange" : "red", value: c.value, note: c.note });
+          }
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
-          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items } }).eq("job_id", job.id);
+          // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
+          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null } : null;
+          // Chapters of a long video, ready for the description (section 7.7).
+          const chapterLines = fase1 && !isShort ? chapters(cut.segments, timeline, plan.durationMs) : [];
+          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length } } : {}) } }).eq("job_id", job.id);
           if (saved.error && !liveMissing(saved.error)) await lv.event("error", `Kwaliteitscontrole niet opgeslagen: ${saved.error.message}`);
         } catch (e) {
           if (e instanceof CancelledError) throw e;
@@ -804,16 +1191,42 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
       // Fase C: thumbnails from the montage itself (so blurred corners stay blurred). Never fails the montage.
       let thumbs: StoredThumb[] = [];
+      const headerFails: string[] = [];
       try {
         if (lv.signal.aborted) throw new CancelledError();
         await lv.phase("Thumbnails maken");
         const tsize = video.data.format === "C" ? THUMB_SIZE.long : THUMB_SIZE.short;
         const texts = [...new Set([chosen?.overlay, ...hooks.map((h) => h.overlay), cut.topLine, cut.hook].filter((t): t is string => !!t))];
+        // KIVOXEL fase 1: the frame comes from the recording itself (no burned-in captions), at the best event the video shows.
+        const recordingPath = join(store.recordingsDir, local.file);
         for (const [i, p] of thumbnailPlans(video.data.format, cut.segments, texts).entries()) {
           const file = thumbFileName(fileName, i);
           await writeFile(join(tmp, `thumb${i}.ass`), thumbAss(tsize, p.text), "utf8");
-          await montage.run(thumbArgs(output, { ...p, atMs: p.atMs.map((t) => Math.min(t, Math.max(0, plan.durationMs - 500))) }, tsize, `thumb${i}.ass`, join(montage.rendersDir, file)), tmp, 2 * 60_000, { signal: lv.signal });
+          const outMs = p.atMs.map((t) => Math.min(t, Math.max(0, plan.durationMs - 500)));
+          // The main thumbnail (cover / most exciting moment) follows the events; result and before/after keep their planned moments.
+          const srcMs = p.key === "cover" || p.key === "moment" ? [sourceThumbMs(cut.segments, timeline, outMs[0]).srcMs] : outMs.map((t) => outToSource(cut.segments, t));
+          await montage.run(thumbFromSourceArgs(recordingPath, srcMs, tsize, `thumb${i}.ass`, join(montage.rendersDir, file), blur), tmp, 2 * 60_000, { signal: lv.signal });
+          // The yellow header is sacred: a thumbnail whose header deviates from the brand file is thrown away.
+          if (montage.headerCheck && p.text.trim()) {
+            const check = await montage.headerCheck(join(montage.rendersDir, file), `thumb${i}.ass`, tsize, tmp);
+            if (!check.ok) {
+              await rm(join(montage.rendersDir, file), { force: true });
+              headerFails.push(`${p.label}: ${check.reason}`);
+              await lv.event("error", `Thumbnail "${p.label}" afgekeurd: ${check.reason}`);
+              continue;
+            }
+          }
           thumbs.push({ file, key: p.key, label: p.label, text: p.text, at_ms: p.atMs[0] });
+        }
+        if (headerFails.length) {
+          // A red line in the quality check, so the review shows why a thumbnail is missing.
+          const current = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: { items?: QcItem[] } | null }>();
+          const qc = current.data?.qc ?? null;
+          if (qc && !current.error) {
+            const item: QcItem = { key: "thumbnail_header", label: "Thumbnail-header geel", level: "red", value: `${headerFails.length} afgekeurd`, note: headerFails.join(" ").slice(0, 400) };
+            await db.from("yt_renders").update({ qc: { ...qc, items: [...(qc.items ?? []), item] } }).eq("job_id", job.id);
+          }
+          if (qcSummary) qcSummary.red += 1;
         }
         const savedThumbs = await db.from("yt_renders").update({ thumbnails: thumbs }).eq("job_id", job.id);
         if (savedThumbs.error && !liveMissing(savedThumbs.error)) await lv.event("error", `Thumbnails niet opgeslagen: ${savedThumbs.error.message}`);
@@ -826,7 +1239,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });
