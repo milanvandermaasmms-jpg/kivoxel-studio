@@ -329,7 +329,8 @@ function previewJoin(n: number, lens: number[]): string {
   return f.join(";");
 }
 const overlays = new Map<string, string>();
-const PREVIEW_CUTS = (totalS: number) => [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]];
+// Kerst: the preview shows exactly the moments that matter (welcome, Pip comes in, Mo comes in, together, falling asleep, sleep, end).
+const PREVIEW_CUTS = (totalS: number) => (kerst ? [[0, 40], [100, 18], [180, 18], [258, 18], [340, 26], [PARTS.asleepEnd + 600, 20], [totalS - 20, 20]] : [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]]);
 async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, totalS: number, audio: string) {
   const parts: string[] = [];
   for (const [k, [from, len]] of PREVIEW_CUTS(totalS).entries()) {

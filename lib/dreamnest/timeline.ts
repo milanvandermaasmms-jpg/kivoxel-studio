@@ -220,7 +220,8 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
   const clips = story.filter((p) => p.clip).length, holds = story.length - clips;
   const holdEach = (PARTS.storyEnd - t - clips * (clipLen - KERST_X.story)) / Math.max(1, holds) + KERST_X.story;
   story.forEach((p, i) => {
-    const x = i === story.length - 1 ? KERST_X.later : KERST_X.story;
+    // Into a story clip from the same view: 1 s (same picture, so the walk-in stays visible longer).
+    const x = i === story.length - 1 ? KERST_X.later : story[i + 1]?.clip && !p.clip ? 1 : KERST_X.story;
     // Length so that the next cross-fade starts on a bar line.
     // A clip: as many whole bars as fit in it plus its cross-fade (on the bar); a clip cut short plays whole.
     const avail = lenOf(p.asset) || clipLen;
