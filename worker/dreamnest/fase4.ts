@@ -99,6 +99,10 @@ const probeDur = (f: string) => Number(execFileSync(ffprobe, ["-v", "error", "-s
 const waitForKivoxel = () => waitKivoxelFirst(log);
 
 // ---------- 1. Clips: only the calm part, anti-jitter, loops slower ----------
+/** Kerst: length of the breathing still (one full breath, loops seamlessly). */
+const BREATH_S = 120;
+/** Kerst: only the views the sleep part uses get a still (saves render time). */
+const KERST_STILLS = ["b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
 const CLIPS = readdirClips();
 const SET = JSON.parse(readFileSync(join(resolve(import.meta.dirname, "../.."), "content", "dreamnest", "sets", "huiskamer.json"), "utf8")) as { weather?: Weather; regions?: Record<string, Region> };
 if (kerst) {
@@ -107,10 +111,6 @@ if (kerst) {
   SET.regions = { ...SET.regions, "b01-welcome-exterior": { window: { cx: 0.5, cy: 0.5, r: 1.3 } } };
 }
 const STILL_LEN = 430;
-/** Kerst: length of the breathing still (one full breath, loops seamlessly). */
-const BREATH_S = 120;
-/** Kerst: only the views the sleep part uses get a still (saves render time). */
-const KERST_STILLS = ["b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
 const viewOf = (id: string) => id.replace(/^(story|loop|still)-/, "");
 /** Sub-pixel breathing zoom: 0 -> amount -> 0 over n frames (one cosine), centred on (cx, cy); loops seamlessly. */
 function breathZoom(amount: number, n: number, cx: number, cy: number) {
