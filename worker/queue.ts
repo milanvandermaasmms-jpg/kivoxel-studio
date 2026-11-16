@@ -74,6 +74,7 @@ import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory
 import { momentsFromTimeline } from "../lib/kivoxel/freeMoments.ts";
 import { loudnessCheck, targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
+import { learnFrom, type ApprovedScript } from "../lib/kivoxel/learn.ts";
 import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { speakWithGate } from "./voiceGate.ts";
@@ -588,6 +589,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let grounding: Record<string, unknown> | null = null;
     let shortInfo: { bucket: string; reason: string; cutMs: number; hook: string; hookRepeated: boolean } | null = null;
     let longCutMsOut = 0;
+    let learnedFrom = 0;
     // KIVOXEL fase 1: "ai" = Gemini writes the lines, "free" = the template engine (no credits needed).
     let engine: "test" | "ai" | "free" = "test";
     let engineNote: string | null = null;
@@ -638,8 +640,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         shortHook = h.hook;
         shortInfo = { bucket: sp.bucket, reason: sp.reason, cutMs: sp.cutMs, hook: h.hook, hookRepeated: h.repeated };
       }
+      // Section 8: the scripts Milan approved teach the free engine (their generic lines join the pools).
+      const approved = await db.from("yt_scripts").select("top_line, lines").eq("studio_id", job.studio_id).eq("status", "approved").order("created_at", { ascending: false }).limit(40).returns<ApprovedScript[]>();
+      const learned = approved.error ? undefined : learnFrom(approved.data ?? []);
+      learnedFrom = learned?.from ?? 0;
       const free = () => {
-        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short });
+        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short, learned });
         const overlay = shortHook ?? pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
         void montage?.phrases?.add([...f.used, overlay]).catch(() => {});
         return { topLine: overlay, hook: f.hook, lines: f.lines, hooks: [], loopLine: null, titles: [] } satisfies ScriptDraft;
@@ -746,7 +752,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}) };
+    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}) };
   }
 
   /**

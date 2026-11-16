@@ -8,6 +8,7 @@ import templatesJson from "../../config/kivoxel/script_templates.json" with { ty
 import type { Segment, ScriptLine } from "../youtube/analysis.ts";
 import { persona, type EventType, type Language, type Settings } from "./config.ts";
 import type { EventTimeline, GameEvent } from "./events.ts";
+import { withLearned, type Learned } from "./learn.ts";
 
 export type LineKind = "hook" | "anticipation" | "reaction" | "open_loop" | "bridge" | "loop";
 export type TtsStyle = "spannend" | "fluisterend" | "schreeuw" | "lachend" | "normaal";
@@ -107,6 +108,8 @@ const styleFor = (kind: LineKind, type: EventType | null): TtsStyle => {
 };
 
 export type FreeScriptInput = {
+  /** Lines from scripts Milan approved (section 8): they join the pools with double weight. */
+  learned?: Learned;
   segments: Segment[];
   targetMs: number;
   timeline: EventTimeline | null;
@@ -162,8 +165,9 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   }
   const first = chosen[0];
   if (first && first.peak_out > 9000 && !cold) {
-    const loop = take(templates.open_loop);
-    lines.push({ at_ms: 2600, text: loop, kind: "open_loop", style: "spannend", alts: shorterAlts(loop, templates.open_loop) });
+    const loopPool = withLearned(templates.open_loop, input.learned?.open_loop);
+    const loop = take(loopPool);
+    lines.push({ at_ms: 2600, text: loop, kind: "open_loop", style: "spannend", alts: shorterAlts(loop, loopPool) });
   }
 
   const reactions = persona.expressions;
@@ -173,14 +177,15 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
       const bridge = take(templates.bridge);
       lines.push({ at_ms: Math.max(0, e.peak_out - 9000), text: bridge, kind: "bridge", style: "normaal" });
     }
-    const options = templates.anticipation[type];
+    const options = withLearned(templates.anticipation[type], input.learned?.anticipation[type]);
     const text = take(options, e);
     lines.push({ at_ms: Math.max(0, e.peak_out - 600 - estimateMs(text)), text, kind: "anticipation", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("anticipation", type), alts: shorterAlts(text, options, e) });
     // After the peak at most one short reaction, then on to the next arc.
     // Bad things get shocked reactions, good things hyped ones (never "UNREAL!" after a death).
     const good = type === "geluk" || type === "bouw";
     // "…GONE." / "Rest in pixels" only after a real death, never after a hit the player survives.
-    const pool = good ? [...reactions.reaction_good, ...reactions.after_win] : e.kind === "death" ? [...reactions.reaction, ...reactions.after_fail] : type === "grap" ? [...reactions.reaction, ...reactions.reaction_good] : reactions.reaction;
+    const base = good ? [...reactions.reaction_good, ...reactions.after_win] : e.kind === "death" ? [...reactions.reaction, ...reactions.after_fail] : type === "grap" ? [...reactions.reaction, ...reactions.reaction_good] : reactions.reaction;
+    const pool = withLearned(base, good ? input.learned?.reaction_good : input.learned?.reaction_bad);
     const shortPool = pool.filter((r) => r.split(/\s+/).length <= 5);
     const reaction = take(shortPool);
     lines.push({ at_ms: e.peak_out + settings.sync.peak_quiet_ms / 2, text: reaction, kind: "reaction", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("reaction", type), alts: shorterAlts(reaction, shortPool) });
@@ -190,8 +195,9 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   const lastPeak = chosen.length ? chosen[chosen.length - 1].peak_out : -Infinity;
   const loopRoom = input.targetMs - (lastPeak + settings.sync.peak_quiet_ms / 2 + 1200);
   if (settings.features.loop_ending && input.targetMs > 8000 && loopRoom >= 2200) {
-    const end = take(templates.loop_end);
-    lines.push({ at_ms: Math.max(0, input.targetMs - estimateMs(end) - 400), text: end, kind: "loop", style: "spannend", alts: shorterAlts(end, templates.loop_end) });
+    const endPool = withLearned(templates.loop_end, input.learned?.loop);
+    const end = take(endPool);
+    lines.push({ at_ms: Math.max(0, input.targetMs - estimateMs(end) - 400), text: end, kind: "loop", style: "spannend", alts: shorterAlts(end, endPool) });
   }
   lines.sort((a, b) => a.at_ms - b.at_ms);
 
