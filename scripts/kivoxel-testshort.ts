@@ -1,5 +1,6 @@
 // KIVOXEL fase 1: a test Short from a real recording, through the new chain, without Supabase.
-//   node scripts/kivoxel-testshort.ts <recording> [event rank 1-5] [en|nl] [--zonder-stem]
+//   node scripts/kivoxel-testshort.ts <recording> [event rank 1-5] [--zonder-stem]
+// Video content is ENGLISH, always (voice, lines, captions).
 // Event Timeline -> free anticipation script -> Google TTS per line (free tier, counted in tts-usage.json)
 // -> sync gate -> FFmpeg montage. Also renders the same lines WITHOUT the gate (each line at its first estimate),
 // so the difference is visible and audible. Output: testrenders/testshort-<name>/ with a report (rapport.txt).
@@ -7,7 +8,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveSettings, type Language } from "../lib/kivoxel/config.ts";
+import { resolveSettings } from "../lib/kivoxel/config.ts";
 import { topPayoffs } from "../lib/kivoxel/events.ts";
 import { estimateMs, freeScript, gateSummary, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import type { Segment } from "../lib/youtube/analysis.ts";
@@ -16,6 +17,7 @@ import { audioDurationMs, findTool, runFfmpeg } from "../worker/ffmpeg.ts";
 import { createEventStore } from "../worker/eventTimeline.ts";
 import { createTts, createUsageCounter } from "../worker/tts.ts";
 import { speakWithGate } from "../worker/voiceGate.ts";
+import { createPhraseLog } from "../worker/phraseLog.ts";
 
 // worker/.env.local, read the same way the worker does; nothing is printed.
 const envFile = join(import.meta.dirname, "..", "worker", ".env.local");
@@ -26,9 +28,8 @@ if (existsSync(envFile)) {
   }
 }
 const args = process.argv.slice(2);
-const [query, rankArg, langArg] = args.filter((a) => !a.startsWith("--"));
-if (!query) throw new Error("Gebruik: node scripts/kivoxel-testshort.ts <opname> [event 1-5] [en|nl] [--zonder-stem]");
-const lang: Language = langArg === "nl" ? "nl" : "en";
+const [query, rankArg] = args.filter((a) => !a.startsWith("--"));
+if (!query) throw new Error("Gebruik: node scripts/kivoxel-testshort.ts <opname> [event 1-5] [--zonder-stem]");
 const dataDir = process.env.WORKER_DATA_DIR ?? join(homedir(), "FamilieMK-YouTube");
 const ffmpeg = findTool("ffmpeg", process.env.FFMPEG_PATH);
 const ffprobe = findTool("ffprobe", process.env.FFPROBE_PATH);
@@ -47,14 +48,17 @@ const start = Math.max(0, event.t_peak - 12_000);
 const end = Math.min(rec.probe.durationMs, event.t_peak + 2500);
 const segments: Segment[] = [{ part: "build", src_start_ms: start, src_end_ms: end, out_start_ms: 0, speed: 1, effects: [], note: event.description }];
 const targetMs = end - start;
-const script = freeScript({ segments, targetMs, timeline, language: lang, settings, seed: `${rec.fingerprint}:${event.id}`, short: true });
+// Test runs keep their own phrase memory (not the worker's), so successive test Shorts rotate their words too.
+const phrases = createPhraseLog(resolve("testrenders", "phrases.json"));
+const script = freeScript({ segments, targetMs, timeline, recent: await phrases.recent(), settings, seed: `${rec.fingerprint}:${event.id}`, short: true });
 
-const slug = `${rec.label}-${lang}`.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").toLowerCase();
+await phrases.add(script.used);
+const slug = `${rec.label}-e${rankArg ?? 1}`.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").toLowerCase();
 const out = resolve("testrenders", `testshort-${slug}`);
 await mkdir(out, { recursive: true });
 const recording = join(dataDir, "recordings", rec.file);
 const size = { width: settings.shorts.width, height: settings.shorts.height };
-const report: string[] = [`Opname: ${rec.label}`, `Event: ${event.description} (payoff ${event.payoff}), piek op ${((event.t_peak - start) / 1000).toFixed(1)} s in de Short`, `Lengte: ${(targetMs / 1000).toFixed(1)} s, taal ${lang}`, ""];
+const report: string[] = [`Opname: ${rec.label}`, `Event: ${event.description} (payoff ${event.payoff}), piek op ${((event.t_peak - start) / 1000).toFixed(1)} s in de Short`, `Lengte: ${(targetMs / 1000).toFixed(1)} s`, ""];
 
 async function render(name: string, clips: VoiceClip[], lines: { at_ms: number; text: string }[]) {
   const ass = `${name}.ass`;
@@ -70,7 +74,7 @@ if (args.includes("--zonder-stem") || !process.env.GOOGLE_TTS_API_KEY) {
 } else {
   const tts = createTts(process.env.GOOGLE_TTS_API_KEY);
   const usage = createUsageCounter(join(dataDir, "tts-usage.json"));
-  const voiceName = lang === "nl" ? "nl-NL-Chirp3-HD-Charon" : "en-US-Chirp3-HD-Fenrir";
+  const voiceName = "en-US-Chirp3-HD-Fenrir";
   const g = await speakWithGate({ lines: script.lines, segments, timeline, targetMs, settings, tts, voiceName, baseRate: 1.1, tmp: out, reserve: (n) => usage.reserve(n), duration: (f) => audioDurationMs(ffprobe, f), run: (a, cwd, t) => runFfmpeg(ffmpeg, a, cwd, t) });
   report.push(`Stem: ${voiceName}, ${g.characters} tekens (gratis deel)`, `Sync-gate: ${gateSummary(g.result.gate, g.result.attempts, g.result.dropped)}`, "", "MET sync-gate (zo komt hij in de video):");
   for (const it of g.result.gate.items) report.push(`  ${(it.atMs / 1000).toFixed(2).padStart(6)}-${((it.atMs + it.ms) / 1000).toFixed(2).padStart(6)} s ${it.ok ? "OK " : "FOUT"} ${it.speed > 1 ? `x${it.speed} ` : ""}${it.text}${it.reason ? `  <- ${it.reason}` : ""}`);

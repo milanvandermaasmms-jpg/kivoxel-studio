@@ -5,7 +5,9 @@ import presetsJson from "../../config/kivoxel/presets.json" with { type: "json" 
 import hooksJson from "../../config/kivoxel/hooks.json" with { type: "json" };
 import personaJson from "../../config/kivoxel/voice_persona.json" with { type: "json" };
 
-export type Language = "en" | "nl";
+/** KIVOXEL video content is English, always (Milan, 16-11-2026). Only the Studio UI is Dutch. */
+export type Language = "en";
+export const VIDEO_LANGUAGE: Language = "en";
 export const AUDIO_MODES = ["vo_muziek", "muziek_geen_vo", "alleen_game"] as const;
 export type AudioMode = (typeof AUDIO_MODES)[number];
 export const EVENT_TYPES = ["fail", "bijna_dood", "geluk", "bouw", "grap", "jumpscare"] as const;
@@ -29,8 +31,8 @@ export type Settings = {
   music: { library_dir: string; beat_sync: boolean; fade_in_ms: number; fade_out_ms: number };
   sfx: { library_dir: string };
 };
-export type PresetFile = { version: number; channel_default: { preset: string; audio_mode: AudioMode; language: Language; engine: "auto" | "free" }; base: Settings; presets: Record<string, { label: string } & Record<string, unknown>> };
-export type HookFile = { version: number; event_types: Record<EventType, { label: string; from_moments: string[] }>; hooks: Record<EventType, Record<Language, string[]>> };
+export type PresetFile = { version: number; channel_default: { preset: string; audio_mode: AudioMode; engine: "auto" | "free" }; base: Settings; presets: Record<string, { label: string } & Record<string, unknown>> };
+export type HookFile = { version: number; event_types: Record<EventType, { label: string; from_moments: string[] }>; hooks: Record<EventType, string[]> };
 export type Persona = typeof personaJson;
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -87,19 +89,25 @@ export function configProblems(file: PresetFile = presetFile, hooks: HookFile = 
     if (!(lo > 0 && lo <= hi)) out.push(`${where}: interrupt_every_ms moet [laag, hoog] zijn.`);
   }
   for (const t of EVENT_TYPES) {
-    for (const lang of ["en", "nl"] as const) {
-      const list = hooks.hooks[t]?.[lang] ?? [];
-      if (list.length < 3) out.push(`Hooks "${t}" (${lang}): minstens 3 nodig voor afwisseling.`);
+    const list = hooks.hooks[t] ?? [];
+    if (!Array.isArray(list)) out.push(`Hooks "${t}": moet één Engelse lijst zijn.`);
+    else {
+      if (list.length < 3) out.push(`Hooks "${t}": minstens 3 nodig voor afwisseling.`);
       for (const h of list) {
         const n = words(h).length;
         if (n < 1 || n > 4) out.push(`Hook "${h}" heeft ${n} woorden (1-4).`);
         if (h !== h.toUpperCase()) out.push(`Hook "${h}" staat niet in HOOFDLETTERS.`);
+        if (looksDutch(h)) out.push(`Hook "${h}" lijkt Nederlands: video's zijn altijd Engels.`);
       }
-      if (new Set(list).size !== list.length) out.push(`Hooks "${t}" (${lang}) bevatten een dubbele.`);
+      if (new Set(list).size !== list.length) out.push(`Hooks "${t}" bevatten een dubbele.`);
     }
   }
   return out;
 }
+
+/** A guard against Dutch slipping into video content: common Dutch words that never appear in English hooks or lines. */
+const DUTCH = /\b(de|het|een|niet|wacht|hij|zijn|dit|dat|nog|maar|geen|echt|kijk|oké|nee|ik|je|wat|hoe|waarom|bijna|hartjes?|fout|dood|hierop)\b/i;
+export const looksDutch = (text: string) => DUTCH.test(text);
 
 /** Which hook type fits a moment kind from the analysis (yt_moments.kind). */
 export function eventTypeForMoment(kind: string, hooks: HookFile = hookFile): EventType {

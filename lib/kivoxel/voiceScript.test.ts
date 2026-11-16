@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Segment } from "../youtube/analysis";
-import { configProblems, resolveSettings } from "./config";
+import { configProblems, hookFile, looksDutch, persona, resolveSettings } from "./config";
 import type { EventTimeline, GameEvent } from "./events";
 import { anticipationPrompt, parseAnticipation } from "./scriptPrompt";
 import { estimateMs, fill, freeScript, pick, runGate, seeded, sourceToOut, syncGate, templates, type VoLine } from "./voiceScript";
@@ -26,19 +26,30 @@ describe("timing helpers", () => {
     expect(pick(["a", "b"], ["a"], seeded("x"))).toBe("b");
     expect(pick(["a", "b", "c"], [], seeded("v1"))).toBe(pick(["a", "b", "c"], [], seeded("v1")));
   });
-  it("fills in the hearts per language", () => {
-    const e = ev(1, 50, "bijna_dood", "Nog maar 3,5 hartjes");
-    expect(fill("{hearts} hearts left", e, "en")).toBe("3.5 hearts left");
-    expect(fill("Nog {hearts} hartjes", e, "nl")).toBe("Nog 3,5 hartjes");
+  it("fills in the hearts in English", () => {
+    expect(fill("{hearts} hearts left", ev(1, 50, "bijna_dood", "Nog maar 3,5 hartjes"))).toBe("3.5 hearts left");
   });
-  it("the templates have every event type in both languages", () => {
+  it("the templates have every event type", () => {
     expect(configProblems()).toEqual([]);
-    for (const lang of ["en", "nl"] as const) for (const t of ["fail", "bijna_dood", "geluk", "bouw", "grap", "jumpscare"] as const) expect(templates.anticipation[lang][t].length).toBeGreaterThanOrEqual(3);
+    for (const t of ["fail", "bijna_dood", "geluk", "bouw", "grap", "jumpscare"] as const) expect(templates.anticipation[t].length).toBeGreaterThanOrEqual(3);
+  });
+  it("NO Dutch anywhere in video content (Milan, 16-11-2026: English only, always)", () => {
+    const all = [
+      ...Object.values(templates.opener).flat(), ...Object.values(templates.anticipation).flat(), ...templates.open_loop, ...templates.bridge, ...templates.loop_end,
+      ...Object.values(hookFile.hooks).flat(),
+      ...Object.values(persona.expressions).flat(),
+    ];
+    expect(all.length).toBeGreaterThan(100);
+    expect(all.filter(looksDutch)).toEqual([]);
+  });
+  it("is explosive, not soft: no calm or ironic openers", () => {
+    for (const l of [...Object.values(templates.opener).flat(), ...persona.expressions.reaction]) expect(l).toMatch(/[!?…]|[A-Z]{2,}/);
+    for (const banned of persona.banned_phrases) expect([...Object.values(templates.opener).flat()].join(" ").toLowerCase()).not.toContain(banned);
   });
 });
 
 describe("free script engine (no AI)", () => {
-  const script = (seed: string, recent: string[] = []) => freeScript({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), language: "nl", settings, seed, recent, short: true });
+  const script = (seed: string, recent: string[] = []) => freeScript({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, seed, recent, short: true });
 
   it("hook first, anticipation before the peak, one reaction after it, loop at the end", () => {
     const s = script("video-1");
@@ -55,7 +66,7 @@ describe("free script engine (no AI)", () => {
 
   it("never describes: no line in the past tense about the peak before it happens", () => {
     for (const seed of ["a", "b", "c", "d"]) {
-      for (const l of script(seed).lines.filter((x) => x.kind === "anticipation")) expect(templates.anticipation.nl.fail.includes(l.text) || l.text.includes("hartjes")).toBe(true);
+      for (const l of script(seed).lines.filter((x) => x.kind === "anticipation")) expect(templates.anticipation.fail.includes(l.text)).toBe(true);
     }
   });
 
@@ -126,14 +137,15 @@ describe("sync gate", () => {
 
 describe("AI script (Gemini) with the same rules", () => {
   it("gives the model the timeline and the anticipation rule", () => {
-    const { prompt, ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), language: "nl", settings, short: true });
+    const { prompt, ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, short: true });
     expect(prompt).toContain("E1: peak at 18.0s");
     expect(prompt).toMatch(/END 0\.3-1\.5 s BEFORE its peak/);
-    expect(prompt).toContain("Dutch");
+    expect(prompt).toContain("Write ONLY in English");
+    expect(prompt).not.toMatch(/Dutch/);
     expect(ids.get("E1")).toBe(118_000);
   });
   it("reads the answer, links lines to events and keeps only shorter alternatives", () => {
-    const { ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), language: "en", settings, short: true });
+    const { ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, short: true });
     const r = parseAnticipation({ lines: [{ kind: "hook", text: "One heart. One!", style: "spannend" }, { event: "E1", kind: "anticipation", text: "Okay… one wrong step…", shorter: ["One wrong step…", "This is way longer than the line itself"], style: "spannend" }, { event: "E1", kind: "reaction", text: "NOOO!", style: "schreeuw" }] }, ids, segs, 25_000, timeline([ev(118_000)]));
     expect("lines" in r).toBe(true);
     if (!("lines" in r)) return;
@@ -141,5 +153,16 @@ describe("AI script (Gemini) with the same rules", () => {
     expect(r.lines[1].event_src_ms).toBe(118_000);
     expect(r.lines[1].alts).toEqual(["One wrong step…"]);
     expect(parseAnticipation({ lines: [] }, ids, segs, 25_000, null)).toEqual({ error: "geen regels" });
+  });
+});
+
+describe("reactions fit the event", () => {
+  it("a death never gets a hyped reaction, a lucky find never a shocked one", () => {
+    for (const seed of ["a", "b", "c", "d", "e", "f"]) {
+      const fail = freeScript({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, seed, short: true }).lines.find((l) => l.kind === "reaction")!;
+      expect(persona.expressions.reaction_good).not.toContain(fail.text);
+      const luck = freeScript({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000, 80, "geluk", "Diamant")]), settings, seed, short: true }).lines.find((l) => l.kind === "reaction")!;
+      expect(persona.expressions.reaction).not.toContain(luck.text);
+    }
   });
 });

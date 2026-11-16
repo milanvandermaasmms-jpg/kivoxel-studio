@@ -23,11 +23,11 @@ export type VoLine = ScriptLine & {
 };
 
 type Templates = {
-  opener: Record<Language, Record<EventType, string[]>>;
-  anticipation: Record<Language, Record<EventType, string[]>>;
-  open_loop: Record<Language, string[]>;
-  bridge: Record<Language, string[]>;
-  loop_end: Record<Language, string[]>;
+  opener: Record<EventType, string[]>;
+  anticipation: Record<EventType, string[]>;
+  open_loop: string[];
+  bridge: string[];
+  loop_end: string[];
 };
 export const templates = templatesJson as unknown as Templates;
 
@@ -79,17 +79,16 @@ export function pick(options: string[], recent: string[], rnd: () => number): st
   return pool[Math.floor(rnd() * pool.length)] ?? options[0];
 }
 
-/** {hearts} -> the number of hearts of the event ("3,5" in Dutch, "3.5" in English). */
-export const fill = (text: string, e?: GameEvent, lang: Language = "en") => {
+/** {hearts} -> the number of hearts of the event, in English ("3.5"). The event description itself is a Dutch note for Milan. */
+export const fill = (text: string, e?: GameEvent) => {
   const m = e ? /([\d,]+) hartjes/.exec(e.description) : null;
-  const n = m ? m[1] : null;
-  return text.replace("{hearts}", n ? (lang === "nl" ? n : n.replace(",", ".")) : lang === "nl" ? "een paar" : "a few");
+  return text.replace("{hearts}", m ? m[1].replace(",", ".") : "a few");
 };
 
 /** Shorter alternatives from the same list (same event type), shortest last. */
-function shorterAlts(main: string, options: string[], e?: GameEvent, lang: Language = "en"): string[] {
+function shorterAlts(main: string, options: string[], e?: GameEvent): string[] {
   return options
-    .map((o) => fill(o, e, lang))
+    .map((o) => fill(o, e))
     .filter((o) => o !== main && o.length < main.length)
     .sort((a, b) => b.length - a.length)
     .slice(0, 3);
@@ -105,7 +104,8 @@ export type FreeScriptInput = {
   segments: Segment[];
   targetMs: number;
   timeline: EventTimeline | null;
-  language: Language;
+  /** Always "en": KIVOXEL videos are English. */
+  language?: Language;
   settings: Settings;
   seed: string;
   /** Phrases used in recent videos (rotation). */
@@ -120,12 +120,12 @@ export type FreeScriptInput = {
  * the peak, bridges between events in long videos, and a line that loops back to the start.
  */
 export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLine[]; mainType: EventType; used: string[] } {
-  const { language: lang, settings, short } = input;
+  const { settings, short } = input;
   const rnd = seeded(input.seed);
   const recent = [...(input.recent ?? [])];
   const used: string[] = [];
   const take = (options: string[], e?: GameEvent) => {
-    const t = fill(pick(options, recent, rnd), e, lang);
+    const t = fill(pick(options, recent, rnd), e);
     recent.push(t);
     used.push(t);
     return t;
@@ -144,27 +144,29 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   const mainType: EventType = main?.type ?? "fail";
 
   const lines: VoLine[] = [];
-  const hook = take(templates.opener[lang][mainType]);
-  lines.push({ at_ms: 0, text: hook, kind: "hook", style: "spannend", alts: shorterAlts(hook, templates.opener[lang][mainType]) });
+  const hook = take(templates.opener[mainType]);
+  lines.push({ at_ms: 0, text: hook, kind: "hook", style: "schreeuw", alts: shorterAlts(hook, templates.opener[mainType]) });
 
   const first = chosen[0];
   if (first && first.peak_out > 9000) {
-    const loop = take(templates.open_loop[lang]);
-    lines.push({ at_ms: 2600, text: loop, kind: "open_loop", style: "normaal", alts: shorterAlts(loop, templates.open_loop[lang]) });
+    const loop = take(templates.open_loop);
+    lines.push({ at_ms: 2600, text: loop, kind: "open_loop", style: "spannend", alts: shorterAlts(loop, templates.open_loop) });
   }
 
-  const reactions = persona.expressions[lang];
+  const reactions = persona.expressions;
   for (const [i, e] of chosen.entries()) {
     const type = e.type ?? mainType;
     if (!short && i > 0) {
-      const bridge = take(templates.bridge[lang]);
+      const bridge = take(templates.bridge);
       lines.push({ at_ms: Math.max(0, e.peak_out - 9000), text: bridge, kind: "bridge", style: "normaal" });
     }
-    const options = templates.anticipation[lang][type];
+    const options = templates.anticipation[type];
     const text = take(options, e);
-    lines.push({ at_ms: Math.max(0, e.peak_out - 600 - estimateMs(text)), text, kind: "anticipation", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("anticipation", type), alts: shorterAlts(text, options, e, lang) });
+    lines.push({ at_ms: Math.max(0, e.peak_out - 600 - estimateMs(text)), text, kind: "anticipation", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("anticipation", type), alts: shorterAlts(text, options, e) });
     // After the peak at most one short reaction, then on to the next arc.
-    const pool = type === "fail" ? [...reactions.reaction, ...reactions.after_fail] : type === "geluk" || type === "bouw" ? [...reactions.reaction, ...reactions.after_win] : reactions.reaction;
+    // Bad things get shocked reactions, good things hyped ones (never "UNREAL!" after a death).
+    const good = type === "geluk" || type === "bouw";
+    const pool = type === "fail" ? [...reactions.reaction, ...reactions.after_fail] : good ? [...reactions.reaction_good, ...reactions.after_win] : type === "grap" ? [...reactions.reaction, ...reactions.reaction_good] : reactions.reaction;
     const shortPool = pool.filter((r) => r.split(/\s+/).length <= 5);
     const reaction = take(shortPool);
     lines.push({ at_ms: e.peak_out + settings.sync.peak_quiet_ms / 2, text: reaction, kind: "reaction", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("reaction", type), alts: shorterAlts(reaction, shortPool) });
@@ -174,8 +176,8 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   const lastPeak = chosen.length ? chosen[chosen.length - 1].peak_out : -Infinity;
   const loopRoom = input.targetMs - (lastPeak + settings.sync.peak_quiet_ms / 2 + 1200);
   if (settings.features.loop_ending && input.targetMs > 8000 && loopRoom >= 2200) {
-    const end = take(templates.loop_end[lang]);
-    lines.push({ at_ms: Math.max(0, input.targetMs - estimateMs(end) - 400), text: end, kind: "loop", style: "spannend", alts: shorterAlts(end, templates.loop_end[lang]) });
+    const end = take(templates.loop_end);
+    lines.push({ at_ms: Math.max(0, input.targetMs - estimateMs(end) - 400), text: end, kind: "loop", style: "spannend", alts: shorterAlts(end, templates.loop_end) });
   }
   lines.sort((a, b) => a.at_ms - b.at_ms);
   return { hook, lines, mainType, used };

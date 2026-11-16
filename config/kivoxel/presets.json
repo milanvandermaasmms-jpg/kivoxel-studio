@@ -1,7 +1,7 @@
 {
   "$comment": "KIVOXEL fase 1: alles wat smaak is. Getallen in milliseconden (ms) of decibel (dB). Een preset overschrijft alleen wat hij noemt; de rest komt uit 'base'. Zie docs/kivoxel-presets.md.",
   "version": 1,
-  "channel_default": { "preset": "standaard", "audio_mode": "vo_muziek", "language": "en", "engine": "auto" },
+  "channel_default": { "preset": "standaard", "audio_mode": "vo_muziek", "engine": "auto" },
 
   "base": {
     "audio_mode": "vo_muziek",

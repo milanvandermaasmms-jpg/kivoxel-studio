@@ -10,8 +10,9 @@ const KINDS: LineKind[] = ["hook", "anticipation", "reaction", "open_loop", "bri
 const STYLES: TtsStyle[] = ["spannend", "fluisterend", "schreeuw", "lachend", "normaal"];
 const tc = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; timeline: EventTimeline | null; language: Language; settings: Settings; short: boolean; recent?: string[]; note?: string }): { prompt: string; ids: Map<string, number> } {
-  const lang = input.language === "nl" ? "Dutch" : "English";
+export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string }): { prompt: string; ids: Map<string, number> } {
+  // KIVOXEL videos are English, always.
+  const lang = "English";
   const events = eventsInMontage(input.segments, input.timeline).filter((e) => e.peak_out < input.targetMs - 800);
   const ids = new Map<string, number>();
   const list = events.map((e, i) => {
@@ -34,8 +35,10 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
     "",
     `Voice: ${p.feel.age}; energy: ${p.feel.energy}; humor: ${p.feel.humor}. Kid-friendly, never mean.`,
     ...p.style_rules.map((r) => `- ${r}`),
-    `Never use: ${p.banned_phrases[input.language].join(", ")}.`,
-    `Interjections you may use (vary, do not repeat): ${p.expressions[input.language].interjection.join(" | ")}`,
+    `Write ONLY in English. Never any other language, not even one word.`,
+    `Never use: ${p.banned_phrases.join(", ")}.`,
+    `Interjections you may use (vary, do not repeat): ${p.expressions.interjection.join(" | ")}`,
+    `Example reactions (explosive, never calm or ironic): ${p.expressions.reaction.join(" | ")}`,
     ...(input.recent?.length ? [`Recently used, do NOT use again: ${input.recent.slice(-20).join(" | ")}`] : []),
     ...(input.note ? [`The owner's comment on the previous version: "${input.note.replace(/"/g, "'")}". Change only what it asks.`] : []),
     "",

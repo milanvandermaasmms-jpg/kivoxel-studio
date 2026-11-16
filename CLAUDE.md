@@ -8,6 +8,8 @@ Hoe de Studio werkt voor Milan: `docs/handleiding.md` (1 pagina).
 ## Werkwijze
 - Milan is geen programmeur: leg keuzes kort uit in gewoon Nederlands. Hij werkt op Windows.
 - App-teksten en uitleg in het Nederlands; code, bestanden en variabelen in het Engels.
+- **Video-content is ALTIJD Engels, nooit Nederlands** (besluit Milan, 16-11-2026): stem, hooks, ondertitels, thumbnailtekst, scriptzinnen en testrenders. Alleen de Studio zelf is Nederlands. De test `looksDutch` in `lib/kivoxel` bewaakt de configbestanden.
+- Toon van stem en hooks: explosief en hard (gamer-hype), nooit soft of ironisch-rustig; wel kindvriendelijk.
 - Een fase is pas af na `npx tsc --noEmit`, `npm test`, `npm run build`, een controle in de browser en een testvideo voor Milan.
 
 ## Stack

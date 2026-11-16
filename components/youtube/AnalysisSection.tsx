@@ -639,7 +639,7 @@ function VoiceCard({ voice, connected, dutchScripts, onSave }: { voice: VoiceSet
               </option>
             ))}
           </select>
-          {!dutchScripts && <span className="text-xs text-slate-500">De scripts zijn Engels; Nederlandse stemmen verschijnen zodra er Nederlandse scripts zijn.</span>}
+          <span className="text-xs text-slate-500">KIVOXEL-video&apos;s zijn altijd Engels: alleen Engelse stemmen.</span>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-slate-600">Tempo van de verteller: {draft.speaking_rate.toLocaleString("nl-NL", { minimumFractionDigits: 2 })}×</span>

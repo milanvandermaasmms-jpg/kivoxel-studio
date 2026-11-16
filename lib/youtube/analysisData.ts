@@ -50,7 +50,6 @@ export const VOICES: { name: string; label: string }[] = [
   { name: "en-US-Chirp3-HD-Fenrir", label: "Fenrir · Amerikaans Engels, mannelijk, enthousiast (aanrader voor kinderen)" },
   { name: "en-US-Chirp3-HD-Kore", label: "Kore · Amerikaans Engels, vrouwelijk" },
   { name: "en-GB-Chirp3-HD-Charon", label: "Charon · Brits Engels, mannelijk" },
-  { name: "nl-NL-Chirp3-HD-Charon", label: "Charon · Nederlands, mannelijk" },
 ];
 
 export type AnalysisState =

@@ -38,10 +38,11 @@ describe("KIVOXEL config", () => {
 
   it("refuses hooks that are too long or not in capitals", () => {
     const hooks = structuredClone(hookFile);
-    hooks.hooks.fail.nl = ["DIT IS VEEL TE LANG HOOR", "klein", "OK OK"];
+    hooks.hooks.fail = ["THIS ONE IS WAY TOO LONG", "small", "WACHT HIEROP"];
     const problems = configProblems(presetFile, hooks).join(" ");
     expect(problems).toMatch(/6 woorden/);
     expect(problems).toMatch(/HOOFDLETTERS/);
+    expect(problems).toMatch(/lijkt Nederlands/);
   });
 
   it("maps analysis moments to hook types", () => {

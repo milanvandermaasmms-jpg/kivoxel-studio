@@ -54,7 +54,7 @@ import type { EventStore } from "./eventTimeline.ts";
 import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
 import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
 import { gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
-import { hookFile, presetFile, resolveSettings } from "../lib/kivoxel/config.ts";
+import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
 import { freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
 import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
 import type { PhraseLog } from "./phraseLog.ts";
@@ -515,8 +515,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
       const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
       const free = () => {
-        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: video.data.language, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short });
-        const overlay = pick(hookFile.hooks[f.mainType][video.data.language], recent, seeded(`${video.data.id}:hook:${version}`));
+        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short });
+        const overlay = pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
         void montage?.phrases?.add([...f.used, overlay]).catch(() => {});
         return { topLine: overlay, hook: f.hook, lines: f.lines, hooks: [], loopLine: null, titles: [] } satisfies ScriptDraft;
       };
@@ -529,12 +529,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           await reserve(job, 2);
           const feedback = await previousFeedback(job, video.data.id, version);
           // Packaging (hooks, titles, top line) as before; then the lines themselves against the timeline.
-          const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series)));
+          const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series)));
           const parsed = parseScript(json, plan.targetMs);
           if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
           draft = parsed.draft;
           engine = "ai";
-          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: video.data.language, settings: kSettings, short, recent, note: feedback?.note });
+          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note });
           const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
           const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
           if ("lines" in lines) {
@@ -556,7 +556,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       studio_id: job.studio_id,
       video_id: video.data.id,
       version,
-      language: video.data.language,
+      language: VIDEO_LANGUAGE,
       top_line: draft.topLine || null,
       hook: draft.hook,
       lines: draft.lines,
@@ -632,7 +632,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
     let sync: { ok: boolean; flagged: boolean; summary: string; items: GateItem[] } | null = null;
     const voice: VoiceClip[] = [];
-    const voiceName = settings.data?.voice_name ?? "en-US-Chirp3-HD-Fenrir";
+    // KIVOXEL videos are English, always: a non-English voice in the settings falls back to the English one.
+    const voiceName = /^en-/.test(settings.data?.voice_name ?? "") ? settings.data!.voice_name : "en-US-Chirp3-HD-Fenrir";
     const fileName = renderFileName(video.data.id, s.data.version, job.id);
     const output = join(montage.rendersDir, fileName);
     const partial = join(montage.rendersDir, fileName.replace(/\.mp4$/, ".part.mp4"));

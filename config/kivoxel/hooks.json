@@ -1,6 +1,6 @@
 {
-  "$comment": "Hook-bibliotheek: 2-4 woorden bovenaan een Short. Gekozen op het echte event-type, nooit vaker dan 1x per 10 Shorts. Voeg gerust hooks toe; houd ze kort, in HOOFDLETTERS en eerlijk (de Short moet waarmaken wat er staat).",
-  "version": 1,
+  "$comment": "Hook library: 2-4 words at the top of a Short. ENGLISH ONLY. Chosen on the real event type, never more than once per 10 Shorts. Keep them short, in CAPITALS, explosive and honest (the Short must deliver what it says).",
+  "version": 2,
   "event_types": {
     "fail": { "label": "Fail", "from_moments": ["mistake"] },
     "bijna_dood": { "label": "Bijna dood", "from_moments": ["near_death", "escape", "rescue"] },
@@ -10,29 +10,11 @@
     "jumpscare": { "label": "Jumpscare", "from_moments": ["surprise"] }
   },
   "hooks": {
-    "fail": {
-      "nl": ["EPIC FAIL", "DIT GING FOUT", "OEPS…", "TOTALE CHAOS", "WAAROM?!", "NIET DOEN!!", "FOUTE KEUZE", "DAAR GAAT ALLES"],
-      "en": ["EPIC FAIL", "THIS WENT WRONG", "OOPS…", "TOTAL CHAOS", "WHY?!", "DON'T DO IT", "BAD IDEA", "THERE IT GOES"]
-    },
-    "bijna_dood": {
-      "nl": ["BIJNA!!", "WACHT HIEROP…", "ÉÉN HARTJE", "NET OP TIJD", "DIT WAS KRAP", "HOE OVERLEEFT HIJ?!", "NOG NIET DOOD"],
-      "en": ["SO CLOSE!!", "WAIT FOR IT…", "ONE HEART LEFT", "JUST IN TIME", "THAT WAS CLOSE", "HOW?!", "NOT DEAD YET"]
-    },
-    "geluk": {
-      "nl": ["1 OP 1.000.000", "HOE?!", "GELUKSVOGEL", "DIT IS ZELDZAAM", "NO WAY 😱", "JACKPOT!!", "ECHT WAAR?!"],
-      "en": ["1 IN 1,000,000", "HOW?!", "SO LUCKY", "THIS IS RARE", "NO WAY 😱", "JACKPOT!!", "IS THIS REAL?!"]
-    },
-    "bouw": {
-      "nl": ["KIJK DIT RESULTAAT", "VAN NIKS NAAR DIT", "WACHT TOT HET EIND", "DIT DUURDE UREN", "IS DIT MOOI?"],
-      "en": ["LOOK AT THIS", "FROM NOTHING TO THIS", "WAIT FOR THE END", "THIS TOOK HOURS", "RATE THIS BUILD"]
-    },
-    "grap": {
-      "nl": ["IK KAN NIET MEER 😂", "WAT DOET HIJ?!", "DIT IS ZO DOM", "KIJK GOED…", "HAHA NEE"],
-      "en": ["I CAN'T 😂", "WHAT IS HE DOING?!", "THIS IS SO DUMB", "LOOK CLOSELY…", "HAHA NO"]
-    },
-    "jumpscare": {
-      "nl": ["WAT WAS DAT?!", "NIET SCHRIKKEN", "ACHTER JE!!", "NO WAY 😱", "ZET JE GELUID AAN"],
-      "en": ["WHAT WAS THAT?!", "DON'T JUMP", "BEHIND YOU!!", "NO WAY 😱", "SOUND ON"]
-    }
+    "fail": ["EPIC FAIL", "WORST MOVE EVER", "HE'S DONE 💀", "BIG MISTAKE", "WHY?!", "TOTAL CHAOS", "IT ALL WENT WRONG", "NOT LIKE THIS"],
+    "bijna_dood": ["ONE HEART LEFT", "SO CLOSE!!", "WAIT FOR IT…", "HOW IS HE ALIVE?!", "CLOSEST CALL EVER", "NOT DEAD YET", "LAST SECOND SAVE"],
+    "geluk": ["1 IN 1,000,000", "NO WAY 😱", "INSANE LUCK", "JACKPOT!!", "HOW?!", "THIS IS RARE"],
+    "bouw": ["RATE THIS BUILD", "FROM ZERO TO THIS", "WAIT FOR THE END", "THIS TOOK HOURS", "BEST BUILD EVER?"],
+    "grap": ["I CAN'T 😂", "WHAT IS HE DOING?!", "BRO WHAT", "HE HAD ONE JOB", "LOOK CLOSELY…"],
+    "jumpscare": ["WHAT WAS THAT?!", "BEHIND YOU!!", "SOUND ON 🔊", "DON'T JUMP", "NOPE NOPE NOPE"]
   }
 }
