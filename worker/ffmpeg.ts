@@ -7,6 +7,7 @@ import { checkStall, createProgressParser, type FfmpegSnapshot } from "../lib/yo
 import type { ProbeInfo } from "../lib/youtube/protocol.ts";
 import { parseQcLog, type QcProbe } from "../lib/youtube/qc.ts";
 import { createSignalParser, signalArgs, type Signals } from "../lib/youtube/footage.ts";
+import { correctArgs, measureArgs, parseMeasured, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 
 const run = promisify(execFile);
 
@@ -298,3 +299,13 @@ export async function audioDurationMs(ffprobe: string, file: string): Promise<nu
 
 /** Makes a spoken line a little faster without changing the pitch (the sync gate allows at most 1.08x). */
 export const tempoArgs = (input: string, output: string, speed: number) => ["-hide_banner", "-loglevel", "error", "-y", "-i", input, "-filter:a", `atempo=${speed.toFixed(3)}`, "-ar", "48000", output];
+
+/** KIVOXEL fase 1: exact loudness in two passes (lib/kivoxel/loudness.ts); the picture is copied. Returns false when pass 1 printed no measurement. */
+export async function normalizeLoudness(ffmpeg: string, input: string, output: string, cwd: string, target: LoudnessTarget, options: RunOptions = {}): Promise<boolean> {
+  let log = "";
+  await runFfmpeg(ffmpeg, measureArgs(input, target), cwd, 10 * 60_000, { ...options, onStderr: (c) => { log = (log + c).slice(-20_000); options.onStderr?.(c); } });
+  const measured = parseMeasured(log);
+  if (!measured) return false;
+  await runFfmpeg(ffmpeg, correctArgs(input, output, target, measured), cwd, 10 * 60_000, options);
+  return true;
+}

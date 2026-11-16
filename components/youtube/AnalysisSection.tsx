@@ -5,6 +5,7 @@ import { Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, partLabel, PRIVACY_LABEL, SERIES_MIN_MS, SERIES_PART_MS, targetFor, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
+import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwitch";
 import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, queueSeries, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { ViralCard } from "@/components/youtube/ViralCard";
 import { pageVisible } from "@/lib/visible";
@@ -561,6 +562,7 @@ function MontageBlock({ video, approved, scripts, montage, act, studioId, worker
           </Button>
         )}
       </div>
+      {approved && !busy && renders.length > 0 && <AudioModeSwitch studioId={studioId} script={approved} attempt={jobs.length + 1} current={renderAudio(shown)} act={act} onQueued={() => onWatch?.(video.id)} />}
       {!approved && <p className="text-xs text-slate-500">Keur eerst een script goed; daarna kan de werker de montage maken.</p>}
       {latest && (
         <p className={`text-xs ${latest.status === "failed" ? "text-red-700" : "text-slate-600"}`}>

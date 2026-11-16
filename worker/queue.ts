@@ -62,6 +62,11 @@ import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
 import { chooseHook, hookChecks, hookEvents, hookStyle, hookType } from "../lib/kivoxel/hookText.ts";
 import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
 import type { PhraseLog } from "./phraseLog.ts";
+import { AUDIO_MODES, type AudioMode } from "../lib/kivoxel/config.ts";
+import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
+import { beatStart, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
+import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
+import { targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 import { speakWithGate } from "./voiceGate.ts";
 
 /**
@@ -85,6 +90,15 @@ export type Montage = {
   duration?: (file: string) => Promise<number>;
   /** Recently used phrases (rotation), on this pc. */
   phrases?: PhraseLog;
+  /** KIVOXEL fase 1: exact loudness in two passes (picture copied); false when FFmpeg gave no measurement. */
+  normalize?: (input: string, output: string, cwd: string, target: LoudnessTarget, options?: RunOptions) => Promise<boolean>;
+  /** KIVOXEL fase 1: the local music and SFX libraries, and which tracks/SFX were used lately (rotation). */
+  media?: {
+    music: () => Promise<{ dir: string; tracks: Track[] }>;
+    sfx: () => Promise<{ dir: string; items: Sfx[] }>;
+    musicLog: PhraseLog;
+    sfxLog: PhraseLog;
+  };
 };
 
 /** YouTube upload (fase D3); null while YouTube is not set up in worker/.env.local. */
@@ -679,6 +693,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       });
     }
     let sync: { ok: boolean; flagged: boolean; summary: string; items: GateItem[] } | null = null;
+    // KIVOXEL fase 1, section 3: the audio mode of this montage (chosen in the review, else the channel default).
+    const askedMode = typeof job.payload?.audio_mode === "string" && (AUDIO_MODES as readonly string[]).includes(job.payload.audio_mode) ? (job.payload.audio_mode as AudioMode) : null;
+    const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, askedMode ?? presetFile.channel_default.audio_mode);
+    const modeSpec = kSettings.audio_modes[kSettings.audio_mode];
+    let storyOverlays: StoryText[] = [];
+    let mixPlan: MixPlan | null = null;
+    let mixNote: string | null = null;
     const voice: VoiceClip[] = [];
     // KIVOXEL videos are English, always: a non-English voice in the settings falls back to the English one.
     const voiceName = /^en-/.test(settings.data?.voice_name ?? "") ? settings.data!.voice_name : "en-US-Chirp3-HD-Fenrir";
@@ -692,13 +713,19 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       let note: string | null = null;
       let characters = 0;
       if (video.data.is_test) note = "Testdata: montage zonder stem";
-      else if (!montage.voice) note = "Montage zonder stem: stem nog te verbinden (GOOGLE_TTS_API_KEY in worker/.env.local)";
+      else if (fase1 && !modeSpec.voice) {
+        // No voice in this mode: the same anticipation lines become text in the picture (no TTS, no characters used).
+        const story = textOverlays(narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[], cut.segments, timeline, cut.targetMs, kSettings);
+        storyOverlays = story.overlays;
+        spoken = [];
+        note = `Audio-modus "${modeSpec.label}": geen stem, het verhaal staat als tekst in beeld (${story.overlays.length} teksten${story.dropped.length ? `, ${story.dropped.length} weggelaten` : ""})`;
+      } else if (!montage.voice) note = "Montage zonder stem: stem nog te verbinden (GOOGLE_TTS_API_KEY in worker/.env.local)";
       else {
         await lv.phase("Voice-over maken");
         const needed = spoken.reduce((sum, l) => sum + l.text.length, 0);
         if (fase1 && montage.duration) {
           // Line by line, with the real spoken length; lines that do not fit are shortened (max 3 attempts) or left out.
-          const presetSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
+          const presetSettings = kSettings;
           try {
             const g = await speakWithGate({
               lines: narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[],
@@ -743,6 +770,35 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (cost.error && cost.error.code !== "23505") log(`Stemgebruik van stap ${job.id} niet vastgelegd: ${cost.error.message}`);
         }
       }
+      const isShort = video.data.format !== "C";
+      const inMontage = eventsInMontage(cut.segments, timeline);
+      const mainEvent = isShort ? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0] ?? null : null;
+      // KIVOXEL fase 1, sections 3 and 7.6: music (on the beat of the payoff) and SFX, per audio mode.
+      if (fase1 && montage.media && !video.data.is_test) {
+        const media = montage.media;
+        const rnd = seeded(`${job.id}:mix`);
+        const cutMs = cut.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
+        const peakOut = (mainEvent ?? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0])?.peak_out ?? null;
+        let music: MusicChoice | null = null;
+        if (modeSpec.music) {
+          const lib = await media.music().catch(() => ({ dir: "", tracks: [] as Track[] }));
+          const recentTracks = await media.musicLog.recent().catch(() => [] as string[]);
+          const type = mainEvent?.type ?? inMontage.find((e) => e.type)?.type ?? "fail";
+          const track = pickTrack(lib.tracks, type, isShort ? 5 : 3, recentTracks, rnd, kSettings.variation.music_no_repeat_within);
+          if (track) {
+            music = { file: join(lib.dir, track.file), startMs: beatStart(track, peakOut, Math.floor(rnd() * 3)), title: `${track.title}${track.artist ? ` – ${track.artist}` : ""} (${track.source})` };
+            void media.musicLog.add([track.file]).catch(() => {});
+          } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
+        }
+        let sfx: SfxCue[] = [];
+        if (kSettings.features.sfx_layer) {
+          const lib = await media.sfx().catch(() => ({ dir: "", items: [] as Sfx[] }));
+          const recentSfx = await media.sfxLog.recent().catch(() => [] as string[]);
+          sfx = planSfx({ segments: cut.segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: lib.items, recent: recentSfx, rnd, withVoice: modeSpec.voice, noRepeatWithin: kSettings.variation.sfx_no_repeat_within, durationMs: cutMs }).map((c) => ({ ...c, file: join(lib.dir, c.file) }));
+          void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
+        }
+        mixPlan = { mode: kSettings.audio_mode, spec: modeSpec, music, sfx, voiceChain: true };
+      }
       const plan = renderArgs({
         recording: join(store.recordingsDir, local.file),
         recordingMs: local.probe.durationMs,
@@ -755,13 +811,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         output: partial,
         blur,
         muteGame,
+        ...(mixPlan ? { mix: { plan: mixPlan, settings: kSettings } } : {}),
       });
       // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
-      const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
-      const isShort = video.data.format !== "C";
-      const mainEvent = isShort ? eventsInMontage(cut.segments, timeline).sort((a, b) => b.payoff - a.payoff)[0] ?? null : null;
       const hook = isShort && fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) } : undefined;
-      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs), hook }), "utf8");
+      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs), hook, story: storyOverlays.length ? storyAss(storyOverlays, size, plan.durationMs) : undefined }), "utf8");
       if (lv.signal.aborted) throw new CancelledError();
       await lv.phase("Video renderen", 0);
       await lv.event("log", `FFmpeg gestart: ${plan.segments} fragmenten, ${size.width}×${size.height}${blur.length ? `, ${blur.length} hoeken vervaagd` : ""}${muteGame ? ", gamegeluid gedempt" : ""}`);
@@ -773,6 +827,19 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           void lv.progress({ progress, metrics: { frame: snap.frame, fps: snap.fps, speed: snap.speed, out_ms: snap.outMs, total_ms: plan.durationMs, eta_ms: etaMs, elapsed_ms: Date.now() - started } });
         },
       });
+      // KIVOXEL fase 1: exact loudness (-14 LUFS, true peak <= -1 dB) in two passes; the picture is copied.
+      if (mixPlan && montage.normalize) {
+        await lv.phase("Geluid op -14 LUFS zetten");
+        const exact = partial.replace(/\.part\.mp4$/, ".loud.part.mp4");
+        try {
+          if (await montage.normalize(partial, exact, tmp, targetFrom(kSettings.mix), { signal: lv.signal })) await rename(exact, partial);
+        } catch (e) {
+          if (e instanceof CancelledError) throw e;
+          await lv.event("error", `Luidheid niet exact gezet (de montage blijft zoals hij is): ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          await rm(exact, { force: true });
+        }
+      }
       await lv.phase("Preview opslaan", 1);
       await rename(partial, output);
       // Fase D4b: the same captions as a separate file, for YouTube (search and accessibility).
@@ -822,6 +889,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             hasVoice: voice.length > 0,
             captionsInSafeZone: true,
           });
+          if (mixPlan) {
+            const m = modeCheck(mixPlan, voice.length);
+            // An empty music library is something for Milan to fill, not a broken montage: orange instead of red.
+            items.push({ key: "audio_mode", label: "Audio-modus toegepast", level: m.ok ? "green" : mixNote ? "orange" : "red", value: m.value, note: mixNote ?? m.note });
+          }
           if (sync) items.push({ key: "vo_sync", label: "VO-sync (stem vóór de piek)", level: sync.ok ? "green" : "red", value: sync.ok ? "op tijd" : sync.flagged ? "nakijken" : "fout", note: sync.summary.slice(0, 400) });
           // Section 9: hook and length of a Short (fase-1 scripts only; older Shorts keep their old checks).
           if (isShort && fase1) {
@@ -834,7 +906,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           }
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
-          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items } }).eq("job_id", job.id);
+          // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
+          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0 } : null;
+          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}) } }).eq("job_id", job.id);
           if (saved.error && !liveMissing(saved.error)) await lv.event("error", `Kwaliteitscontrole niet opgeslagen: ${saved.error.message}`);
         } catch (e) {
           if (e instanceof CancelledError) throw e;
@@ -891,7 +965,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });

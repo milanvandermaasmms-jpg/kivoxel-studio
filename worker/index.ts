@@ -7,7 +7,7 @@ import { hostname, homedir } from "node:os";
 import { join } from "node:path";
 import { WORKER_PORT, type WorkerHealth } from "../lib/youtube/protocol.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
-import { audioDurationMs, boostLoudness, cutArgs, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
+import { audioDurationMs, normalizeLoudness, boostLoudness, cutArgs, detectSignals, extractFrame, ffmpegVersion, findTool, makeProxy, measureLoudness, measureRender, probe, runFfmpeg } from "./ffmpeg.ts";
 import { createGemini } from "./gemini.ts";
 import { createResearch } from "./research.ts";
 import { createTts, createUsageCounter } from "./tts.ts";
@@ -32,6 +32,7 @@ import { DEFAULT_MODEL } from "./gemini.ts";
 import { checkThumbnailHeader, fontPath } from "./brandCheck.ts";
 import { createEventStore } from "./eventTimeline.ts";
 import { createPhraseLog } from "./phraseLog.ts";
+import { createMediaLibrary } from "./mediaLibrary.ts";
 import { configProblems } from "../lib/kivoxel/config.ts";
 import { brandProblems } from "../lib/kivoxel/brand.ts";
 
@@ -117,6 +118,8 @@ const montage: Montage | null = version
       events: createEventStore(ffmpeg, dataDir),
       duration: (file) => audioDurationMs(ffprobe, file),
       phrases: createPhraseLog(join(dataDir, "kivoxel-phrases.json")),
+      normalize: (input, output, cwd, target, options) => normalizeLoudness(ffmpeg, input, output, cwd, target, options),
+      media: createMediaLibrary(dataDir, join(import.meta.dirname, "..", "assets", "kivoxel", "sfx"), log),
       // Narrator: Google TTS, free tier only; the character counter lives next to the recordings.
       voice: env.GOOGLE_TTS_API_KEY ? { tts: createTts(env.GOOGLE_TTS_API_KEY), usage: createUsageCounter(join(dataDir, "tts-usage.json")) } : null,
     }

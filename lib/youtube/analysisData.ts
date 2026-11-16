@@ -130,9 +130,11 @@ export async function savePrivacySettings(studioId: string, p: PrivacySettings):
 }
 
 /** "Montage maken": queues a montage of an approved script. Each click is a new attempt (render:<script>:<n>). */
-export async function queueRender(studioId: string, script: DbScript, attempt: number): Promise<void> {
+export async function queueRender(studioId: string, script: DbScript, attempt: number, audioMode?: string): Promise<void> {
   if (script.status !== "approved") throw new Error("Keur het script eerst goed.");
-  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: `render:${script.id}:${attempt}`, payload: { script_id: script.id } });
+  // KIVOXEL fase 1: the audio mode travels with the job (no new column); without it the worker uses the channel default.
+  const payload = audioMode ? { script_id: script.id, audio_mode: audioMode } : { script_id: script.id };
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: `render:${script.id}:${attempt}`, payload });
   if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
   // A new montage needs a new check: an earlier approval no longer counts. The worker sets "review" when it is done.
   await setVideoStatus(script.video_id, "rendering", ["idea", "scripted", "review", "approved"]);
