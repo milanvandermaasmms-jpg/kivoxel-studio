@@ -23,7 +23,7 @@ if (existsSync(envFile))
     const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
     if (m && !(m[1] in env)) env[m[1]] = m[2].replace(/^["']|["']$/g, "");
   }
-const stage = process.argv[2] === "loops" ? "loops" : "images";
+const stage = process.argv[2] === "loops" ? "loops" : process.argv[2] === "stories" ? "stories" : "images";
 const dry = process.argv.includes("--dry");
 const base = join(env.WORKER_DATA_DIR || join(homedir(), "FamilieMK-YouTube"), "dreamnest");
 const from = join(base, "keyframes", "huiskamer-01");
@@ -37,6 +37,17 @@ const log = (m: string) => console.log(`[${new Date().toLocaleTimeString("nl-NL"
 
 /** The views that get a Christmas version (all keyframes after the welcome, plus the welcome itself). */
 export const KERST_VIEWS = ["b01-welcome-exterior", "b02-lumi-rocking-chair", "b03-pip-arrives", "b05-mo-by-fire", "b06-window-momo", "b07-lumi-yawn", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
+/**
+ * D0 (Milan, 16-11-2026: "vriendjes moeten in beeld binnenkomen, Lumi moet vloeiend bewegen"): story clips from one
+ * Christmas keyframe to the next. Milan approved up to € 4 extra for these (ceiling via KERST_CEILING_CENTS).
+ */
+export const KERST_STORIES: { id: string; first: string; last: string; motion: string }[] = [
+  { id: "story-b02-lumi-rocking-chair", first: "b02-lumi-rocking-chair", last: "b03-pip-arrives", motion: "Pip the little owl waddles in slowly through the round door with his candle and his long scarf; Lumi looks up from her rocking chair with a small happy smile." },
+  { id: "story-b03-pip-arrives", first: "b03-pip-arrives", last: "b05-mo-by-fire", motion: "Mo the little fox walks in slowly, sits down by the warm fire next to the Christmas stockings, turns once and settles into a round ball." },
+  { id: "story-b05-mo-by-fire", first: "b05-mo-by-fire", last: "b08-blanket-together", motion: "Lumi and Pip walk over slowly and snuggle up together with Mo under a big soft blanket by the Christmas tree." },
+  { id: "story-b08-blanket-together", first: "b08-blanket-together", last: "b09-lumi-falls-asleep", motion: "Lumi gives one slow soft yawn, hugs Twinkle the little star and slowly lies down, her eyes closing as she falls asleep." },
+];
+
 /** Views that also get a moving Christmas loop (each ± 83 cent). */
 export const KERST_LOOPS: Record<string, string> = {
   "b02-lumi-rocking-chair": "Lumi rocks very slowly back and forth in the rocking chair, breathing calmly, hugging Twinkle; the fire flickers gently, snow falls softly outside, the Christmas lights glow steadily.",
@@ -119,7 +130,44 @@ async function loops() {
   }
 }
 
+async function stories() {
+  await mkdir(loopsDir, { recursive: true });
+  const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
+  const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
+  const video = createOmniVideo(env.GEMINI_API_KEY!);
+  const todo = KERST_STORIES.filter((c) => !existsSync(join(loopsDir, `${c.id}.mp4`)));
+  log(`Kerst-verhaalclips: ${todo.length} te maken, ± € ${((todo.length * video.estimateCents(8, "1080p")) / 100).toFixed(2)}. Al gebruikt € ${((await ledger.spent()) / 100).toFixed(2)}, plafond € ${(CEILING / 100).toFixed(2)}.`);
+  if (dry) return;
+  for (const c of todo) {
+    const first = { mime: "image/png", data: await readFile(join(kerstDir, `${c.first}.png`)) };
+    const last = { mime: "image/png", data: await readFile(join(kerstDir, `${c.last}.png`)) };
+    const prompt = `${MOTION_DNA}
+
+From the first image to the last image, as one continuous calm shot in the same room: ${c.motion} Movement is smooth and slow the whole time; the camera stays still. The Christmas lights never blink or flash; snow falls softly outside.`;
+    const key = cacheKey([video.model, prompt, "8s", "1080p", first.data, last.data]);
+    let data = await cache.get(key, "mp4");
+    if (!data) {
+      try {
+        await ledger.guard(video.estimateCents(8, "1080p"));
+      } catch (e) {
+        log(`${c.id}: niet gemaakt (${e instanceof Error ? e.message.slice(0, 80) : "budget"})`);
+        break;
+      }
+      log(`${c.id}: maken (8 s, 1080p)...`);
+      const made = await video.generate({ first, last, prompt, durationS: 8, resolution: "1080p" });
+      data = made.data;
+      await cache.put(key, "mp4", data);
+      await ledger.add({ provider: video.name, model: made.model, purpose: `kerst ${c.id}`, cents: made.costCents, cacheKey: key });
+    }
+    const out = join(loopsDir, `${c.id}.mp4`);
+    await runTool(ffmpeg, silentArgs(cache.path(key, "mp4"), out));
+    const safety = judgeClip(await measureClip(ffmpeg, ffprobe, out, false), "story");
+    log(`${c.id}: ${safety.ok ? "veilig ✅" : `⚠️ ${safety.problems.join("; ")}`}`);
+  }
+}
+
 if (!env.GEMINI_API_KEY && !dry) throw new Error("GEMINI_API_KEY ontbreekt in worker/.env.local");
 if (stage === "images") await images();
+else if (stage === "stories") await stories();
 else await loops();
 log(`Totaal Dreamnest nu € ${((await ledger.spent()) / 100).toFixed(2)} (plafond deze run € ${(CEILING / 100).toFixed(2)}).`);

@@ -102,7 +102,7 @@ const waitForKivoxel = () => waitKivoxelFirst(log);
 /** Kerst: length of the breathing still (one full breath, loops seamlessly). */
 const BREATH_S = 120;
 /** Kerst: only the views the sleep part uses get a still (saves render time). */
-const KERST_STILLS = ["b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
+const KERST_STILLS = ["b03-pip-arrives", "b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
 const CLIPS = readdirClips();
 const SET = JSON.parse(readFileSync(join(resolve(import.meta.dirname, "../.."), "content", "dreamnest", "sets", "huiskamer.json"), "utf8")) as { weather?: Weather; regions?: Record<string, Region> };
 if (kerst) {
@@ -120,14 +120,15 @@ function breathZoom(amount: number, n: number, cx: number, cy: number) {
 }
 /** Sub-pixel zoom of `amount` over n frames towards (cx, cy) as fractions: smooth, no stepping on whole pixels. */
 function smoothZoom(amount: number, n: number, cx: number, cy: number) {
-  const z = `(1+${(amount / n).toFixed(9)}*in)`;
+  // Ease-in-out (superprompt §4: never linear): a half cosine from 0 to `amount` over n frames.
+  const z = `(1+${(amount / 2).toFixed(6)}*(1-cos(PI*min(in,${n})/${n})))`;
   const x0 = `W*${cx}-W/2/${z}`, x1 = `W*${cx}+W/2/${z}`, y0 = `H*${cy}-H/2/${z}`, y1 = `H*${cy}+H/2/${z}`;
   return `perspective=x0='${x0}':y0='${y0}':x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}':interpolation=cubic:eval=frame`;
 }
 function readdirClips() {
   if (kerst) {
     // Kerst: the Christmas loops and stills only (no AI story moments: they jumped from moving to frozen).
-    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^loop-b\d\d-.*\.mp4$/.test(f) && !f.includes(".ruw.")).map((f) => ({ id: f.replace(/\.mp4$/, ""), kind: "loop" as const, file: join(kerstLoops, f) }));
+    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^(loop|story)-b\d\d-.*\.mp4$/.test(f) && !f.includes(".ruw.")).map((f) => ({ id: f.replace(/\.mp4$/, ""), kind: (f.startsWith("story-") ? "story" : "loop") as "story" | "loop", file: join(kerstLoops, f) }));
     // Without the moving loops the story part would be skipped entirely (bug of 16-11-2026): stop instead.
     if (!clips.length) throw new Error(`Geen kerstlussen gevonden in ${kerstLoops}`);
     clips.push({ id: "story-b01-welcome-exterior", kind: "story", file: join(keyDir, "b01-welcome-exterior.png") });
@@ -155,6 +156,11 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
       // Smooth dolly with sub-pixel interpolation (perspective): zoompan stepped on whole pixels and trembled (16-11-2026).
       await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", still, "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,format=yuv444p,${smoothZoom(0.08, n, 0.5, 0.5)},setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
       log(`${c.id}: welkomstbeeld met langzame dolly-in (42 s)`);
+    } else if (c.kind === "story" && kerst) {
+      // D0: a Christmas story clip (from one keyframe to the next: a friend comes in, Lumi moves) is used whole, at its
+      // own speed, with the same soft temporal blend as the loops against the AI flicker.
+      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},tmix=frames=5:weights='1 2 3 2 1',setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
+      log(`${c.id}: verhaalclip heel, flikkeren gedempt`);
     } else if (c.kind === "story") {
       // The own-scene part: until the picture looks more like the next scene than like its own start, never past a cut.
       const vs = (pick: string) => ff(["-i", c.file, "-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2[a];[1:v]${norm},scale=480:-2,${pick},loop=loop=-1:size=1,setpts=N/${FPS}/TB[b];[a][b]ssim=stats_file=-:shortest=1`, "-f", "null", "-"]).then(parseAllSsim);
@@ -168,7 +174,7 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
     } else if (c.kind === "still") {
       // A still stays perfectly still (16-11-2026): the slow zoom trembled (zoompan steps on whole pixels, and the zoom
       // jumped back when the still was looped). Its life comes from the living layer (snow/rain, fireflies, fire glow).
-      if (kerst) {
+      if (kerst && process.env.DN_BREATH === "1") {
         // Kerst (reference "Deep Sleep Piano", 16-11-2026): a very slow breathing camera, 1.5% in and out over 2 minutes,
         // sub-pixel smooth, centred on the window (so the living layer stays in place). The breath is one full cosine,
         // so the 2-minute asset loops without a seam.
@@ -213,7 +219,8 @@ async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number)
   const off = (id: string, s: number) => (s % assets.get(id)!.lengthS).toFixed(3);
   // Fase 6: the living layer (20 s seamless loop) of the view over every loop and still, timed on the episode clock,
   // so it runs on without a seam across pieces and cross-fades.
-  const ov = (asset: string) => ((/^(loop|still)-/.test(asset) || kerst) && overlays.has(viewOf(asset)) ? overlays.get(viewOf(asset))! : null);
+  // Not on a story clip (it moves from one view to the next, so a window layer of one view would sit in the wrong place).
+  const ov = (asset: string) => ((/^(loop|still)-/.test(asset) || (kerst && asset === "story-b01-welcome-exterior")) && overlays.has(viewOf(asset)) ? overlays.get(viewOf(asset))! : null);
   const ovOff = (p.globalS % LOOP_S).toFixed(3);
   const layer = (asset: string, label: string, input: number) => {
     const o = ov(asset);

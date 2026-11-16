@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { arrange, KERST_MELODIES } from "./music";
 import { planCues } from "./setlist";
-import { buildKerstTimeline, episodeLength, KERST_X, planPieces, type AssetV2 } from "./timeline";
+import { buildKerstTimeline, episodeLength, KERST_BAR_S, KERST_X, planPieces, type AssetV2 } from "./timeline";
 
 const views = ["b02-lumi-rocking-chair", "b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
 const assets: AssetV2[] = [
@@ -67,6 +67,29 @@ describe("Dreamnest kerst: reference quality (Milan, 16-11-2026)", () => {
     const sleep = segs.filter((s) => s.part === "sleep");
     expect(sleep.every((s) => s.asset.startsWith("still-"))).toBe(true);
     expect(sleep.slice(0, -1).every((s) => s.lengthS >= 600)).toBe(true);
-    expect(sleep.every((s) => s.xfadeS >= 12)).toBe(true);
+    expect(sleep.every((s) => s.xfadeS >= 4)).toBe(true);
+  });
+});
+
+describe("Dreamnest kerst D0: friends come in on screen, transitions on the bar", () => {
+  const withClips: AssetV2[] = [
+    ...assets,
+    { id: "still-b03-pip-arrives", kind: "still", lengthS: 430 },
+    ...["b02-lumi-rocking-chair", "b03-pip-arrives", "b05-mo-by-fire", "b08-blanket-together"].map((v) => ({ id: `story-${v}`, kind: "story" as const, lengthS: 8 })),
+  ];
+  const segs = buildKerstTimeline(withClips, 60, 11);
+  it("the story shows Pip coming in, Mo coming in, everyone together, Lumi falling asleep", () => {
+    const story = segs.filter((s) => s.part === "story").map((s) => s.asset);
+    expect(story.filter((a) => a.startsWith("story-"))).toEqual(["story-b02-lumi-rocking-chair", "story-b03-pip-arrives", "story-b05-mo-by-fire", "story-b08-blanket-together"]);
+    // A story clip never plays longer than the clip itself.
+    for (const s of segs.filter((x) => x.asset.startsWith("story-b0") && x.part === "story")) expect(s.lengthS).toBeLessThanOrEqual(8);
+  });
+  it("every cross-fade in the story starts on a bar line of the music", () => {
+    for (const s of segs.filter((x) => x.part !== "sleep" && x.part !== "outro" && x.part !== "falling_asleep")) {
+      const start = s.startS + s.lengthS - s.xfadeS;
+      expect(Math.abs(start / KERST_BAR_S - Math.round(start / KERST_BAR_S))).toBeLessThan(1e-6);
+    }
+    expect(Math.round(episodeLength(segs))).toBe(3600);
+    expect(KERST_X.story).toBe(2);
   });
 });

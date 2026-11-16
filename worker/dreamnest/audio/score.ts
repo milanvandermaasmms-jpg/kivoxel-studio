@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { KERST_OFFSET, TARGETS, TRUE_PEAK_MAX } from "../../../lib/dreamnest/audioqc.ts";
-import { KERST_MELODIES, rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
+import { KERST_MELODIES, LUMI_THEME, MELODIES, rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
 import { planCues, renderCues, type CueOptions } from "../../../lib/dreamnest/setlist.ts";
 import { brownNoise, fade, fireplace, mix, rain, renderEvents, SR, stereo, wav, type Stereo } from "./synth.ts";
 
@@ -55,7 +55,9 @@ function room(seconds: number, amb: number, s: number, kerst = false): Stereo {
 }
 
 /** Kerst: the carol first, soft leads only (no music box, which Milan found tiring), a bit more space between songs. */
-export const KERST_CUES: CueOptions = { themes: KERST_MELODIES, themesOnly: true, leads: { story: ["felt"], falling_asleep: ["felt"], sleep: ["felt"] }, second: ["felt"], styles: { story: ["plain", "answer"], falling_asleep: ["plain", "low"], sleep: ["low", "plain"] }, bpmScale: 0.82, storyGapS: 8, octave: 0, chord: "felt" };
+// D0 (superprompt §7): only 3/4 songs (Lumi theme, Silent Night, We Wish You, Brahms), one key (C), one tempo per part
+// (66 / 63 / 60 BPM), songs on bar lines. Jingle Bells and Deck the Halls are 4/4 and stay out of this video.
+export const KERST_CUES: CueOptions = { themes: [LUMI_THEME, ...KERST_MELODIES.filter((m) => m.beatsPerBar === 3), MELODIES[1]], themesOnly: true, fixedBpm: { story: 66, falling_asleep: 63, sleep: 60 }, fixedKey: 0, wholeBars: true, leads: { story: ["felt"], falling_asleep: ["felt"], sleep: ["felt"] }, second: ["felt"], styles: { story: ["plain", "answer"], falling_asleep: ["plain", "low"], sleep: ["low", "plain"] }, storyGapS: 8, octave: 0, chord: "felt" };
 
 /** Kerst outro: only the soft pad chords, no loose high notes. */
 function padOnly(seconds: number, s: number): Song {

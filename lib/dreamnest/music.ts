@@ -51,6 +51,15 @@ export const MELODIES: Melody[] = [
 ];
 
 /** Christmas (Dreamnest kerst, 16-11-2026): public-domain carols, newly arranged by the own generator. */
+/** The Lumi theme (superprompt §7): an own 4-bar melody in 3/4, the recognisable sound of the channel. Own work. */
+export const LUMI_THEME: Melody = {
+  id: "lumi-thema",
+  title: "Lumi-thema (eigen melodie)",
+  source: "Eigen compositie DreamNest, 16-11-2026.",
+  beatsPerBar: 3,
+  notes: [[E4, 1], [G4, 1], [A4, 1], [G4, 2], [E4, 1], [D4, 1], [E4, 1], [G4, 1], [C4, 3], [E4, 1], [G4, 1], [A4, 1], [C5, 2], [A4, 1], [G4, 1.5], [E4, 0.5], [D4, 1], [C4, 3]],
+};
+
 export const KERST_MELODIES: Melody[] = [
   {
     id: "stille-nacht",

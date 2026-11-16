@@ -180,7 +180,11 @@ export function buildEpisodeTimeline(assets: AssetV2[], totalMin: number, seed =
 // moments that jump from moving to frozen), every change of view is a long, soft cross-fade (5 s in the story, 8 s
 // later), and the sleep part alternates a calm loop and a still with its living layer, never the same view twice.
 
-export const KERST_X = { welcome: 8, story: 5, later: 10, sleep: 12 };
+/** Cross-fades (superprompt §6): soft_crossfade 2 s in the story, dip_to_night 4 s into sleep. */
+export const KERST_X = { welcome: 4, story: 2, later: 4, sleep: 4 };
+/** The music is the clock (superprompt §7): story tempo in 3/4, so a bar is 3 beats. */
+export const KERST_STORY_BPM = 66;
+export const KERST_BAR_S = (3 * 60) / KERST_STORY_BPM;
 
 export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1): Segment[] {
   const has = (id: string) => assets.some((a) => a.id === id);
@@ -190,11 +194,35 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
     segs.push({ asset, startS: t, lengthS, part, xfadeS });
     t += lengthS - xfadeS;
   };
-  push("story-b01-welcome-exterior", PARTS.welcomeEnd + KERST_X.welcome, "welcome", KERST_X.welcome);
-  // The story: the moving loops in the order of the evening (Lumi in her chair, Mo by the fire, the snowy window, together under the blanket).
-  const story = ["loop-b02-lumi-rocking-chair", "loop-b05-mo-by-fire", "loop-b06-window-momo", "loop-b08-blanket-together"].filter(has);
-  const storyEach = (PARTS.storyEnd - t) / Math.max(1, story.length) + KERST_X.story;
-  story.forEach((a, i) => push(a, storyEach, "story", i === story.length - 1 ? KERST_X.later : KERST_X.story));
+  const bar = KERST_BAR_S;
+  const onBar = (x: number) => Math.round(x / bar) * bar;
+  // Welcome: its cross-fade into the room starts on a bar line.
+  const welcomeLen = onBar(PARTS.welcomeEnd) + KERST_X.welcome;
+  push("story-b01-welcome-exterior", welcomeLen, "welcome", KERST_X.welcome);
+  // D0 (Milan, 16-11-2026): the friends come in on screen and Lumi moves. Holds (loops) between story clips that go
+  // from one scene to the next; every cross-fade starts on a bar line of the music.
+  const plan: { asset: string; clip: boolean }[] = [
+    { asset: "loop-b02-lumi-rocking-chair", clip: false },
+    { asset: "story-b02-lumi-rocking-chair", clip: true },
+    { asset: "still-b03-pip-arrives", clip: false },
+    { asset: "story-b03-pip-arrives", clip: true },
+    { asset: "loop-b05-mo-by-fire", clip: false },
+    { asset: "story-b05-mo-by-fire", clip: true },
+    { asset: "loop-b08-blanket-together", clip: false },
+    { asset: "story-b08-blanket-together", clip: true },
+  ].filter((p) => has(p.asset));
+  // Without the story clips: only the moving loops, as before.
+  const story = plan.some((p) => p.clip) ? plan : ["loop-b02-lumi-rocking-chair", "loop-b05-mo-by-fire", "loop-b06-window-momo", "loop-b08-blanket-together"].filter(has).map((a) => ({ asset: a, clip: false }));
+  const clipLen = 2 * bar + KERST_X.story; // a story clip plays 2 bars plus its cross-fade (fits in the 8 s clip)
+  const clips = story.filter((p) => p.clip).length, holds = story.length - clips;
+  const holdEach = (PARTS.storyEnd - t - clips * (clipLen - KERST_X.story)) / Math.max(1, holds) + KERST_X.story;
+  story.forEach((p, i) => {
+    const x = i === story.length - 1 ? KERST_X.later : KERST_X.story;
+    // Length so that the next cross-fade starts on a bar line.
+    const want = p.clip ? clipLen : holdEach;
+    const len = Math.max(x + 1, onBar(t + want - x) - t + x);
+    push(p.asset, len, "story", x);
+  });
   const asleep = ["loop-b09-lumi-falls-asleep", "still-b08-blanket-together", "loop-b10-sleep-loop-base"].filter((a) => has(a) && a !== segs[segs.length - 1].asset);
   const asleepEach = (PARTS.asleepEnd - t) / Math.max(1, asleep.length) + KERST_X.later;
   for (const a of asleep) push(a, asleepEach, "falling_asleep", KERST_X.later);
