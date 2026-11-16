@@ -29,6 +29,8 @@ type Templates = {
   bridge: string[];
   /** Tension fillers for a long stretch before the next moment. */
   build: string[];
+  /** Long video: right after the cold open (the best moment first), back to the start. */
+  cold_open_bridge: string[];
   loop_end: string[];
 };
 export const templates = templatesJson as unknown as Templates;
@@ -149,8 +151,15 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   const hook = take(templates.opener[mainType]);
   lines.push({ at_ms: 0, text: hook, kind: "hook", style: "schreeuw", alts: shorterAlts(hook, templates.opener[mainType]) });
 
+  // Long video (section 7.9): the cold open shows the best moment first; then "but how did we get here?".
+  const cold = !short ? input.segments.find((sg) => sg.part === "cold_open") : undefined;
+  if (cold) {
+    const coldEnd = cold.out_start_ms + Math.round((cold.src_end_ms - cold.src_start_ms) / cold.speed);
+    const bridge = take(templates.cold_open_bridge);
+    lines.push({ at_ms: coldEnd + 200, text: bridge, kind: "bridge", style: "spannend", alts: shorterAlts(bridge, templates.cold_open_bridge) });
+  }
   const first = chosen[0];
-  if (first && first.peak_out > 9000) {
+  if (first && first.peak_out > 9000 && !cold) {
     const loop = take(templates.open_loop);
     lines.push({ at_ms: 2600, text: loop, kind: "open_loop", style: "spannend", alts: shorterAlts(loop, templates.open_loop) });
   }

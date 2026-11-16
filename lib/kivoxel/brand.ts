@@ -37,7 +37,14 @@ export function assColour(hex: string, alpha = 0): string {
   return `&H${h(alpha)}${h(b)}${h(g)}${h(r)}`;
 }
 
-export const headerLayout = (size: { width: number; height: number }, spec: HeaderSpec = HEADER): HeaderLayout => (size.height > size.width ? spec.short : spec.long);
+/** A colour change inside a line ("\c" tag) in ASS's own form: "#FFE500" -> "&H00E5FF&" (blue, green, red). */
+export function assColourTag(hex: string): string {
+  const [r, g, b] = hexToRgb(hex);
+  const h = (n: number) => n.toString(16).toUpperCase().padStart(2, "0");
+  return `&H${h(b)}${h(g)}${h(r)}&`;
+}
+
+export const headerLayout =(size: { width: number; height: number }, spec: HeaderSpec = HEADER): HeaderLayout => (size.height > size.width ? spec.short : spec.long);
 
 /** The one ASS style line of the header, made only from the brand file. */
 export function headerStyle(size: { width: number; height: number }, spec: HeaderSpec = HEADER): string {

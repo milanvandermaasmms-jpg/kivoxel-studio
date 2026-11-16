@@ -32,7 +32,7 @@ export function rateFor(style: VoLine["style"], baseRate: number): number {
   return Math.round(Math.min(1.5, Math.max(0.75, r)) * 100) / 100;
 }
 
-export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: VoiceClip[]; spoken: ScriptLine[]; result: GateRun; characters: number; files: (string | null)[]; firstFiles: (string | null)[] }> {
+export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: VoiceClip[]; spoken: (ScriptLine & { ms: number })[]; result: GateRun; characters: number; files: (string | null)[]; firstFiles: (string | null)[] }> {
   const files = new Map<VoLine, string>();
   let n = 0;
   let characters = 0;
@@ -52,7 +52,7 @@ export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: Voi
     },
   });
   const clips: VoiceClip[] = [];
-  const spoken: ScriptLine[] = [];
+  const spoken: (ScriptLine & { ms: number })[] = [];
   for (const [i, line] of result.lines.entries()) {
     const item = result.gate.items[i];
     let file = files.get(line);
@@ -63,7 +63,7 @@ export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: Voi
       file = fast;
     }
     clips.push({ file, atMs: item.atMs });
-    spoken.push({ at_ms: item.atMs, text: line.text });
+    spoken.push({ at_ms: item.atMs, text: line.text, ms: item.ms });
   }
   return { clips, spoken, result, characters, files: result.lines.map((l) => files.get(l) ?? null), firstFiles: input.lines.map((l) => files.get(l) ?? null) };
 }

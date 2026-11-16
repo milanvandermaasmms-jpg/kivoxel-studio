@@ -25,6 +25,8 @@ export type ShortPlan = {
   reason: string;
   /** How many buckets this moment could fill (1 = only one length possible). */
   options: number;
+  /** Text in the picture that belongs to the plan itself (e.g. "12 SECONDS EARLIER…" after a teaser). */
+  overlays: { startMs: number; endMs: number; text: string }[];
 };
 
 export const bucketOf = (ms: number, buckets: LengthBucket[]): LengthBucket | null => buckets.find((b) => ms >= b.min_ms - 500 && ms <= b.max_ms + 500) ?? null;
@@ -103,22 +105,41 @@ export function planShort(event: GameEvent, t: EventTimeline, settings: Settings
   const hi = Math.min(pick.max_ms, maxPossible);
   let want = hi > lo ? lo + rnd() * (hi - lo) : lo;
   want = Math.round(want / 100) * 100 + (Math.round(want / 1000) * 1000 === Math.round(want / 100) * 100 ? 300 : 0);
-  const start = liveStart(startFor(want, end, event, t, floorMs), event.t_peak, t.dead);
-  const short = want - outLength(start, end, event, t.dead);
+  // Slow motion (+0.8 s) and a teaser (+0.6 s) make the Short longer: take that off the footage, so it stays in its bucket.
+  const extra = (settings.features.interrupts.includes("speed_ramp") ? 800 : 0) + (settings.features.payoff_tease ? 600 : 0);
+  const wantLive = Math.max(minimal, want - extra);
+  const start = liveStart(startFor(wantLive, end, event, t, floorMs), event.t_peak, t.dead);
+  const short = wantLive - outLength(start, end, event, t.dead);
   if (short > 200 && endMax > end) {
     end = Math.min(endMax, end + short);
     reason += `; ${(short / 1000).toFixed(1)} s na de piek erbij (te weinig beeld ervoor)`;
   }
   const spans = liveSpans(start, end, event.t_peak, t.dead);
   const segments: Segment[] = [];
+  const overlays: { startMs: number; endMs: number; text: string }[] = [];
   let out = 0;
+  const push = (part: Segment["part"], a: number, b: number, speed: number, note: string, effects: string[] = []) => {
+    if (b - a < 80) return;
+    segments.push({ part, src_start_ms: a, src_end_ms: b, out_start_ms: out, speed, effects, note });
+    out += Math.round((b - a) / speed);
+  };
+  // Section 7.1: tease the payoff for half a second, then rewind ("12 SECONDS EARLIER…").
+  if (settings.features.payoff_tease) {
+    push("teaser", event.t_peak - 150, Math.min(end, event.t_peak + 450), 1, "teaser van de payoff", ["zoom"]);
+    overlays.push({ startMs: out, endMs: out + 1100, text: `${Math.max(2, Math.round((event.t_peak - start) / 1000))} SECONDS EARLIER…` });
+  }
+  // Section 7.3: speed ramp, slow motion in the last moment before the peak (only with room for build-up before it).
+  const ramp = settings.features.interrupts.includes("speed_ramp") && event.t_peak - start > 3500;
   for (const s of spans) {
     // The piece with the peak is the payoff; everything before it is build-up.
     const hasPeak = event.t_peak >= s.startMs && event.t_peak <= s.endMs;
-    segments.push({ part: hasPeak ? "payoff" : "build", src_start_ms: s.startMs, src_end_ms: s.endMs, out_start_ms: out, speed: 1, effects: [], note: hasPeak ? event.description : "opbouw" });
-    out += s.endMs - s.startMs;
+    if (hasPeak && ramp && event.t_peak - 900 > s.startMs) {
+      push("build", s.startMs, event.t_peak - 900, 1, "opbouw");
+      push("payoff", event.t_peak - 900, event.t_peak - 100, 0.5, "slow-motion vlak voor de piek", ["slowmo"]);
+      push("payoff", event.t_peak - 100, s.endMs, 1, event.description);
+    } else push(hasPeak ? "payoff" : "build", s.startMs, s.endMs, 1, hasPeak ? event.description : "opbouw");
   }
-  return { eventId: event.id, bucket: (bucketOf(out, buckets) ?? pick).key, targetMs: out, segments, cutMs: end - start - out, reason, options: feasible.length };
+  return { eventId: event.id, bucket: (bucketOf(out, buckets) ?? pick).key, targetMs: out, segments, cutMs: Math.max(0, end - start - total(spans)), reason, options: feasible.length, overlays };
 }
 
 /** A batch of Shorts from one recording: the best payoffs, no overlap, alternating lengths. */

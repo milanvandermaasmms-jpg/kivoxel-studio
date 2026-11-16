@@ -67,6 +67,9 @@ import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/k
 import { beatStart, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
 import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
 import { targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
+import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
+import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
+import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { speakWithGate } from "./voiceGate.ts";
 
 /**
@@ -543,6 +546,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
     let shortInfo: { bucket: string; reason: string; cutMs: number; hook: string; hookRepeated: boolean } | null = null;
+    let longCutMsOut = 0;
     // KIVOXEL fase 1: "ai" = Gemini writes the anticipation lines, "free" = the template engine (no credits needed).
     let engine: "test" | "ai" | "free" = "test";
     let engineNote: string | null = null;
@@ -559,6 +563,17 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs).catch(() => null);
       }
       const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
+      // Long video (section 7.2): menus, standing still and black screens out of every piece, before the script is written.
+      let longCutMs = 0;
+      if (!short && timeline && kSettings.features.cut_dead_air) {
+        const cd = cutDeadInPlan(plan.segments, timeline);
+        const total = cd.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
+        if (cd.segments.length && total > 0) {
+          plan = { ...plan, segments: cd.segments, targetMs: total };
+          longCutMs = cd.cutMs;
+        }
+      }
+      longCutMsOut = longCutMs;
       // KIVOXEL fase 1, sections 5 and 6: a Short gets its length from the content and a hook from the library.
       let shortEvent: GameEvent | null = null;
       let shortHook: string | null = null;
@@ -642,7 +657,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, short: shortInfo };
+    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut };
   }
 
   /** Render: cuts the edit plan into a preview with subtitles (the narrator follows with Google TTS). The file stays on this pc. */
@@ -773,6 +788,18 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const isShort = video.data.format !== "C";
       const inMontage = eventsInMontage(cut.segments, timeline);
       const mainEvent = isShort ? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0] ?? null : null;
+      const montageMs = cut.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
+      // KIVOXEL fase 1, section 7.3/7.8: pattern interrupts, with a zoom style that rotates between videos.
+      const recentStyles = (await montage.phrases?.recent().catch(() => [] as string[])) ?? [];
+      const lastOf = (prefix: string) => [...recentStyles].reverse().find((x) => x.startsWith(prefix))?.slice(prefix.length) ?? null;
+      const rotate = <T extends string>(options: readonly T[], last: string | null, salt: string): T => {
+        const pool = options.filter((o) => o !== last);
+        return pool[Math.floor(seeded(`${job.id}:${salt}`)() * pool.length)] ?? options[0];
+      };
+      const zoomStyle = rotate(ZOOM_STYLES, lastOf("zoom:"), "zoom");
+      const captionStyle = rotate(CAPTION_STYLES, lastOf("caption:"), "caption");
+      const interrupts = fase1 && !video.data.is_test ? planInterrupts({ durationMs: montageMs, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff })), short: isShort, style: zoomStyle, settings: kSettings, rnd: seeded(`${job.id}:fx`) }) : [];
+      if (interrupts.length) void montage.phrases?.add([`zoom:${zoomStyle}`, `caption:${captionStyle}`]).catch(() => {});
       // KIVOXEL fase 1, sections 3 and 7.6: music (on the beat of the payoff) and SFX, per audio mode.
       if (fase1 && montage.media && !video.data.is_test) {
         const media = montage.media;
@@ -795,6 +822,14 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const lib = await media.sfx().catch(() => ({ dir: "", items: [] as Sfx[] }));
           const recentSfx = await media.sfxLog.recent().catch(() => [] as string[]);
           sfx = planSfx({ segments: cut.segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: lib.items, recent: recentSfx, rnd, withVoice: modeSpec.voice, noRepeatWithin: kSettings.variation.sfx_no_repeat_within, durationMs: cutMs }).map((c) => ({ ...c, file: join(lib.dir, c.file) }));
+          // A small accent on every interrupt (pop on a punch, whoosh on a whip), a bit softer than the main SFX.
+          if (kSettings.features.interrupts.includes("sfx_accent")) {
+            for (const a of interruptSfx(interrupts)) {
+              const options = lib.items.filter((x) => x.kind === a.kind);
+              const pickFile = options[Math.floor(rnd() * options.length)];
+              if (pickFile) sfx.push({ file: join(lib.dir, pickFile.file), atMs: a.atMs, db: (modeSpec.voice ? -14 : -9) + (pickFile.db ?? 0), kind: a.kind });
+            }
+          }
           void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
         }
         mixPlan = { mode: kSettings.audio_mode, spec: modeSpec, music, sfx, voiceChain: true };
@@ -812,10 +847,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         blur,
         muteGame,
         ...(mixPlan ? { mix: { plan: mixPlan, settings: kSettings } } : {}),
+        // Section 7.7: frame rate as the source (60 for PS5 60 fps, else 30) and a high bitrate for the new montages.
+        ...(fase1 ? { fps: (local.probe.fps ?? 30) >= 50 ? 60 : 30, highQuality: true, fx: interruptFilter(interrupts, size) || undefined } : {}),
       });
       // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
       const hook = isShort && fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) } : undefined;
-      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs), hook, story: storyOverlays.length ? storyAss(storyOverlays, size, plan.durationMs) : undefined }), "utf8");
+      // Section 7.4: word-by-word captions in the safe zone for the spoken lines.
+      const words = fase1 && kSettings.features.word_captions && spoken.length ? { style: captionStyleLine(size, kSettings), events: captionEvents(timedFromSpoken(spoken as (ScriptLine & { ms?: number })[], plan.durationMs), captionStyle, size, kSettings, plan.durationMs) } : undefined;
+      // Section 7.1: after a teaser of the payoff, "N SECONDS EARLIER…".
+      const teaser = cut.segments.find((sg) => sg.part === "teaser" && sg.out_start_ms === 0);
+      if (teaser && fase1) {
+        const next = [...cut.segments].sort((a, b) => a.out_start_ms - b.out_start_ms)[1];
+        const tEnd = Math.round((teaser.src_end_ms - teaser.src_start_ms) / teaser.speed);
+        if (next) storyOverlays = [...storyOverlays, { startMs: tEnd, endMs: tEnd + 1100, text: `${Math.max(2, Math.round((teaser.src_start_ms - next.src_start_ms) / 1000))} SECONDS EARLIER…`, reaction: false }];
+      }
+      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs), hook, words, story: storyOverlays.length ? storyAss(storyOverlays, size, plan.durationMs) : undefined }), "utf8");
       if (lv.signal.aborted) throw new CancelledError();
       await lv.phase("Video renderen", 0);
       await lv.event("log", `FFmpeg gestart: ${plan.segments} fragmenten, ${size.width}×${size.height}${blur.length ? `, ${blur.length} hoeken vervaagd` : ""}${muteGame ? ", gamegeluid gedempt" : ""}`);
@@ -889,6 +935,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             hasVoice: voice.length > 0,
             captionsInSafeZone: true,
           });
+          // Section 9: first frame moves, no dead stretch > 0.7 s, interrupts often enough (Shorts), chapters (long).
+          if (fase1 && timeline) {
+            const moves = firstFrameMoves(cut.segments, timeline.dead);
+            items.push({ key: "first_frame", label: "Eerste frame beweegt", level: moves ? "green" : "red", value: moves ? "ja" : "nee", note: moves ? "start direct in de actie" : "de video begint in een menu, stilstand of zwart beeld" });
+            const dead = deadInMontage(cut.segments, timeline.dead, kSettings.features.max_pause_ms);
+            items.push({ key: "dead_air", label: "Geen dode stukken > 0,7 s", level: dead.longestMs === 0 ? "green" : dead.longestMs < 2000 ? "orange" : "red", value: dead.longestMs ? `${(dead.longestMs / 1000).toFixed(1)} s` : "geen", note: dead.totalMs ? `${(dead.totalMs / 1000).toFixed(1)} s dood beeld over` : "alles eruit geknipt" });
+            if (isShort && kSettings.features.pattern_interrupts) {
+              const gap = longestQuiet(interrupts, plan.durationMs);
+              items.push({ key: "interrupts", label: "Pattern interrupt elke 2-4 s", level: gap <= 4500 ? "green" : gap <= 6500 ? "orange" : "red", value: `${interrupts.length}×, langste gat ${(gap / 1000).toFixed(1)} s`, note: `stijl: ${zoomStyle}, captions: ${captionStyle}` });
+            }
+            if (!isShort) {
+              const ch = chapters(cut.segments, timeline, plan.durationMs);
+              items.push({ key: "chapters", label: "Hoofdstukken", level: ch.length >= 3 ? "green" : "orange", value: ch.length ? `${ch.length}` : "geen", note: ch.length ? ch.join(" · ") : "te weinig grote momenten voor YouTube-hoofdstukken (minstens 3)" });
+            }
+          }
           if (mixPlan) {
             const m = modeCheck(mixPlan, voice.length);
             // An empty music library is something for Milan to fill, not a broken montage: orange instead of red.
@@ -908,7 +969,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
           // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
           const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0 } : null;
-          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}) } }).eq("job_id", job.id);
+          // Chapters of a long video, ready for the description (section 7.7).
+          const chapterLines = fase1 && !isShort ? chapters(cut.segments, timeline, plan.durationMs) : [];
+          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length } } : {}) } }).eq("job_id", job.id);
           if (saved.error && !liveMissing(saved.error)) await lv.event("error", `Kwaliteitscontrole niet opgeslagen: ${saved.error.message}`);
         } catch (e) {
           if (e instanceof CancelledError) throw e;

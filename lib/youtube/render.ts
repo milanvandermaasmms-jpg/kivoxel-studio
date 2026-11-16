@@ -51,7 +51,7 @@ export function captions(lines: ScriptLine[], durationMs: number): Caption[] {
 }
 
 /** Subtitle file: captions at the bottom, and for Shorts the fixed top line during the whole video. */
-export function buildAss({ size, topLine, lines, durationMs, overlays = [], hook, story }: { size: Size; topLine: string | null; lines: ScriptLine[]; durationMs: number; overlays?: Overlay[]; /** KIVOXEL fase 1: animated hook (lib/kivoxel/hookText.ts) instead of the fixed top line. */ hook?: { style: string; events: string[] }; /** KIVOXEL fase 1: the story as big text when there is no voice (lib/kivoxel/textStory.ts). */ story?: { style: string; events: string[] } }): string {
+export function buildAss({ size, topLine, lines, durationMs, overlays = [], hook, story, words }: { size: Size; topLine: string | null; lines: ScriptLine[]; durationMs: number; overlays?: Overlay[]; /** KIVOXEL fase 1: animated hook (lib/kivoxel/hookText.ts) instead of the fixed top line. */ hook?: { style: string; events: string[] }; /** KIVOXEL fase 1: the story as big text when there is no voice (lib/kivoxel/textStory.ts). */ story?: { style: string; events: string[] }; /** KIVOXEL fase 1: animated word-by-word captions (lib/kivoxel/captions.ts) instead of the plain ones. */ words?: { style: string; events: string[] } }): string {
   const vertical = size.height > size.width;
   const captionSize = vertical ? 64 : 52;
   const topSize = vertical ? 78 : 60;
@@ -59,7 +59,7 @@ export function buildAss({ size, topLine, lines, durationMs, overlays = [], hook
   const marginV = vertical ? Math.round(size.height * 0.24) : 70;
   const style = (name: string, fontSize: number, alignment: number, margin: number) =>
     `Style: ${name},Arial,${fontSize},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,${vertical ? 6 : 4},2,${alignment},60,60,${margin},1`;
-  const events = captions(lines, durationMs).map((c) => `Dialogue: 0,${assTime(c.startMs)},${assTime(c.endMs)},Caption,,0,0,0,,${assText(c.text)}`);
+  const events = words ? [...words.events] : captions(lines, durationMs).map((c) => `Dialogue: 0,${assTime(c.startMs)},${assTime(c.endMs)},Caption,,0,0,0,,${assText(c.text)}`);
   if (hook) events.unshift(...hook.events);
   else if (vertical && topLine?.trim()) events.unshift(`Dialogue: 1,${assTime(0)},${assTime(durationMs)},Top,,0,0,0,,${assText(topLine).toUpperCase()}`);
   for (const o of overlays) if (o.text.trim() && o.endMs > o.startMs) events.push(`Dialogue: 2,${assTime(o.startMs)},${assTime(Math.min(o.endMs, durationMs))},Overlay,,0,0,0,,${assText(o.text).toUpperCase()}`);
@@ -79,6 +79,7 @@ export function buildAss({ size, topLine, lines, durationMs, overlays = [], hook
     style("Overlay", vertical ? 70 : 56, 8, vertical ? Math.round(size.height * 0.3) : 200),
     ...(hook ? [hook.style] : []),
     ...(story ? [story.style] : []),
+    ...(words ? [words.style] : []),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -110,6 +111,9 @@ export type RenderInput = {
   muteGame?: boolean;
   /** KIVOXEL fase 1: audio mode with voice chain, music (ducked), SFX and loudness; replaces the simple mix. */
   mix?: { plan: MixPlan; settings: Settings };
+  /** KIVOXEL fase 1: video effects on the joined picture before the captions (pattern interrupts), and high quality. */
+  fx?: string;
+  highQuality?: boolean;
 };
 
 /** A rectangle as fractions of the picture, 0 to 1. */
@@ -205,7 +209,8 @@ export function renderArgs(input: RenderInput): RenderPlan {
     );
   });
   filters.push(`${pieces.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${pieces.length}:v=1:a=1[vc][ac]`);
-  filters.push(`[vc]subtitles=${input.assFile}[vout]`);
+  // Effects first, captions after: the text stays still while the picture punches and shakes.
+  filters.push(`[vc]${input.fx ? `${input.fx},` : ""}subtitles=${input.assFile}[vout]`);
   if (input.mix) {
     const plan = input.muteGame ? { ...input.mix.plan, spec: { ...input.mix.plan.spec, game_db: -120 } } : input.mix.plan;
     filters.push(
@@ -232,8 +237,9 @@ export function renderArgs(input: RenderInput): RenderPlan {
   args.push(
     "-filter_complex", filters.join(";"),
     "-map", "[vout]", "-map", "[aout]",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-    "-c:a", "aac", "-b:a", "160k",
+    // Section 7.7: H.264 with a high bitrate for the new montages (YouTube re-encodes; more in = better out).
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", input.highQuality ? "17" : "20", ...(input.highQuality ? ["-maxrate", "20M", "-bufsize", "40M", "-pix_fmt", "yuv420p"] : []),
+    "-c:a", "aac", "-b:a", input.highQuality ? "192k" : "160k",
     "-movflags", "+faststart",
     input.output,
   );

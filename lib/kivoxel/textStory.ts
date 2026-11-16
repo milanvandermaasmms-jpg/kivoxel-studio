@@ -6,7 +6,7 @@ import type { Settings } from "./config.ts";
 import type { EventTimeline } from "./events.ts";
 import type { Segment } from "../youtube/analysis.ts";
 import { assText, assTime, type Overlay } from "../youtube/render.ts";
-import { HEADER, assColour } from "./brand.ts";
+import { HEADER, assColourTag } from "./brand.ts";
 import { syncGate, type VoLine } from "./voiceScript.ts";
 
 /** How long a text needs on screen: about 0.3 s per word, at least 0.9 s (short punchy texts), at most 2.6 s. */
@@ -42,7 +42,7 @@ export function storyAss(texts: StoryText[], size: { width: number; height: numb
   const events = texts
     .filter((t) => t.text.trim() && t.endMs > t.startMs)
     .map((t) => {
-      const colour = t.reaction ? `\\c${assColour(HEADER.color_hex)}\\fs${Math.round(font * 1.35)}` : "";
+      const colour = t.reaction ? `\\c${assColourTag(HEADER.color_hex)}\\fs${Math.round(font * 1.35)}` : "";
       return `Dialogue: 4,${assTime(t.startMs)},${assTime(Math.min(t.endMs, durationMs))},Story,,0,0,0,,{\\an5\\pos(${x},${y})${colour}\\fscx70\\fscy70\\t(0,120,\\fscx106\\fscy106)\\t(120,200,\\fscx100\\fscy100)}${assText(t.text)}`;
     });
   return { style, events };
