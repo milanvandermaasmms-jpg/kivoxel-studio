@@ -39,7 +39,7 @@ Per montage kies je in de review het geluid ("Opnieuw monteren met dit geluid");
 3. **Alleen gamegeluid** (`alleen_game`): alleen het echte gamegeluid. Geen stem, muziek, ondertitels, tekst of effecten (bij Shorts blijft de gele hook staan).
 
 De gele tekst bovenin: bij Shorts de hele Short, bij lange video's de eerste minuut (daarna vervaagt hij).
-Alles eindigt op −14 LUFS en een true peak van hooguit −1 dB. De standaard per kanaal staat in `presets.json` bij `channel_default.audio_mode`.
+Alles eindigt op −14 LUFS en een true peak van hooguit −1 dB. De standaard per kanaal staat in `presets.json` bij `channel_default.audio_mode`: sinds 16-11-2026 is dat **Muziek, geen stem** (besluit Milan).
 
 ## Muziek toevoegen
 Onderzoek en advies: `docs/kivoxel-muziek-onderzoek.md`. **Alleen rechtenvrije muziek, met bron en licentie.**

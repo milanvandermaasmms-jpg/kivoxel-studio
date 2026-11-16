@@ -1,10 +1,10 @@
 {
   "$comment": "KIVOXEL fase 1: alles wat smaak is. Getallen in milliseconden (ms) of decibel (dB). Een preset overschrijft alleen wat hij noemt; de rest komt uit 'base'. Zie docs/kivoxel-presets.md.",
   "version": 1,
-  "channel_default": { "preset": "standaard", "audio_mode": "vo_muziek", "engine": "auto" },
+  "channel_default": { "preset": "standaard", "audio_mode": "muziek_geen_vo", "engine": "auto" },
 
   "base": {
-    "audio_mode": "vo_muziek",
+    "audio_mode": "muziek_geen_vo",
 
     "audio_modes": {
       "vo_muziek": { "label": "Stem + ondertiteling", "voice": true, "music": false, "game": true, "game_db": -10, "music_db": null, "duck_db": null, "storytelling": "voice_and_captions", "$comment": "Milan 16-11-2026: optie 1 = stem, gamegeluid en ondertiteling, geen muziek. (De sleutel heet nog vo_muziek, zodat oude montages blijven werken.)" },
