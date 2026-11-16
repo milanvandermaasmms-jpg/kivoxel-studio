@@ -10,9 +10,8 @@ import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwit
 import { MiniReport } from "@/components/youtube/MiniReport";
 import { changedCount, scriptDiff } from "@/lib/youtube/scriptDiff";
 import { WORKER_URL } from "@/lib/youtube/protocol";
-import { reviewBlockers, reviewChecks } from "@/lib/youtube/review";
-import { hasRed, videoGate } from "@/lib/youtube/gatekeeper";
-import { GateList } from "@/components/youtube/GateList";
+import { reviewBlockers } from "@/lib/youtube/review";
+
 import { FORMATS } from "@/lib/youtube/studio";
 
 type Ready = Extract<BoardState, { ready: true }>;
@@ -28,7 +27,6 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const [rejecting, setRejecting] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
   const [note, setNote] = useState("");
-  const [redSeen, setRedSeen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const touchX = useRef<number | null>(null);
@@ -39,7 +37,6 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
     setRejecting(false);
     setAdjusting(false);
     setNote("");
-    setRedSeen(false);
     setError(null);
   };
 
@@ -65,12 +62,8 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const flags = video ? [...new Set((video.yt_video_moments ?? []).flatMap((m) => board.input.moments.find((x) => x.id === m.moment_id)?.privacy_flags ?? []))] : [];
   const renderBusy = video ? board.jobs.some((j) => j.step === "render" && j.video_id === video.id && (j.status === "queued" || j.status === "running")) : false;
   const blockers = item?.kind === "final" ? reviewBlockers({ approvedScriptId: script?.status === "approved" ? script.id : null, latestRender: renders[0] ?? null, renderBusy, privacyFlags: flags }) : [];
-  const checks = item?.kind === "final" ? reviewChecks(flags) : [];
-  const qc = item?.kind === "final" ? (renders[0]?.qc?.items ?? []) : [];
-  const reds = qc.filter((q) => q.level === "red");
-  const oranges = qc.filter((q) => q.level === "orange");
-  const gate = item ? videoGate({ script, channel: channel ?? null, privateTerms: board.privateTerms, flags }) : [];
-  const canApprove = !!item && !!script && blockers.length === 0 && !hasRed(gate) && (reds.length === 0 || redSeen);
+  // Milan, 16-11-2026: approving is never blocked by the Poortwachter or the quality checks, only when there is no montage.
+  const canApprove = !!item && !!script && blockers.length === 0;
 
   const act = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -80,7 +73,6 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
       setRejecting(false);
       setAdjusting(false);
       setNote("");
-      setRedSeen(false);
       await onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Dat lukte niet.");
@@ -197,7 +189,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 </ul>
               </section>
             )}
-            {script && <GateList items={gate} />}
+            {/* Milan, 16-11-2026: no Poortwachter, safety warnings or red/orange check lists in the review; only what blocks the montage itself. */}
             {blockers.length > 0 && (
               <ul className="list-disc space-y-0.5 rounded-md border border-red-200 bg-red-50 py-2 pl-7 pr-3 text-red-800">
                 {blockers.map((b) => (
@@ -205,30 +197,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 ))}
               </ul>
             )}
-            {(reds.length > 0 || oranges.length > 0) && (
-              <ul className="space-y-1">
-                {[...reds, ...oranges].map((q) => (
-                  <li key={q.key} className={q.level === "red" ? "text-red-800" : "text-amber-800"}>
-                    {q.level === "red" ? "●" : "○"} {q.label}: {q.value}
-                    {q.note ? ` (${q.note})` : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
             {item.kind === "final" && render && <MiniReport qc={render.qc as Parameters<typeof MiniReport>[0]["qc"]} topLine={script?.top_line ?? null} model={(script as { model?: string | null } | undefined)?.model} short={render.height > render.width} />}
-            {checks.length > 0 && blockers.length === 0 && (
-              <ul className="list-disc space-y-0.5 pl-5 text-slate-700">
-                {checks.map((c) => (
-                  <li key={c}>{c}</li>
-                ))}
-              </ul>
-            )}
-            {reds.length > 0 && blockers.length === 0 && (
-              <label className="flex items-start gap-2 text-red-800">
-                <input type="checkbox" checked={redSeen} onChange={(e) => setRedSeen(e.target.checked)} className="mt-0.5" />
-                Ik heb de rode {reds.length === 1 ? "controle" : "controles"} bekeken en keur bewust toch goed.
-              </label>
-            )}
             {item.kind === "concept" && <p className="text-xs text-slate-500">Goedkeuren start meteen de montage op de pc. Publiceren blijft altijd een aparte klik.</p>}
             {item.kind === "final" && <p className="text-xs text-slate-500">Goedkeuren zet de video klaar om te publiceren. Publiceren of inplannen doe je daarna zelf.</p>}
 

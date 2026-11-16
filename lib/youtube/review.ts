@@ -61,7 +61,8 @@ export function reviewBlockers({ approvedScriptId, latestRender, renderBusy, pri
   else if (!latestRender) reasons.push("Er is nog geen montage.");
   else if (latestRender.script_id !== approvedScriptId) reasons.push("De nieuwste montage hoort bij een ander script. Maak de montage opnieuw.");
   // Gezicht, stem en gamertag van de kinderen mogen in beeld (besluit Milan, 16-11-2026, migratie 056).
-  if (VISUAL.some((f) => privacyFlags.includes(f)) && !latestRender?.privacy_blur) reasons.push("Er staat een chat of melding in beeld. Maak de montage opnieuw met vervaagde hoeken.");
+  // Milan, 16-11-2026: no privacy blocker on approving ("ik wil al deze beveiligingen niet").
+  void privacyFlags;
   return reasons;
 }
 
@@ -71,6 +72,6 @@ const VISUAL: PrivacyFlag[] = ["chat", "notification"];
 /** What to look at in the preview before approving, when blurring and muting were applied. */
 export function reviewChecks(privacyFlags: PrivacyFlag[]): string[] {
   const out: string[] = [];
-  if (VISUAL.some((f) => privacyFlags.includes(f))) out.push("Kijk of de chat of melding onder een vervaagde hoek valt.");
+  void privacyFlags;
   return out;
 }

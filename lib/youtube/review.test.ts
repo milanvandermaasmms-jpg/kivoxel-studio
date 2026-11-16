@@ -44,8 +44,8 @@ describe("video approval", () => {
     expect(reviewBlockers({ ...ok, latestRender: { script_id: "s1" } })[0]).toMatch(/ander script/);
   });
 
-  it("blocks chat or a notification until the montage was made with blurring", () => {
-    expect(reviewBlockers({ ...ok, privacyFlags: ["chat"] })[0]).toMatch(/vervaagde hoeken/);
+  it("never blocks on chat or a notification (Milan, 16-11-2026: no safety checks in the review)", () => {
+    expect(reviewBlockers({ ...ok, privacyFlags: ["chat"] })).toEqual([]);
     expect(reviewBlockers({ ...ok, latestRender: { script_id: "s2", privacy_blur: true }, privacyFlags: ["chat", "notification"] })).toEqual([]);
   });
 
@@ -56,6 +56,6 @@ describe("video approval", () => {
   it("tells what to check in the preview", () => {
     expect(reviewChecks([])).toEqual([]);
     expect(reviewChecks(["gamertag", "voice"])).toEqual([]);
-    expect(reviewChecks(["chat"])).toHaveLength(1);
+    expect(reviewChecks(["chat"])).toEqual([]);
   });
 });

@@ -20,7 +20,7 @@ Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest, Supabase (eig
 - Migraties gaan via Milans klembord (`Set-Clipboard`, lengte controleren); hij plakt ze in de SQL Editor en klikt Run.
 - Geen sleutels of wachtwoorden in code, Git of de chat: alleen in `.env.local` / `worker/.env.local`. De service-sleutel niet gebruiken om iets na te kijken.
 - Er wordt niets automatisch gepubliceerd: publiceren is altijd Milans klik.
-- Gezicht, stem en gamertag van de kinderen mogen in beeld (besluit Milan, 16-11-2026, migratie 056). Nooit hun echte naam, school of woonplaats; chat en meldingen van anderen blijven vervaagd.
+- Gezicht, stem en gamertag van de kinderen mogen in beeld (besluit Milan, 16-11-2026, migratie 056). Nooit hun echte naam, school of woonplaats. Het keurscherm blokkeert niets meer op chat, meldingen of kwaliteitscontroles en toont geen Poortwachter (besluit Milan, 16-11-2026: "ik wil al deze beveiligingen niet").
 - Kosten: Gemini Flash-Lite binnen € 5 per maand; Google TTS alleen in het gratis deel. Geen Claude API en geen ElevenLabs zonder budget van Milan.
 - Video's staan op de pc, niet in Supabase. Supabase bewaart alleen metadata, status, scripts en paden.
 - De werker nooit herstarten of stoppen zonder te vragen, en niet terwijl FFmpeg of een analyse loopt.
