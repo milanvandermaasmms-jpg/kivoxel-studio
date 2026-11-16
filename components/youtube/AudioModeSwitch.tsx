@@ -2,7 +2,7 @@
 // KIVOXEL fase 1, section 3: pick the audio mode of a montage and render again, without writing a new script.
 import { useState } from "react";
 import { AUDIO_MODES, presetFile, type AudioMode } from "@/lib/kivoxel/config";
-import { queueRender, type DbScript } from "@/lib/youtube/analysisData";
+import { queueRender, remontage, type DbScript } from "@/lib/youtube/analysisData";
 
 type RenderAudio = { mode?: string; label?: string; music?: string | null; sfx?: number; voice?: boolean };
 
@@ -12,9 +12,23 @@ export function renderAudio(render: { qc?: unknown } | null | undefined): Render
   return qc?.audio ?? null;
 }
 
-export function AudioModeSwitch({ studioId, script, attempt, current, onQueued, act }: { studioId: string; script: DbScript; attempt: number; current: RenderAudio | null; onQueued?: () => void; act: (fn: () => Promise<void>) => Promise<unknown> }) {
+/** A script from before fase 1: its lines are not tied to the Event Timeline (no `kind`), so a new mix alone does not help. */
+export const oldScript = (script: DbScript) => !(Array.isArray(script.lines) && (script.lines as { kind?: unknown }[]).some((l) => typeof l?.kind === "string"));
+
+export function AudioModeSwitch({ studioId, script, attempt, current, nextVersion, onQueued, act }: { studioId: string; script: DbScript; attempt: number; current: RenderAudio | null; /** For "Opnieuw door de nieuwe montage" (a new script version). */ nextVersion?: number; onQueued?: () => void; act: (fn: () => Promise<void>) => Promise<unknown> }) {
   const modes = presetFile.base.audio_modes;
   const [mode, setMode] = useState<AudioMode>((AUDIO_MODES as readonly string[]).includes(current?.mode ?? "") ? (current!.mode as AudioMode) : presetFile.channel_default.audio_mode);
+  if (oldScript(script) && nextVersion) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <span>Gemaakt met de <span className="font-medium text-slate-800">oude montage</span>: het script hangt nog niet aan de momenten.</span>
+        <button type="button" onClick={() => void act(async () => { await remontage(studioId, [{ videoId: script.video_id, nextVersion }]); }).then(() => onQueued?.())} className="rounded-md border border-slate-300 px-2 py-1 font-medium text-slate-800 hover:bg-slate-50">
+          🔁 Opnieuw door de nieuwe montage
+        </button>
+        <span className="text-slate-500">Nieuw script, stem en montage; daarna staat hij weer hier.</span>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
       <span>

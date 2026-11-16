@@ -15,6 +15,7 @@ import { ContentCalendar, PublicationsOverview } from "@/components/youtube/Publ
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
 import { PrivateTermsSettings } from "@/components/youtube/GateList";
 import { archiveVideo, remontage } from "@/lib/youtube/analysisData";
+import { oldScript } from "@/components/youtube/AudioModeSwitch";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
@@ -217,7 +218,10 @@ export function StudioApp({ route }: { route?: string } = {}) {
   // KIVOXEL fase 1: finished videos of the gaming channels (not Dreamnest), for "Opnieuw door de nieuwe montage".
   const remontageItems = flowReady
     ? flowReady.items
-        .filter((i) => i.flow === "ready" && (!channel || i.channelId === channel) && (flowReady.board.channels.find((c) => c.id === i.channelId) as { safety_profile?: string } | undefined)?.safety_profile === "kids_gaming")
+        // Ready to send, or still waiting for Milan's check: both were made with the old montage.
+        .filter((i) => (i.flow === "ready" || i.reviewKind !== null) && (!channel || i.channelId === channel) && (flowReady.board.channels.find((c) => c.id === i.channelId) as { safety_profile?: string } | undefined)?.safety_profile === "kids_gaming")
+                // Only videos whose newest script is still from the old montage (never send a new montage around again).
+        .filter((i) => { const newest = flowReady.board.scripts.filter((s) => s.video_id === i.videoId).sort((x, y) => y.version - x.version)[0]; return !newest || oldScript(newest); })
         .map((i) => ({ videoId: i.videoId, nextVersion: Math.max(0, ...flowReady.board.scripts.filter((s) => s.video_id === i.videoId).map((s) => s.version)) + 1 }))
     : [];
   const act = async (action: () => Promise<unknown>) => {
