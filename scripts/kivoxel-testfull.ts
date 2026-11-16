@@ -16,7 +16,7 @@ import type { EventTimeline } from "../lib/kivoxel/events.ts";
 import { chooseHook, hookChecks, hookEvents, hookStyle } from "../lib/kivoxel/hookText.ts";
 import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
-import { targetFrom } from "../lib/kivoxel/loudness.ts";
+import { loudnessCheck, targetFrom } from "../lib/kivoxel/loudness.ts";
 import { beatStart, pickTrack, planSfx } from "../lib/kivoxel/media.ts";
 import { modeCheck, type MixPlan } from "../lib/kivoxel/mix.ts";
 import { lengthChecks, planShortBatch } from "../lib/kivoxel/shortPlan.ts";
@@ -130,11 +130,15 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   const loud = join(out, `${name}.loud.mp4`);
   if (await normalizeLoudness(ffmpeg, file, loud, out, targetFrom(settings.mix))) await rename(loud, file);
   const renderS = Math.round((Date.now() - t0) / 1000);
-  const dead = deadInMontage(segments, timeline.dead, settings.features.max_pause_ms);
+  const loudLine = lufs(file);
+  const lv = /(-?[\d.]+) LUFS, true peak (-?[\d.]+)/.exec(loudLine);
+  const lc = loudnessCheck(lv ? Number(lv[1]) : null, lv ? Number(lv[2]) : null, settings.mix);
+  const dead = deadInMontage(segments, timeline.dead, settings.features.max_pause_ms, inMontage.map((e) => e.t_peak));
   const checks: [boolean, string][] = [
     [firstFrameMoves(segments, timeline.dead), "Eerste frame beweegt"],
     [dead.longestMs === 0, `Geen dode stukken > 0,7 s${dead.longestMs ? ` (nog ${(dead.longestMs / 1000).toFixed(1)} s)` : ""}`],
     [modeCheck(plan, clips.length).ok || !plan.music, `Audio-modus ${spec.label}`],
+    [lc.ok, `Luidheid ${lc.value}`],
   ];
   if (short) {
     checks.push([longestQuiet(interrupts, targetMs) <= 4500, `Interrupt elke 2-4 s (langste gat ${(longestQuiet(interrupts, targetMs) / 1000).toFixed(1)} s)`]);
@@ -151,7 +155,7 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
     `   stem: ${sync}`,
     `   captions: ${captionStyle}${words ? `, ${words.events.length} woord-momenten` : " (tekst in beeld)"}; interrupts: ${zoomStyle}, ${interrupts.length}× (${[...new Set(interrupts.map((i) => i.kind))].join(", ")})`,
     `   muziek: ${plan.music?.title ?? "geen"}; SFX: ${sfx.length}× (${[...new Set(sfx.map((s) => s.kind))].join(", ")})`,
-    `   luidheid: ${lufs(file)}`,
+    `   luidheid: ${loudLine}`,
     ...(ch.length ? [`   hoofdstukken: ${ch.join(" | ")}`] : []),
     `   checks: ${checks.map(([ok, l]) => `${ok ? "✅" : "❌"} ${l}`).join(", ")}`,
     "",

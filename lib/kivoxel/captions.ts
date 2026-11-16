@@ -53,8 +53,9 @@ export function captionLayout(size: Size, settings: Settings) {
   const z = settings.shorts.safe_zone;
   return {
     fontSize: Math.round(size.height * (vertical ? 0.043 : 0.05)),
-    // Bottom edge of the caption: above the Shorts title/buttons area (vertical), or a normal subtitle line.
-    bottom: vertical ? z.bottom_px + 40 : 90,
+    // Bottom edge of the caption: above the Shorts title/buttons area (vertical); in a long video above the Minecraft
+    // HUD (hotbar and hearts take the lowest ~18% of the picture).
+    bottom: vertical ? z.bottom_px + 40 : Math.round(size.height * 0.22),
     left: vertical ? z.left_px : 120,
     right: vertical ? z.right_px : 120,
   };

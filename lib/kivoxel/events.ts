@@ -24,7 +24,9 @@ export type GameEvent = {
   sources: string[];
 };
 export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" | "black" | "quiet" };
-export type EventTimeline = { version: 1; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
+/** `rules`: version of the detection rules; a stored timeline with older rules is built again. */
+export const EVENT_RULES = 2;
+export type EventTimeline = { version: 1; rules?: number; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
 export type AiMoment = { kind: string; type: EventType; startMs: number; peakMs: number; endMs: number; score: number; reason: string };
@@ -121,9 +123,20 @@ export function findLowHealth(v: VisualSignals, maxHealth = 400): { startMs: num
 export function findDead(v: VisualSignals, s: Signals | null, minMs = 700): DeadSpan[] {
   const f = v.frames;
   const loudAt = (ms: number) => (s ? (s.loudness[Math.floor(ms / 100)] ?? -120) : -120);
-  const why = (x: FrameMetrics, ms: number): DeadSpan["why"] | null => {
+  // Menus, inventory, chests and loading screens: in gameplay the hearts are always in view. No hearts for at least
+  // 1 s while the picture barely moves = a menu (measured on "Hardcore Dane!!": world list, crafting, chest).
+  // "Barely moves" keeps gameplay with odd hearts (poison, frozen) from being cut.
+  const menuLike = f.map((x) => x.health < 0 && x.motion < 3);
+  const inMenu = menuLike.map(() => false);
+  for (let i = 0; i < f.length; ) {
+    let j = i;
+    while (j < f.length && menuLike[j]) j++;
+    if (j - i >= v.fps) for (let k = i; k < j; k++) inMenu[k] = true;
+    i = Math.max(j, i + 1);
+  }
+  const why = (x: FrameMetrics, ms: number, i: number): DeadSpan["why"] | null => {
     if (x.luma < 12) return "black";
-    if (x.ui >= 250) return "menu";
+    if (x.ui >= 250 || inMenu[i]) return "menu";
     if (x.motion < 0.6) return "still";
     if (x.motion < 2 && loudAt(ms) < -38) return "quiet";
     return null;
@@ -132,7 +145,7 @@ export function findDead(v: VisualSignals, s: Signals | null, minMs = 700): Dead
   let cur: DeadSpan | null = null;
   for (let i = 0; i <= f.length; i++) {
     const ms = Math.round((i * 1000) / v.fps);
-    const w = i < f.length ? why(f[i], ms) : null;
+    const w = i < f.length ? why(f[i], ms, i) : null;
     if (cur && (w === null || w !== cur.why)) {
       cur.endMs = ms;
       if (cur.endMs - cur.startMs >= minMs) out.push(cur);
@@ -246,7 +259,7 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
   const health: EventTimeline["health"] = [];
   for (let i = 0; i < v.frames.length; i += v.fps) if (v.frames[i].health >= 0) health.push({ atMs: Math.round((i * 1000) / v.fps), hearts: v.frames[i].health / 100 });
 
-  return { version: 1, durationMs, generatedAt: (input.now ?? new Date()).toISOString(), engine: input.ai?.length ? "free+ai" : "free", events, dead, health };
+  return { version: 1, rules: EVENT_RULES, durationMs, generatedAt: (input.now ?? new Date()).toISOString(), engine: input.ai?.length ? "free+ai" : "free", events, dead, health };
 }
 
 /** The best events for Shorts: highest payoff first, never two that overlap. */

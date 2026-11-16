@@ -22,9 +22,19 @@ export function parseMeasured(log: string): Measured | null {
   }
 }
 
+/** Section 9: loudness within ±tolerance LU of the target and true peak at or below the ceiling. */
+export function loudnessCheck(integratedLufs: number | null, truePeakDb: number | null, s: { target_lufs: number; lufs_tolerance: number; true_peak_db: number }) {
+  const okI = integratedLufs !== null && Math.abs(integratedLufs - s.target_lufs) <= s.lufs_tolerance;
+  const okP = truePeakDb !== null && truePeakDb <= s.true_peak_db;
+  const f = (v: number | null) => (v === null ? "?" : v.toLocaleString("nl-NL"));
+  return { ok: okI && okP, value: `${f(integratedLufs)} LUFS, piek ${f(truePeakDb)} dB`, note: `doel ${s.target_lufs} ±${s.lufs_tolerance} LUFS, true peak ≤ ${s.true_peak_db} dB` };
+}
+
 /** Pass 2: linear correction with the measured values, limiter just under the true-peak ceiling, picture copied. */
 export function correctArgs(input: string, output: string, t: LoudnessTarget, m: Measured): string[] {
-  const ceiling = Math.pow(10, (t.truePeakDb - 0.5) / 20).toFixed(3);
+  // 1.5 dB under the true-peak target: the limiter sees samples, and AAC encoding can push the peaks between samples
+  // up again (measured: -1.5 dB sample ceiling still gave -0.5 dB true peak after AAC on 16-11-2026).
+  const ceiling = Math.pow(10, (t.truePeakDb - 1.5) / 20).toFixed(3);
   return [
     "-hide_banner", "-loglevel", "error", "-y", "-i", input,
     "-af", `loudnorm=I=${t.lufs}:TP=${t.truePeakDb - 0.5}:LRA=${t.lra}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true,aresample=48000,alimiter=limit=${ceiling}:level=false`,

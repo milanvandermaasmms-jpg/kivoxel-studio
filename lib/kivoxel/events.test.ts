@@ -127,3 +127,11 @@ describe("thumbnail frame from the recording", () => {
     expect(args).toMatch(/subtitles=thumb0\.ass\[v\]/);
   });
 });
+
+describe("menus found by the missing hearts", () => {
+  it("no hearts for 1 s while barely moving = menu; moving without hearts (odd hearts) is no menu", () => {
+    const v = visual(12, (s) => (s >= 2 && s < 5 ? { health: -1, motion: 0.8 } : s >= 7 && s < 10 ? { health: -1, motion: 12 } : {}));
+    const dead = findDead(v, null);
+    expect(dead.map((d) => [d.startMs, d.endMs, d.why])).toEqual([[2000, 5000, "menu"]]);
+  });
+});

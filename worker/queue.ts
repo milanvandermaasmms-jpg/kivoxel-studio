@@ -55,7 +55,7 @@ import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/
 import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
 import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
-import { freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
+import { FREE_ENGINE_MODEL, fillSilences, freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
 import type { GameEvent } from "../lib/kivoxel/events.ts";
 import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
@@ -66,7 +66,7 @@ import { AUDIO_MODES, type AudioMode } from "../lib/kivoxel/config.ts";
 import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
 import { beatStart, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
 import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
-import { targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
+import { loudnessCheck, targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
 import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
@@ -615,8 +615,17 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           // The text at the top comes from the hook library (fits the real event, not used in the last 10 Shorts).
           if (shortHook) draft = { ...draft, topLine: shortHook, hooks: draft.hooks.map((h) => ({ ...h, overlay: shortHook! })) };
           if ("lines" in lines) {
-            draft = { ...draft, lines: lines.lines };
-            void montage?.phrases?.add(lines.lines.map((l) => l.text)).catch(() => {});
+            // The AI may leave long silences: fill them with tension lines, like the free engine does.
+            const fillRnd = seeded(`${video.data.id}:fill:${version}`);
+            const usedNow: string[] = [];
+            const take = (options: string[]) => {
+              const t = pick(options, [...recent, ...usedNow], fillRnd);
+              usedNow.push(t);
+              return t;
+            };
+            const filled = fillSilences(lines.lines, take, fillRnd);
+            draft = { ...draft, lines: filled };
+            void montage?.phrases?.add(filled.map((l) => l.text)).catch(() => {});
           } else engineNote = `Anticipatie-regels van de AI onbruikbaar (${lines.error}); de oude regels blijven`;
         } catch (e) {
           // Credits gone, key refused or the service is down: carry on with the free engine (section 8).
@@ -641,7 +650,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       target_ms: Math.max(1, plan.targetMs),
       // yt_scripts.source only knows test/ai (migration 009); the free engine is recorded in the job result.
       source: video.data.is_test ? "test" : "ai",
-      model: video.data.is_test ? null : ai?.gemini.model,
+      // "gratis-engine" when the free template engine wrote it (section 9: show in the review whether the fallback was used).
+      model: video.data.is_test ? null : engine === "free" ? FREE_ENGINE_MODEL : (ai?.gemini.model ?? null),
       is_test: video.data.is_test,
     };
     // Hook variants (migration 035): the first one is chosen by default, Milan can pick another in the review.
@@ -939,7 +949,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (fase1 && timeline) {
             const moves = firstFrameMoves(cut.segments, timeline.dead);
             items.push({ key: "first_frame", label: "Eerste frame beweegt", level: moves ? "green" : "red", value: moves ? "ja" : "nee", note: moves ? "start direct in de actie" : "de video begint in een menu, stilstand of zwart beeld" });
-            const dead = deadInMontage(cut.segments, timeline.dead, kSettings.features.max_pause_ms);
+            const dead = deadInMontage(cut.segments, timeline.dead, kSettings.features.max_pause_ms, inMontage.map((e) => e.t_peak));
             items.push({ key: "dead_air", label: "Geen dode stukken > 0,7 s", level: dead.longestMs === 0 ? "green" : dead.longestMs < 2000 ? "orange" : "red", value: dead.longestMs ? `${(dead.longestMs / 1000).toFixed(1)} s` : "geen", note: dead.totalMs ? `${(dead.totalMs / 1000).toFixed(1)} s dood beeld over` : "alles eruit geknipt" });
             if (isShort && kSettings.features.pattern_interrupts) {
               const gap = longestQuiet(interrupts, plan.durationMs);
@@ -951,6 +961,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             }
           }
           if (mixPlan) {
+            // Section 9: -14 LUFS ±1 and true peak <= -1 dB (stricter than the general loudness line above).
+            const lc = loudnessCheck(log.integratedLufs, log.truePeakDb, kSettings.mix);
+            items.push({ key: "loudness_target", label: "Luidheid op doel (−14 ±1 LUFS, piek ≤ −1 dB)", level: lc.ok ? "green" : "red", value: lc.value, note: lc.note });
             const m = modeCheck(mixPlan, voice.length);
             // An empty music library is something for Milan to fill, not a broken montage: orange instead of red.
             items.push({ key: "audio_mode", label: "Audio-modus toegepast", level: m.ok ? "green" : mixNote ? "orange" : "red", value: m.value, note: mixNote ?? m.note });

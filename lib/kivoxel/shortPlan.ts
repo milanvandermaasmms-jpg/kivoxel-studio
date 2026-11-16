@@ -12,7 +12,9 @@ export const MIN_BUILD_MS = 4500;
 /** After the peak: the payoff and its reaction (a death shows the GAME OVER screen a bit longer). */
 export const aftermathMs = (e: GameEvent) => (e.kind === "death" ? 2600 : 2000);
 /** Never cut within this distance of the peak: the payoff stays whole. */
-const KEEP_AROUND_PEAK = 1500;
+export const KEEP_AROUND_PEAK = 1500;
+/** Is this dead stretch part of a payoff (it touches the area right around a peak)? Then it stays, on purpose. */
+export const nearPeak = (d: { startMs: number; endMs: number }, peaks: number[]) => peaks.some((p) => !(d.endMs < p - KEEP_AROUND_PEAK || d.startMs > p + KEEP_AROUND_PEAK));
 
 export type ShortPlan = {
   eventId: string;
@@ -37,7 +39,7 @@ export function liveSpans(start: number, end: number, peak: number, dead: DeadSp
     .filter((d) => d.endMs - d.startMs >= minDeadMs && d.endMs > start && d.startMs < end)
     .map((d) => ({ startMs: Math.max(start, d.startMs), endMs: Math.min(end, d.endMs) }))
     // The payoff stays whole, even if the player stands still at the peak (e.g. the death screen).
-    .filter((d) => d.endMs < peak - KEEP_AROUND_PEAK || d.startMs > peak + KEEP_AROUND_PEAK)
+    .filter((d) => !nearPeak(d, [peak]))
     .sort((a, b) => a.startMs - b.startMs);
   const out: { startMs: number; endMs: number }[] = [];
   let cursor = start;

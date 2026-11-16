@@ -3,7 +3,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
-import { buildEvents, type AiMoment, type EventTimeline } from "../lib/kivoxel/events.ts";
+import { buildEvents, EVENT_RULES, type AiMoment, type EventTimeline } from "../lib/kivoxel/events.ts";
 import type { Moment } from "../lib/youtube/analysis.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
 import { detectSignals } from "./ffmpeg.ts";
@@ -19,7 +19,8 @@ export function createEventStore(ffmpeg: string, dataDir: string) {
   async function cached(fingerprint: string): Promise<EventTimeline | null> {
     try {
       const t = JSON.parse(await readFile(file(fingerprint), "utf8")) as EventTimeline;
-      return t.version === 1 ? t : null;
+      // Older detection rules (e.g. before menus were found by the missing hearts): build it again.
+      return t.version === 1 && t.rules === EVENT_RULES ? t : null;
     } catch {
       return null;
     }

@@ -1,11 +1,29 @@
 // KIVOXEL fase 1, section 1b with the AI (Gemini, within the € 5 budget): the same rules as the free engine, the
 // timeline as input. The model also writes shorter versions of every line, so the sync gate can shorten without a
 // second paid call.
-import { persona, type EventType, type Language, type Settings } from "./config.ts";
-import type { EventTimeline } from "./events.ts";
+import { looksDutch, persona, type EventType, type Language, type Settings } from "./config.ts";
+import type { EventTimeline, GameEvent } from "./events.ts";
 import type { Segment } from "../youtube/analysis.ts";
 import { estimateMs, eventsInMontage, type LineKind, type TtsStyle, type VoLine } from "./voiceScript.ts";
 
+/**
+ * The event in English for the model. The stored descriptions are Dutch notes for Milan; giving those to the model
+ * would invite Dutch words into an English script.
+ */
+export function englishDescription(e: GameEvent): string {
+  const hearts = [...e.description.matchAll(/([\d,]+) hartjes/g)].map((m) => m[1].replace(",", "."));
+  const from = /van ([\d,]+) naar/.exec(e.description)?.[1]?.replace(",", ".");
+  if (e.kind === "death") return "the player dies (hardcore GAME OVER screen)";
+  if (e.kind === "damage") return `the player takes a big hit: from ${from ?? "?"} to ${hearts.at(-1) ?? "?"} hearts`;
+  if (e.kind === "low_health") return `only ${hearts.at(-1) ?? "a few"} hearts left, one more hit could end it`;
+  if (e.kind === "audio_peak") return "a sudden loud sound (an explosion, a hit or a mob)";
+  if (e.kind === "kid_reaction") return "the kids react loudly";
+  // AI moments come from the analysis, which writes in English.
+  return looksDutch(e.description) ? "something exciting happens" : e.description;
+}
+
+/** Things the narrator must never say (they push viewers away or make them lower the sound). */
+const BAD = /\b(speakers?|volume|headphones|turn (it|your sound|the sound) down|skip|look away|in this video|subscribe)\b/i;
 const KINDS: LineKind[] = ["hook", "anticipation", "reaction", "open_loop", "bridge", "loop"];
 const STYLES: TtsStyle[] = ["spannend", "fluisterend", "schreeuw", "lachend", "normaal"];
 const tc = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
@@ -18,7 +36,7 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
   const list = events.map((e, i) => {
     const id = `E${i + 1}`;
     ids.set(id, e.t_peak);
-    return `${id}: peak at ${tc(e.peak_out)}, type ${e.type ?? "action"}, payoff ${e.payoff}/100, what happens: ${e.description}`;
+    return `${id}: peak at ${tc(e.peak_out)}, type ${e.type ?? "action"}, payoff ${e.payoff}/100, what happens: ${englishDescription(e)}`;
   });
   const p = persona;
   const s = input.settings.sync;
@@ -31,7 +49,9 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
     `A line about an event must END ${(s.lead_min_ms / 1000).toFixed(1)}-${(s.lead_max_ms / 1000).toFixed(1)} s BEFORE its peak. During the peak: silence (let the game sound hit). After the peak at most ONE short reaction (1-4 words), then on to the next build-up.`,
     `Wrong (describing): "He falls into the lava." Right (tension): "Okay… one wrong step and this goes very wrong…" -> [peak] -> "…yep. There it goes."`,
     "Plant open loops early: a question or a hint that is only answered at the payoff (\"Keep an eye on his hearts…\").",
-    `The first line is the hook: spoken within the first 0.5 s, at most 7 words, no greeting, no "in this video".`,
+    `The first line is the hook: spoken within the first 0.5 s, at most 7 words, no greeting, no "in this video". Make it explosive, not calm.`,
+    "Never leave more than 6 seconds without a line before the next moment: keep the tension up with short build-up lines.",
+    "Never tell viewers to turn their sound down, look away, skip or leave; never mention speakers, volume or the video itself.",
     "",
     `Voice: ${p.feel.age}; energy: ${p.feel.energy}; humor: ${p.feel.humor}. Kid-friendly, never mean.`,
     ...p.style_rules.map((r) => `- ${r}`),
@@ -50,13 +70,16 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
 
 /** Checks the model's answer and turns it into script lines with a first time estimate (the gate places them for real). */
 export function parseAnticipation(json: unknown, ids: Map<string, number>, segments: Segment[], targetMs: number, timeline: EventTimeline | null): { lines: VoLine[] } | { error: string } {
-  const raw = (json as { lines?: unknown })?.lines;
+  // The model sometimes answers with the bare list instead of {"lines": [...]}: accept both.
+  const raw = Array.isArray(json) ? json : (json as { lines?: unknown })?.lines;
   if (!Array.isArray(raw) || !raw.length) return { error: "geen regels" };
   const events = eventsInMontage(segments, timeline);
   const lines: VoLine[] = [];
   let cursor = 0;
   for (const r of raw as Record<string, unknown>[]) {
-    const text = typeof r.text === "string" ? r.text.trim().replace(/\s+/g, " ").slice(0, 200) : "";
+    let text = typeof r.text === "string" ? r.text.trim().replace(/\s+/g, " ").slice(0, 200) : "";
+    // Lines that send viewers away or make them lower the sound cost retention: take a clean shorter version, or drop it.
+    if (BAD.test(text)) text = Array.isArray(r.shorter) ? ((r.shorter as unknown[]).find((a): a is string => typeof a === "string" && !!a.trim() && !BAD.test(a)) ?? "").trim() : "";
     if (!text) continue;
     const kind = KINDS.includes(r.kind as LineKind) ? (r.kind as LineKind) : "bridge";
     const style = STYLES.includes(r.style as TtsStyle) ? (r.style as TtsStyle) : "normaal";

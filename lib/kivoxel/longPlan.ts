@@ -3,7 +3,7 @@
 // has no dead stretches and starts in motion.
 import type { Segment } from "../youtube/analysis.ts";
 import type { DeadSpan, EventTimeline } from "./events.ts";
-import { liveSpans } from "./shortPlan.ts";
+import { liveSpans, nearPeak } from "./shortPlan.ts";
 import { eventsInMontage } from "./voiceScript.ts";
 
 /** Every piece without its dead parts (the moments themselves stay whole); the pieces are renumbered on the timeline. */
@@ -56,13 +56,16 @@ export function chapters(segments: Segment[], t: EventTimeline | null, durationM
   });
 }
 
-/** Dead footage that is still in the montage, in ms of video (cold opens/teasers and the area right around peaks excluded). */
-export function deadInMontage(segments: Segment[], dead: DeadSpan[], minMs = 700): { totalMs: number; longestMs: number } {
+/**
+ * Dead footage that is still in the montage, in ms of video. Not counted, because they stay on purpose: cold opens,
+ * teasers and stillness right around a peak (`peaks`, moments in the recording; e.g. the GAME OVER screen).
+ */
+export function deadInMontage(segments: Segment[], dead: DeadSpan[], minMs = 700, peaks: number[] = []): { totalMs: number; longestMs: number } {
   let total = 0;
   let longest = 0;
   for (const sg of segments) {
     if (sg.part === "cold_open" || sg.part === "teaser") continue;
-    for (const d of dead) {
+    for (const d of dead.filter((x) => !nearPeak(x, peaks))) {
       const a = Math.max(sg.src_start_ms, d.startMs);
       const b = Math.min(sg.src_end_ms, d.endMs);
       if (b - a >= minMs) {

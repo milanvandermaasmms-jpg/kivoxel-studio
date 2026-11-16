@@ -183,3 +183,31 @@ describe("reactions fit the event", () => {
     }
   });
 });
+
+describe("AI script safety", () => {
+  it("fills a long silence in an AI script and drops lines that send viewers away", async () => {
+    const { anticipationPrompt, parseAnticipation } = await import("./scriptPrompt");
+    const { ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, short: true });
+    const r = parseAnticipation({ lines: [{ kind: "hook", text: "Watch this!" }, { event: "E1", kind: "anticipation", text: "Turn down your speakers!", shorter: ["Loud incoming!"] }, { kind: "bridge", text: "Subscribe now", shorter: [] }] }, ids, segs, 25_000, timeline([ev(118_000)]));
+    if (!("lines" in r)) throw new Error("parse");
+    expect(r.lines.map((l) => l.text)).toEqual(["Watch this!", "Loud incoming!"]);
+    // A bare list (without {"lines": …}) is accepted too.
+    const bare = parseAnticipation([{ kind: "hook", text: "Watch this!" }], ids, segs, 25_000, null);
+    expect("lines" in bare && bare.lines[0].text).toBe("Watch this!");
+    const { fillSilences, pick, seeded: sd } = await import("./voiceScript");
+    const rnd = sd("f");
+    const filled = fillSilences(r.lines, (o) => pick(o, [], rnd), rnd);
+    expect(filled.length).toBeGreaterThan(r.lines.length);
+  });
+});
+
+describe("the AI only gets English", () => {
+  it("translates the Dutch event notes before they go into the prompt", async () => {
+    const { englishDescription, anticipationPrompt } = await import("./scriptPrompt");
+    expect(englishDescription(ev(1, 50, "fail", "Schade: van 10 naar 8 hartjes"))).toBe("the player dies (hardcore GAME OVER screen)");
+    expect(englishDescription({ ...ev(1, 50, "fail", "Schade: van 8,5 naar 7,5 hartjes"), kind: "damage" })).toBe("the player takes a big hit: from 8.5 to 7.5 hearts");
+    const { prompt } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([{ ...ev(118_000, 60, "bijna_dood", "Nog maar 3,5 hartjes"), kind: "low_health" }]), settings, short: true });
+    expect(prompt).toContain("only 3.5 hearts left");
+    expect(prompt).not.toMatch(/hartjes|Schade|Nog maar/);
+  });
+});

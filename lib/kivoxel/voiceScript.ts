@@ -193,22 +193,33 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   }
   lines.sort((a, b) => a.at_ms - b.at_ms);
 
-  // Keep the tension up: no stretch of more than ~6 s without a word before the next moment (an explosive narrator
-  // does not go quiet for 14 s). Fillers are interjections that hint at what is coming, never a description.
+  return { hook, lines: fillSilences(lines, take, rnd), mainType, used };
+}
+
+/** The tension fillers: interjections and build-up lines (never a description of what is on screen). */
+export const fillerOptions = () => [...persona.expressions.interjection.map((x) => `${x[0].toUpperCase()}${x.slice(1)}${/[!?.…—]$/.test(x) ? "" : "…"}`), ...templates.build];
+
+/**
+ * Keep the tension up: no stretch of more than ~6 s without a word before the next line (an explosive narrator does
+ * not go quiet for 14 s). Used for the free engine and for the AI script. `take` picks a phrase (with rotation).
+ */
+export function fillSilences(lines: VoLine[], take: (options: string[]) => string, rnd: () => number): VoLine[] {
   const MAX_GAP = 6000;
+  const sorted = [...lines].sort((a, b) => a.at_ms - b.at_ms);
   const filled: VoLine[] = [];
-  for (const [i, l] of lines.entries()) {
+  const interjections = persona.expressions.interjection.map((x) => `${x[0].toUpperCase()}${x.slice(1)}${/[!?.…—]$/.test(x) ? "" : "…"}`);
+  for (const [i, l] of sorted.entries()) {
     filled.push(l);
-    const next = lines[i + 1];
+    const next = sorted[i + 1];
     let cursor = l.at_ms + estimateMs(l.text) + 1500;
     const until = next ? next.at_ms - 800 : -Infinity;
     while (until - cursor > MAX_GAP - 2000) {
-      const text = take(rnd() < 0.35 ? persona.expressions.interjection.map((x) => `${x[0].toUpperCase()}${x.slice(1)}${/[!?.…—]$/.test(x) ? "" : "…"}`) : templates.build);
+      const text = take(rnd() < 0.35 ? interjections : templates.build);
       filled.push({ at_ms: Math.round(cursor + 1500), text, kind: "bridge", style: "spannend" });
       cursor += 1500 + estimateMs(text) + 2500;
     }
   }
-  return { hook, lines: filled, mainType, used };
+  return filled;
 }
 
 export type GateItem = { index: number; text: string; ok: boolean; reason: string | null; atMs: number; ms: number; speed: number };
@@ -328,3 +339,6 @@ export async function runGate(input: { lines: VoLine[]; segments: Segment[]; tim
   }
   return { lines, durations, gate, attempts, dropped, flagged };
 }
+
+/** Stored in yt_scripts.model when the free template engine wrote the script (no AI credits used). */
+export const FREE_ENGINE_MODEL = "gratis-engine";

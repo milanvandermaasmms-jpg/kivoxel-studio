@@ -102,6 +102,11 @@ describe("slow motion, teaser and long video", () => {
     expect(r.segments[0].part).toBe("cold_open");
     expect(r.segments.map((s) => [s.src_start_ms, s.src_end_ms])).toEqual([[300_000, 315_000], [100_000, 120_000], [130_000, 200_000]]);
     expect(deadInMontage(r.segments, t.dead).totalMs).toBe(0);
+    // Stillness right at a peak (the GAME OVER screen) stays on purpose and is not counted as dead air.
+    const atPeak = [seg("payoff", 140_000, 160_000, 0)];
+    const still = [{ startMs: 150_500, endMs: 153_000, why: "still" as const }];
+    expect(deadInMontage(atPeak, still).longestMs).toBe(2500);
+    expect(deadInMontage(atPeak, still, 700, [150_000]).longestMs).toBe(0);
     expect(firstFrameMoves(r.segments, t.dead)).toBe(true);
     expect(firstFrameMoves([seg("build", 121_000, 125_000, 0)], t.dead)).toBe(false);
   });
