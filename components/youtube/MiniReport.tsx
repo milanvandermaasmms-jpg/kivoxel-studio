@@ -5,7 +5,7 @@ import type { QcItem } from "@/lib/youtube/qc";
 /** The checks of section 9, in this order; anything else in the QC list is shown by the general list already. */
 const ORDER = ["vo_sync", "hook_words", "hook_type", "hook_fresh", "hook_safe", "thumbnail_header", "length_bucket", "length_varies", "dead_air", "first_frame", "interrupts", "loudness_target", "audio_mode", "chapters"];
 
-type Qc = { items?: QcItem[]; audio?: { label?: string; music?: string | null }; fx?: { zoom?: string; captions?: string }; chapters?: string[] } | null | undefined;
+type Qc = { items?: QcItem[]; audio?: { label?: string; music?: string | null; voiceEngine?: string | null }; fx?: { zoom?: string; captions?: string }; chapters?: string[] } | null | undefined;
 
 export function MiniReport({ qc, topLine, model, short }: { qc: Qc; topLine: string | null; model?: string | null; short: boolean }) {
   // Only for montages made with the fase-1 chain (older ones have loudness lines too, but none of the new checks).
@@ -36,6 +36,7 @@ export function MiniReport({ qc, topLine, model, short }: { qc: Qc; topLine: str
         <dd>
           {qc?.audio?.label ?? "oude mix"}
           {qc?.audio?.music ? ` · ${qc.audio.music}` : ""}
+          {qc?.audio?.voiceEngine ? ` · stem: ${qc.audio.voiceEngine}` : ""}
         </dd>
         <dt className="text-slate-500">Script</dt>
         <dd>{model === "gratis-engine" ? "gratis engine (zonder AI)" : model ? `AI (${model})` : "onbekend"}</dd>
