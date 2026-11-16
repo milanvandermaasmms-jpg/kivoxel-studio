@@ -25,7 +25,7 @@ export type GameEvent = {
 };
 export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" | "black" | "quiet" };
 /** `rules`: version of the detection rules; a stored timeline with older rules is built again. */
-export const EVENT_RULES = 2;
+export const EVENT_RULES = 3;
 export type EventTimeline = { version: 1; rules?: number; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
@@ -246,7 +246,7 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
     add({ kind: "ai_moment", type: m.type, t_start: m.startMs, t_peak: m.peakMs, t_end: m.endMs, intensity, payoff: Math.round(30 + intensity * 55), description: m.reason.slice(0, 160), sources: [`ai:${m.kind}`] });
   }
   for (const r of input.reactions ?? []) {
-    add({ kind: "kid_reaction", type: null, t_start: r.atMs - 4000, t_peak: r.atMs, t_end: r.endMs + 1500, intensity: clamp((r.loudness + 40) / 30), payoff: 45, description: `Reactie: "${r.text.slice(0, 40)}"`, sources: ["spraak:kinderen"] });
+    add({ kind: "kid_reaction", type: null, t_start: r.atMs - 4000, t_peak: r.atMs, t_end: r.endMs + 1500, intensity: clamp((r.loudness + 40) / 30), payoff: 50, description: "Reactie van de kinderen", sources: ["spraak:kinderen"] });
   }
 
   const dead = findDead(v, signals);

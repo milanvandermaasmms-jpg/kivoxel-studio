@@ -8,13 +8,16 @@ import type { Moment } from "../lib/youtube/analysis.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
 import { detectSignals } from "./ffmpeg.ts";
 import { visualFor } from "./visualSignals.ts";
+import { buildTimeline } from "../lib/youtube/footage.ts";
+import type { SpeechStore } from "./kidsSpeech.ts";
 
 export const toAiMoments = (moments: Moment[]): AiMoment[] =>
   moments.map((m) => ({ kind: m.kind, type: eventTypeForMoment(m.kind), startMs: m.startMs, peakMs: m.peakMs, endMs: m.endMs, score: m.score, reason: m.reason }));
 
 export type TimelineOptions = { signal?: AbortSignal; onFrames?: (frames: number) => void; moments?: Moment[]; refresh?: boolean };
 
-export function createEventStore(ffmpeg: string, dataDir: string) {
+/** `speech`: the kids' reactions (Whisper, section 7.8) are merged in when given. */
+export function createEventStore(ffmpeg: string, dataDir: string, speech?: SpeechStore | null) {
   const file = (fp: string) => join(dataDir, "events", `${fp}.json`);
   async function cached(fingerprint: string): Promise<EventTimeline | null> {
     try {
@@ -43,7 +46,14 @@ export function createEventStore(ffmpeg: string, dataDir: string) {
         await writeFile(join(dataDir, "signals", `${fingerprint}.json`), JSON.stringify(signals));
       }
       const visual = await visualFor(ffmpeg, dataDir, fingerprint, path, durationMs, { signal: options.signal, onFrames: options.onFrames });
-      const t = buildEvents({ visual, signals, ai: options.moments ? toAiMoments(options.moments) : undefined });
+      const ai = options.moments ? toAiMoments(options.moments) : undefined;
+      let t = buildEvents({ visual, signals, ai });
+      if (speech && signals) {
+        // Listen only around the strongest moments and the loud peaks: that is where the kids shout.
+        const times = [...[...t.events].sort((a, b) => b.payoff - a.payoff).slice(0, 40).map((e) => e.t_peak), ...buildTimeline(signals).peaks.map((p) => p.atMs)];
+        const reactions = await speech.reactions(fingerprint, path, durationMs, times, signals.loudness, options.signal);
+        if (reactions.length) t = buildEvents({ visual, signals, ai, reactions });
+      }
       await mkdir(join(dataDir, "events"), { recursive: true });
       await writeFile(file(fingerprint), JSON.stringify(t));
       return t;

@@ -31,6 +31,7 @@ import { createIvarModel } from "./ivar/model.ts";
 import { DEFAULT_MODEL } from "./gemini.ts";
 import { checkThumbnailHeader, fontPath } from "./brandCheck.ts";
 import { createEventStore } from "./eventTimeline.ts";
+import { createSpeechStore } from "./kidsSpeech.ts";
 import { createPhraseLog } from "./phraseLog.ts";
 import { createMediaLibrary } from "./mediaLibrary.ts";
 import { bestLocalTts } from "./localTts.ts";
@@ -117,7 +118,8 @@ const montage: Montage | null = version
       boost: (input, output, cwd, options) => boostLoudness(ffmpeg, input, output, cwd, options),
       loudness: (file, cwd) => measureLoudness(ffmpeg, file, cwd),
       headerCheck: (thumb, assFile, size, cwd) => checkThumbnailHeader(ffmpeg, thumb, assFile, size, cwd),
-      events: createEventStore(ffmpeg, dataDir),
+      // Section 7.8: the kids' real reactions (local Whisper) in the timeline, when the preset wants them.
+      events: createEventStore(ffmpeg, dataDir, resolveSettings(null).features.kids_reactions ? createSpeechStore(ffmpeg, dataDir) : null),
       duration: (file) => audioDurationMs(ffprobe, file),
       phrases: createPhraseLog(join(dataDir, "kivoxel-phrases.json")),
       normalize: (input, output, cwd, target, options) => normalizeLoudness(ffmpeg, input, output, cwd, target, options),

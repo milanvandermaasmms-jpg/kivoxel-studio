@@ -28,6 +28,7 @@ import { buildAss, renderArgs, type VoiceClip } from "../lib/youtube/render.ts";
 import { thumbAss, THUMB_SIZE } from "../lib/youtube/thumbnails.ts";
 import { checkThumbnailHeader } from "../worker/brandCheck.ts";
 import { createEventStore } from "../worker/eventTimeline.ts";
+import { createSpeechStore } from "../worker/kidsSpeech.ts";
 import { audioDurationMs, findTool, normalizeLoudness, runFfmpeg } from "../worker/ffmpeg.ts";
 import { createMediaLibrary } from "../worker/mediaLibrary.ts";
 import { createPhraseLog } from "../worker/phraseLog.ts";
@@ -64,7 +65,7 @@ const find = (q: string) => {
 const mode = (AUDIO_MODES as readonly string[]).includes(flag("mode") ?? "") ? (flag("mode") as AudioMode) : "vo_muziek";
 const settings = resolveSettings(flag("preset") ?? null, mode);
 const spec = settings.audio_modes[mode];
-const events = createEventStore(ffmpeg, dataDir);
+const events = createEventStore(ffmpeg, dataDir, createSpeechStore(ffmpeg, dataDir));
 const media = createMediaLibrary(dataDir, resolve("assets", "kivoxel", "sfx"), console.log);
 const musicLib = await media.music();
 const sfxLib = await media.sfx();
