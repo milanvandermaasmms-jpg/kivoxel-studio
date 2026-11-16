@@ -65,7 +65,7 @@ Alles werkt ook zonder Gemini en zonder Google-stem, automatisch:
 | **Piper** (`en_US-ryan-high`) | `FamilieMK-YouTube\kivoxel-tts\piper\` | natuurlijk en snel |
 | **Windows** (Zira) | ingebouwd | robotachtig, alleen als laatste vangnet |
 
-Welke eerst komt, staat in `presets.json` bij `voice.local_order`; de Kokoro-stem bij `voice.kokoro_voice`. Luister eerst naar de vergelijking (`node scripts/kivoxel-voicecompare.ts <opname>` maakt `testrenders/stemmen/`) en zet je favoriet bovenaan.
+Welke eerst komt, staat in `presets.json` bij `voice.local_order`; de Kokoro-stem bij `voice.kokoro_voice`. **Gekozen door Milan (16-11-2026): Kokoro `am_puck`**, daarna Piper, Windows als laatste. Luister eerst naar de vergelijking (`node scripts/kivoxel-voicecompare.ts <opname>` maakt `testrenders/stemmen/`) en zet je favoriet bovenaan.
 
 ## Geluidseffecten (SFX)
 De standaard-SFX (whoosh, impact, record scratch, pop, riser) zijn door ons zelf gemaakt met `scripts/kivoxel-make-media.ts` en staan in de repo (`assets/kivoxel/sfx`). Whoosh komt op elke knip, impact op grote pieken, scratch bij een dood; varianten rouleren. Eigen SFX: zet ze in `FamilieMK-YouTube\kivoxel-media\sfx\` met een `library.json` (`{ "sfx": [{ "file": "boom.wav", "kind": "impact" }] }`; kind is whoosh, impact, scratch, pop of riser).
