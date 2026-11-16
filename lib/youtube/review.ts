@@ -60,18 +60,17 @@ export function reviewBlockers({ approvedScriptId, latestRender, renderBusy, pri
   else if (renderBusy) reasons.push("De montage is nog bezig.");
   else if (!latestRender) reasons.push("Er is nog geen montage.");
   else if (latestRender.script_id !== approvedScriptId) reasons.push("De nieuwste montage hoort bij een ander script. Maak de montage opnieuw.");
-  if (privacyFlags.includes("face")) reasons.push("Er is een gezicht in beeld. Deze video kan niet online.");
-  if (VISUAL.some((f) => privacyFlags.includes(f)) && !latestRender?.privacy_blur) reasons.push("Er staat een gamertag, chat of melding in beeld. Maak de montage opnieuw met vervaagde hoeken.");
-  if (privacyFlags.includes("voice") && !latestRender?.game_muted) reasons.push("Er is een stem te horen. Maak de montage opnieuw met het gamegeluid uit.");
+  // Gezicht, stem en gamertag van de kinderen mogen in beeld (besluit Milan, 16-11-2026, migratie 056).
+  if (VISUAL.some((f) => privacyFlags.includes(f)) && !latestRender?.privacy_blur) reasons.push("Er staat een chat of melding in beeld. Maak de montage opnieuw met vervaagde hoeken.");
   return reasons;
 }
 
-const VISUAL: PrivacyFlag[] = ["gamertag", "chat", "notification"];
+/** Messages from other people; these stay blurred. */
+const VISUAL: PrivacyFlag[] = ["chat", "notification"];
 
 /** What to look at in the preview before approving, when blurring and muting were applied. */
 export function reviewChecks(privacyFlags: PrivacyFlag[]): string[] {
   const out: string[] = [];
-  if (VISUAL.some((f) => privacyFlags.includes(f))) out.push("Kijk of de gamertag, chat of melding onder een vervaagde hoek valt. Een naam boven een speler midden in beeld wordt niet vervaagd.");
-  if (privacyFlags.includes("voice")) out.push("Luister of er geen stem meer te horen is.");
+  if (VISUAL.some((f) => privacyFlags.includes(f))) out.push("Kijk of de chat of melding onder een vervaagde hoek valt.");
   return out;
 }

@@ -534,7 +534,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const flags = await db.from("yt_video_moments").select("position, yt_moments(privacy_flags, start_ms, end_ms, peak_ms)").eq("video_id", video.data.id).order("position").returns<FlagRow[]>();
     if (flags.error) throw new Error(flags.error.message);
     const voiceHeard = (flags.data ?? []).some((f) => f.yt_moments?.privacy_flags.includes("voice"));
-    const muteGame = privacyReady && settings.data!.mute_flagged_voice !== false && voiceHeard;
+    const muteGame = privacyReady && settings.data!.mute_flagged_voice === true && voiceHeard;
 
     // The hook Milan chose (fase C2) decides the opening; without hooks the stored script is used as it is.
     const hooks = parseHooks(s.data.hooks);

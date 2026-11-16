@@ -67,7 +67,7 @@ export function ownSignals(videos: OwnVideo[], now: number) {
 }
 
 const KIND_RULES: Record<ChannelKind, string> = {
-  kivoxel: "KIVOXEL: faceless Minecraft-gameplay van eigen opnames, Shorts en lange video's, Engelse voice-over voor kinderen. Nooit Maes (het kind) noemen of tonen.",
+  kivoxel: "KIVOXEL: faceless Minecraft-gameplay van eigen opnames, Shorts en lange video's, Engelse voice-over voor kinderen. Geen echte namen, school of woonplaats van de kinderen.",
   dreamnest: "Dreamnest/Lumi: rustgevende slaapvideo's met het personage Lumi. Geen medische claims over slaap, baby's of frequenties; rust en veiligheid gaan voor.",
   other: "Volg de kanaalrichtlijnen.",
 };

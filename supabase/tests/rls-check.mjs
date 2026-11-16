@@ -333,7 +333,9 @@ if (hasMigration("009")) {
 
   if (hasMigration("031")) {
     // Blurring and muting (migration 031): fixed PS5 corners, render flags, review note, recording to real in one step.
-    ok("blurring is on by default with two corners", (await one(MILAN, "select jsonb_array_length(privacy_regions) from public.yt_settings")) === 2 && (await one(MILAN, "select privacy_blur and mute_flagged_voice from public.yt_settings")) === true);
+    ok("blurring is on by default with two corners", (await one(MILAN, "select jsonb_array_length(privacy_regions) from public.yt_settings")) === 2 && (await one(MILAN, "select privacy_blur from public.yt_settings")) === true);
+    // Migration 056: the game sound no longer goes off by itself when a voice is heard.
+    if (hasMigration("056")) ok("muting a voice is off by default (056)", (await one(MILAN, "select mute_flagged_voice from public.yt_settings")) === false);
     await as(MILAN, `update public.yt_settings set privacy_regions='[{"x":0,"y":0.8,"w":0.25,"h":0.2}]' where studio_id=$1`, [hh]);
     ok("admin changes the blurred corners", (await one(NATASJA, "select privacy_regions->0->>'y' from public.yt_settings")) === "0.8");
     await rejects("a region that is too small is refused", MILAN, `update public.yt_settings set privacy_regions='[{"x":0,"y":0,"w":0.01,"h":0.2}]' where studio_id=$1`, [hh]);
@@ -341,7 +343,7 @@ if (hasMigration("009")) {
     await rejects("more than six regions are refused", MILAN, `update public.yt_settings set privacy_regions=(select jsonb_agg('{"x":0,"y":0,"w":0.1,"h":0.1}'::jsonb) from generate_series(1,7)) where studio_id=$1`, [hh]);
     await rejects("regions must be a list", MILAN, `update public.yt_settings set privacy_regions='{"x":0}' where studio_id=$1`, [hh]);
     await noneAffected("child cannot switch blurring off", CHILD, "update public.yt_settings set privacy_blur=false");
-    await noneAffected("member cannot switch muting off", MEMBER, "update public.yt_settings set mute_flagged_voice=false");
+    await noneAffected("member cannot switch muting on", MEMBER, "update public.yt_settings set mute_flagged_voice=true");
 
     const rec2 = (await as(MILAN, "insert into public.yt_recordings(studio_id,label,original_name,size_bytes,fingerprint,is_test,status) values($1,'Test 031','t.mp4',1,$2,true,'ready') returning id", [hh, fp("e")])).rows[0].id;
     const vid2 = (await as(MILAN, "insert into public.yt_videos(studio_id,recording_id,format,is_test) values($1,$2,'A',true) returning id", [hh, rec2])).rows[0].id;
@@ -779,10 +781,12 @@ if (hasMigration("046")) {
   await db.query("update public.yt_scripts set hook='Kijk wat hij bouwt' where id=$1", [script]);
   const moment = await sys("insert into public.yt_moments(studio_id,recording_id,kind,start_ms,end_ms,reason,score,has_context,has_payoff,source,privacy_flags) values($1,$2,'near_death',0,1000,'r',50,true,true,'test',array['face']) returning id", [hh, rec]);
   await db.query("insert into public.yt_video_moments(studio_id,video_id,moment_id,position) values($3,$1,$2,0)", [vid, moment, hh]);
-  await rejects("a video with a face in view cannot be approved", MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
-  await db.query("update public.yt_moments set privacy_flags=array['gamertag'] where id=$1", [moment]);
+  // Migration 056: face, voice and gamertag of the kids no longer block; chat and notifications of others still do.
+  const gate = async () => sys("select array_length(public.yt_video_gate_problems($1), 1)", [vid]);
+  ok("a face, voice or gamertag of the kids does not block (056)", (await gate()) === null);
+  await db.query("update public.yt_moments set privacy_flags=array['face','voice','gamertag','chat'] where id=$1", [moment]);
   const render = await sys("insert into public.yt_renders(studio_id,video_id,script_id,file_name,duration_ms,width,height,privacy_blur) values($1,$2,$3,'poort.mp4',20000,1080,1920,false) returning id", [hh, vid, script]);
-  await rejects("a gamertag that is not blurred blocks approval", MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
+  await rejects("chat that is not blurred blocks approval", MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
   await db.query("update public.yt_renders set privacy_blur=true where id=$1", [render]);
   await as(MILAN, "update public.yt_videos set status='approved' where id=$1", [vid]);
   ok("a clean video is approved", (await one(MILAN, "select status from public.yt_videos where id=$1", [vid])) === "approved");

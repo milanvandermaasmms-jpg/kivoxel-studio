@@ -111,7 +111,7 @@ async function loadMontage(studioId: string): Promise<MontageState> {
   }
   return {
     voice: voice.data ? { voice_name: voice.data.voice_name, speaking_rate: Number(voice.data.speaking_rate), game_volume: Number(voice.data.game_volume) } : DEFAULT_VOICE,
-    privacy: voice.data && "privacy_regions" in voice.data ? { privacy_blur: voice.data.privacy_blur !== false, privacy_regions: cleanRegions(voice.data.privacy_regions), mute_flagged_voice: voice.data.mute_flagged_voice !== false } : null,
+    privacy: voice.data && "privacy_regions" in voice.data ? { privacy_blur: voice.data.privacy_blur !== false, privacy_regions: cleanRegions(voice.data.privacy_regions), mute_flagged_voice: voice.data.mute_flagged_voice === true } : null,
     renders: renders.data ?? [],
     jobs: (jobs.data ?? []).filter((j) => j.payload?.script_id).map((j) => ({ script_id: j.payload!.script_id!, status: j.status, error: j.error, created_at: j.created_at })),
   };

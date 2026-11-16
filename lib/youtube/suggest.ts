@@ -45,7 +45,7 @@ export function suggestPrompt(i: SuggestInput): string {
     `Give ${TAG_MIN} to ${TAG_MAX} YouTube tags: specific first (what happens in this video), then broader (minecraft, game mode), lowercase, no hashtags, no duplicates, together under 450 characters.`,
     "Give exactly 3 titles of at most 70 characters, each a different kind: 1) keyword first (starts with \"Minecraft\"), 2) curiosity, 3) challenge or number. Only promise what the video really shows; no clickbait.",
     `Give a description of 2 to 4 short sentences that matches the video, then a blank line and 3 to 5 hashtags${i.kind === "short" ? " including #shorts" : ""}.`,
-    "Never use real names, gamertags or personal data.",
+    "Never use real names or personal data.",
     i.forbidden.length ? `Never use these words: ${i.forbidden.join(", ")}.` : "",
     'Answer with JSON only: {"tags": ["..."], "titles": ["...", "...", "..."], "description": "..."}',
   ]

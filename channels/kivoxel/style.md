@@ -1,7 +1,8 @@
 # KIVOXEL: stijlgids
 
-- Faceless Minecraft-kanaal (PS5). **Maes nooit met gezicht, stem, naam of gamertag.** Geen facecam, geen
-  kinderstem; een AI-verteller (Google-stem) verbindt de gameplay.
+- Minecraft-kanaal (PS5). Gezicht, stem en gamertag van de kinderen mogen in beeld; hun echte reacties
+  ("NEEE!") zijn goud (besluit Milan, 16-11-2026). Nooit hun echte naam, school of woonplaats. Een verteller
+  (stem) verbindt de gameplay.
 - Energiek maar niet overprikkelend. Kindvriendelijk: geen gevaarlijke challenges, geen vernedering.
 - Geen achtergrondmuziek (besluit Milan, 13-11-2026): alleen verteller + gamegeluid.
 - Lange video: cold open met het beste moment, eerste payoff vóór 0:45, re-hook elke 60-90 s, dode stukken

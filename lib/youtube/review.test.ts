@@ -44,19 +44,18 @@ describe("video approval", () => {
     expect(reviewBlockers({ ...ok, latestRender: { script_id: "s1" } })[0]).toMatch(/ander script/);
   });
 
-  it("blocks a flagged video until the montage was made with blurring or muting", () => {
-    expect(reviewBlockers({ ...ok, privacyFlags: ["gamertag"] })[0]).toMatch(/vervaagde hoeken/);
-    expect(reviewBlockers({ ...ok, latestRender: { script_id: "s2", privacy_blur: true }, privacyFlags: ["chat"] })).toEqual([]);
-    expect(reviewBlockers({ ...ok, latestRender: { script_id: "s2", privacy_blur: true }, privacyFlags: ["voice"] })[0]).toMatch(/gamegeluid uit/);
-    expect(reviewBlockers({ ...ok, latestRender: { script_id: "s2", privacy_blur: true, game_muted: true }, privacyFlags: ["voice", "notification"] })).toEqual([]);
+  it("blocks chat or a notification until the montage was made with blurring", () => {
+    expect(reviewBlockers({ ...ok, privacyFlags: ["chat"] })[0]).toMatch(/vervaagde hoeken/);
+    expect(reviewBlockers({ ...ok, latestRender: { script_id: "s2", privacy_blur: true }, privacyFlags: ["chat", "notification"] })).toEqual([]);
   });
 
-  it("never allows a face", () => {
-    expect(reviewBlockers({ ...ok, latestRender: { script_id: "s2", privacy_blur: true, game_muted: true }, privacyFlags: ["face"] })[0]).toMatch(/gezicht/);
+  it("lets the kids' face, voice and gamertag through (Milan, 16-11-2026)", () => {
+    expect(reviewBlockers({ ...ok, privacyFlags: ["face", "voice", "gamertag"] })).toEqual([]);
   });
 
   it("tells what to check in the preview", () => {
     expect(reviewChecks([])).toEqual([]);
-    expect(reviewChecks(["gamertag", "voice"])).toHaveLength(2);
+    expect(reviewChecks(["gamertag", "voice"])).toEqual([]);
+    expect(reviewChecks(["chat"])).toHaveLength(1);
   });
 });

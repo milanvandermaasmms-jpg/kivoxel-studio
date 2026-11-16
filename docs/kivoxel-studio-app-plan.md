@@ -13,7 +13,7 @@ Opdracht: `docs/masterprompt-kivoxel-superprompt.md` (13-11-2026). Dit document 
 7. **Ontbreekt t.o.v. de superprompt:** watch-map `inbox`, scènedetectie/AFK/laadschermen, transcriptie, zooms op highlights, muziek en SFX, automatische Shorts uit een lange video, 3 thumbnailvarianten, 3 titelopties en chapters, stijlprofiel, kostendashboard per dienst, "Opnieuw genereren" per onderdeel, export voor handmatig uploaden.
 8. **Menselijke stappen nu:** script goedkeuren, video goedkeuren, publiceren. De superprompt wil alleen het reviewscherm.
 9. **Kosten nu:** Gemini Flash-Lite (betaald, plafond € 5 per maand), Google TTS (gratis deel), YouTube API (gratis).
-10. **Privacy:** Maes nooit met gezicht, stem, naam of gamertag; vaste PS5-hoeken worden vervaagd; RLS per gezin; tokens versleuteld op de pc.
+10. **Privacy:** ~~Maes nooit met gezicht, stem, naam of gamertag~~ (vervallen 16-11-2026: gezicht, stem en gamertag mogen, nooit echte naam/school/woonplaats); vaste PS5-hoeken worden vervaagd; RLS per gezin; tokens versleuteld op de pc.
 
 ## 2. Botsingen (eerst beslissen)
 
@@ -34,7 +34,7 @@ Opdracht: `docs/masterprompt-kivoxel-superprompt.md` (13-11-2026). Dit document 
 |---|---|---|
 | 1. Afsplitsen | Nieuwe repo en Supabase-project. De YouTube-tabellen en -code kopiëren (eerst kopiëren, testen, dan pas opruimen). Eigen Vercel-project. In het familie-dashboard alleen een tegel "KIVOXEL: X klaar voor review". De werker gaat naar de nieuwe repo. | Repo en Supabase-project aanmaken, migraties draaien, Vercel koppelen; akkoord vóór het opruimen in het familie-dashboard |
 | 2. Inbox-map | `KIVOXEL/inbox` → automatisch naar intake; status in de Studio. Mappen `werk` en `klaar`. | Map kiezen |
-| 3. Slimmere analyse | Scènedetectie, stiltes/AFK, laadschermen en menu's (FFmpeg), audiopieken als kandidaat, transcriptie alleen als Milan er zelf op spreekt (niet Maes). Zooms op highlights. | — |
+| 3. Slimmere analyse | Scènedetectie, stiltes/AFK, laadschermen en menu's (FFmpeg), audiopieken als kandidaat, transcriptie van de reacties van de kinderen (sinds 16-11-2026 toegestaan). Zooms op highlights. | — |
 | 4. Script en stem automatisch | Script zonder tussenklik naar de montage; stijlprofiel in Instellingen; uitspraaklijst; stemfilter (ruis, compressor, de-esser). | Stijlprofiel invullen |
 | 5. Kwaliteitspoort en reviewscherm | De bestaande kwaliteitskaart uitbreiden (sync ±150 ms, stiltes > 2 s, ondertitels in beeld); alleen bij groen naar "Klaar voor review"; één reviewkaart met Opnieuw genereren per onderdeel. | — |
 | 6. Shorts, thumbnails en metadata | 1-3 Shorts uit een lange video; 3 thumbnailvarianten met tekst (1280×720); 3 titels, chapters en hashtags. | Kanaal verifiëren (thumbnails) |
