@@ -90,3 +90,15 @@ export function hookEvents(text: string, durationMs: number, peakMs: number | nu
   }
   return out;
 }
+
+/**
+ * Long video (Milan, 16-11-2026): the same yellow header text at the top, but only for the first minute, then it
+ * fades away (a Short keeps it all the way).
+ */
+export function longTopEvents(text: string, durationMs: number, size: Size, settings: Settings, showMs = 60_000): string[] {
+  const t = assText(stripEmoji(text).toUpperCase());
+  const end = Math.min(durationMs, showMs);
+  if (!t || end <= 0) return [];
+  const { x, top } = hookLayout(size, settings);
+  return [`Dialogue: 3,${assTime(0)},${assTime(end)},Hook,,0,0,0,,{\\an8\\pos(${x},${top})\\fad(400,1800)}${t}`];
+}

@@ -13,7 +13,7 @@ export type AudioMode = (typeof AUDIO_MODES)[number];
 export const EVENT_TYPES = ["fail", "bijna_dood", "geluk", "bouw", "grap", "jumpscare"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
-export type AudioModeSpec = { label: string; voice: boolean; music: boolean; game: boolean; game_db: number; music_db: number | null; duck_db: number | null; storytelling: string };
+export type AudioModeSpec = { label: string; voice: boolean; music: boolean; game: boolean; game_db: number; music_db: number | null; duck_db: number | null; storytelling: string; /** Story as text in the picture when there is no voice (default true). */ text_story?: boolean; /** Sound effects layer (default true). */ sfx?: boolean };
 export type LengthBucket = { key: string; label: string; min_ms: number; max_ms: number; needs_buildup?: boolean };
 export type Settings = {
   audio_mode: AudioMode;

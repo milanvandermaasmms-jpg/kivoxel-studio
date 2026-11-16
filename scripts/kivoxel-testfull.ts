@@ -13,7 +13,8 @@ import { join, resolve } from "node:path";
 import { captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
 import { AUDIO_MODES, hookFile, resolveSettings, type AudioMode } from "../lib/kivoxel/config.ts";
 import type { EventTimeline } from "../lib/kivoxel/events.ts";
-import { chooseHook, hookChecks, hookEvents, hookStyle } from "../lib/kivoxel/hookText.ts";
+import { chooseHook, hookChecks, hookEvents, hookStyle, longTopEvents } from "../lib/kivoxel/hookText.ts";
+import { planMusicParts } from "../lib/kivoxel/musicPlan.ts";
 import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { loudnessCheck, targetFrom } from "../lib/kivoxel/loudness.ts";
@@ -112,10 +113,10 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
     }
     spoken = g.spoken;
     sync = gateSummary(g.result.gate, g.result.attempts, g.result.dropped);
-  } else story = textOverlays(script.lines, segments, timeline, targetMs, settings).overlays;
+  } else if (spec.text_story !== false) story = textOverlays(script.lines, segments, timeline, targetMs, settings).overlays;
   // Teaser: "N SECONDS EARLIER…".
   const teaser = segments.find((s) => s.part === "teaser" && s.out_start_ms === 0);
-  if (teaser) {
+  if (teaser && spec.text_story !== false) {
     const next = [...segments].sort((a, b) => a.out_start_ms - b.out_start_ms)[1];
     const tEnd = Math.round(teaser.src_end_ms - teaser.src_start_ms);
     if (next) story.push({ startMs: tEnd, endMs: tEnd + 1100, text: `${Math.max(2, Math.round((teaser.src_start_ms - next.src_start_ms) / 1000))} SECONDS EARLIER…`, reaction: false });
@@ -127,19 +128,20 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   await styleLog.add([`zoom:${zoomStyle}`]);
   const interrupts = planInterrupts({ durationMs: targetMs, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff })), short, style: zoomStyle, settings, rnd: seeded(`${name}fx`) });
   const fps = (rec.probe.fps ?? 30) >= 50 ? 60 : 30;
-  const freezes = planFreezes({ peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, fail: e.kind === "death" || e.type === "fail" })), durationMs: targetMs, short, settings, take: () => pick(templates.freeze_text, [], seeded(`${name}fz`)) });
+  const freezes = spec.text_story === false ? [] : planFreezes({ peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, fail: e.kind === "death" || e.type === "fail" })), durationMs: targetMs, short, settings, take: () => pick(templates.freeze_text, [], seeded(`${name}fz`)) });
   story.push(...freezes.map((f) => ({ startMs: f.atMs, endMs: f.atMs + f.ms, text: f.text, reaction: true })));
   const rnd = seeded(`${name}mix`);
-  const track = spec.music ? pickTrack(musicLib.tracks, main?.type ?? "fail", short ? 5 : 3, [], rnd, 6, true) : null;
-  const sfx = planSfx({ segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: sfxLib.items, recent: [], rnd, withVoice: spec.voice, durationMs: targetMs });
-  for (const a of interruptSfx(interrupts)) {
+  // Same as the worker: busy music for action, calm for searching and farming (real tracks only when there are any).
+  const parts = spec.music ? planMusicParts({ durationMs: targetMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: musicLib.tracks, recent: [], rnd, short, allowTest: !musicLib.tracks.some((t) => !t.test) }) : [];
+  const sfx = spec.sfx === false ? [] : planSfx({ segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: sfxLib.items, recent: [], rnd, withVoice: spec.voice, durationMs: targetMs });
+  for (const a of spec.sfx === false ? [] : interruptSfx(interrupts)) {
     const f = sfxLib.items.find((x) => x.kind === a.kind);
     if (f) sfx.push({ file: f.file, atMs: a.atMs, db: (spec.voice ? -14 : -9) + (f.db ?? 0), kind: a.kind });
   }
-  const plan: MixPlan = { mode, spec, music: track ? { file: join(musicLib.dir, track.file), startMs: beatStart(track, main?.peak_out ?? null), title: `${track.title}${track.test ? " (TESTTRACK)" : ""}` } : null, sfx, voiceChain: true };
+  const plan: MixPlan = { mode, spec, music: parts.length ? { file: join(musicLib.dir, parts[0].file), startMs: parts[0].startMs, title: parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)}s: ${p.title}`).join(" | "), parts: parts.map((p) => ({ ...p, file: join(musicLib.dir, p.file) })) } : null, sfx, voiceChain: true };
   const ass = `${name}.ass`;
   const words = spoken.length ? { style: captionStyleLine(size, settings), events: captionEvents(timedFromSpoken(spoken, targetMs), captionStyle, size, settings, targetMs) } : undefined;
-  await writeFile(join(out, ass), buildAss({ size, topLine: hook, lines: spoken, durationMs: targetMs, hook: short && hook ? { style: hookStyle(size, settings), events: hookEvents(hook, targetMs, main?.peak_out ?? null, size, settings) } : undefined, words, story: story.length ? storyAss(story, size, targetMs) : undefined }), "utf8");
+  await writeFile(join(out, ass), buildAss({ size, topLine: hook, lines: spoken, durationMs: targetMs, hook: hook ? { style: hookStyle(size, settings), events: short ? hookEvents(hook, targetMs, main?.peak_out ?? null, size, settings) : longTopEvents(hook, targetMs, size, settings) } : undefined, words, story: story.length ? storyAss(story, size, targetMs) : undefined }), "utf8");
   const file = join(out, `${name}.mp4`);
   const r = renderArgs({ recording: join(dataDir, "recordings", rec.file), recordingMs: rec.probe.durationMs, hasAudio: !!rec.probe.audioCodec, segments, size, assFile: ass, voice: clips, gameVolume: 0.25, output: file, mix: { plan, settings }, fx: [freezeFilter(freezes, fps), interruptFilter(interrupts, size)].filter(Boolean).join(",") || undefined, highQuality: true, fps, ...(short && settings.features.loop_ending ? { loopFadeMs: 400 } : {}) });
   const t0 = Date.now();

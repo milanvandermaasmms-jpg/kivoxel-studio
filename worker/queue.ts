@@ -63,7 +63,8 @@ import { FREE_ENGINE_MODEL, fillSilences, freeScript, pick, seeded, templates } 
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
 import type { GameEvent } from "../lib/kivoxel/events.ts";
 import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
-import { chooseHook, hookChecks, hookEvents, hookStyle, hookType } from "../lib/kivoxel/hookText.ts";
+import { chooseHook, hookChecks, hookEvents, hookStyle, hookType, longTopEvents } from "../lib/kivoxel/hookText.ts";
+import { planMusicParts } from "../lib/kivoxel/musicPlan.ts";
 import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
 import type { PhraseLog } from "./phraseLog.ts";
 import type { LocalTts } from "./localTts.ts";
@@ -891,7 +892,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       let note: string | null = null;
       let characters = 0;
       if (video.data.is_test) note = "Testdata: montage zonder stem";
-      else if (fase1 && !modeSpec.voice) {
+      else if (fase1 && !modeSpec.voice && modeSpec.text_story === false) {
+        // "Alleen gamegeluid": no voice, no captions, no story text; only the real game sound (and the hook in a Short).
+        spoken = [];
+        note = `Audio-modus "${modeSpec.label}": alleen het gamegeluid, geen stem, tekst of effecten`;
+      } else if (fase1 && !modeSpec.voice) {
         // No voice in this mode: the same anticipation lines become text in the picture (no TTS, no characters used).
         const story = textOverlays(narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[], cut.segments, timeline, cut.targetMs, kSettings);
         storyOverlays = story.overlays;
@@ -988,7 +993,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // Section 7.3: freeze-frame + text right after a fail (the record scratch comes from the SFX layer).
       const outFps = (local.probe.fps ?? 30) >= 50 ? 60 : 30;
       const freezeRnd = seeded(`${job.id}:freeze`);
-      const freezes = fase1 && !video.data.is_test ? planFreezes({ peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, fail: e.kind === "death" || e.type === "fail" })), durationMs: montageMs, short: isShort, settings: kSettings, take: () => pick(templates.freeze_text, recentStyles, freezeRnd) }) : [];
+      const freezes = fase1 && !video.data.is_test && modeSpec.text_story !== false ? planFreezes({ peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, fail: e.kind === "death" || e.type === "fail" })), durationMs: montageMs, short: isShort, settings: kSettings, take: () => pick(templates.freeze_text, recentStyles, freezeRnd) }) : [];
       if (freezes.length) {
         storyOverlays = [...storyOverlays, ...freezes.map((f) => ({ startMs: f.atMs, endMs: f.atMs + f.ms, text: f.text, reaction: true }))];
         void montage.phrases?.add(freezes.map((f) => f.text)).catch(() => {});
@@ -1004,15 +1009,19 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (modeSpec.music) {
           const lib = await media.music().catch(() => ({ dir: "", tracks: [] as Track[] }));
           const recentTracks = await media.musicLog.recent().catch(() => [] as string[]);
-          const type = mainEvent?.type ?? inMontage.find((e) => e.type)?.type ?? "fail";
-          const track = pickTrack(lib.tracks, type, isShort ? 5 : 3, recentTracks, rnd, kSettings.variation.music_no_repeat_within);
-          if (track) {
-            music = { file: join(lib.dir, track.file), startMs: beatStart(track, peakOut, Math.floor(rnd() * 3)), title: `${track.title}${track.artist ? ` – ${track.artist}` : ""} (${track.source})` };
-            void media.musicLog.add([track.file]).catch(() => {});
+          // Milan, 16-11-2026: busy music for action, calm music for searching and farming, cross-fading with the content.
+          const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: lib.tracks, recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
+          if (parts.length) {
+            const titles = [...new Set(parts.map((p) => p.title))];
+            music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (Pixabay)`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
+            void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
+            mixNote = parts.length > 1 ? `Muziek wisselt mee: ${parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)} s`).join(", ")}` : null;
           } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
+          void peakOut;
         }
         let sfx: SfxCue[] = [];
-        if (kSettings.features.sfx_layer) {
+        // "Alleen gamegeluid" has no sound effects at all (Milan, 16-11-2026).
+        if (kSettings.features.sfx_layer && modeSpec.sfx !== false) {
           const lib = await media.sfx().catch(() => ({ dir: "", items: [] as Sfx[] }));
           const recentSfx = await media.sfxLog.recent().catch(() => [] as string[]);
           sfx = planSfx({ segments: cut.segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: lib.items, recent: recentSfx, rnd, withVoice: modeSpec.voice, noRepeatWithin: kSettings.variation.sfx_no_repeat_within, durationMs: cutMs }).map((c) => ({ ...c, file: join(lib.dir, c.file) }));
@@ -1045,12 +1054,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         ...(fase1 ? { fps: outFps, highQuality: true, fx: fxFilter || undefined, ...(isShort && kSettings.features.loop_ending ? { loopFadeMs: 400 } : {}) } : {}),
       });
       // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
-      const hook = isShort && fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) } : undefined;
+      // The yellow header text: a Short keeps it all the way; a long video shows it for the first minute, then it fades (Milan, 16-11-2026).
+      const hook = fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: isShort ? hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) : longTopEvents(cut.topLine, plan.durationMs, size, kSettings) } : undefined;
       // Section 7.4: word-by-word captions in the safe zone for the spoken lines.
       const words = fase1 && kSettings.features.word_captions && spoken.length ? { style: captionStyleLine(size, kSettings), events: captionEvents(timedFromSpoken(spoken as (ScriptLine & { ms?: number })[], plan.durationMs), captionStyle, size, kSettings, plan.durationMs) } : undefined;
       // Section 7.1: after a teaser of the payoff, "N SECONDS EARLIER…".
       const teaser = cut.segments.find((sg) => sg.part === "teaser" && sg.out_start_ms === 0);
-      if (teaser && fase1) {
+      if (teaser && fase1 && modeSpec.text_story !== false) {
         const next = [...cut.segments].sort((a, b) => a.out_start_ms - b.out_start_ms)[1];
         const tEnd = Math.round((teaser.src_end_ms - teaser.src_start_ms) / teaser.speed);
         if (next) storyOverlays = [...storyOverlays, { startMs: tEnd, endMs: tEnd + 1100, text: `${Math.max(2, Math.round((teaser.src_start_ms - next.src_start_ms) / 1000))} SECONDS EARLIER…`, reaction: false }];
