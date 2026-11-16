@@ -95,3 +95,16 @@ describe.skipIf(!available)("signal pass (fase 3, real FFmpeg)", () => {
     }
   }, 60_000);
 });
+
+describe("very long filter graphs (spawn ENAMETOOLONG, 16-11-2026)", () => {
+  it("moves a long -filter_complex into a file; short commands stay as they are", async () => {
+    const { longArgs } = await import("./ffmpeg.ts");
+    const short = ["-i", "a.mp4", "-filter_complex", "[0:v]null[v]", "out.mp4"];
+    expect(longArgs(short, "C:/tmp").args).toEqual(short);
+    const graph = "[0:v]" + "null,".repeat(6000) + "null[v]";
+    const r = longArgs(["-i", "a.mp4", "-filter_complex", graph, "-map", "[v]", "out.mp4"], "C:/tmp");
+    expect(r.args[2]).toBe("-/filter_complex");
+    expect(r.args).not.toContain(graph);
+    expect(r.file?.text).toBe(graph);
+  });
+});

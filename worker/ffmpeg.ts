@@ -1,6 +1,6 @@
 // FFmpeg/ffprobe on Milan's pc (installed with winget: Gyan.FFmpeg).
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { promisify } from "node:util";
@@ -166,7 +166,30 @@ export function keepAwake(): () => void {
 /** A montage only counts as stuck after this long without any progress from FFmpeg. */
 const STALL_MS = 5 * 60_000;
 
+/**
+ * Windows allows a command line of about 32,000 characters. A long montage (many cuts, zooms, music parts, SFX) made
+ * a longer filter graph ("spawn ENAMETOOLONG", 16-11-2026). Then the graph goes into a file next to the work files
+ * and FFmpeg reads it with "-/filter_complex <file>" (FFmpeg 7+). Pure: returns the new args and the file to write.
+ */
+export function longArgs(args: string[], dir: string, limit = 24_000): { args: string[]; file: { path: string; text: string } | null } {
+  const total = args.reduce((n, a) => n + a.length + 3, 0);
+  const i = args.indexOf("-filter_complex");
+  if (total <= limit || i < 0 || i + 1 >= args.length) return { args, file: null };
+  const path = join(dir, `filtergraph-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.txt`);
+  return { args: [...args.slice(0, i), "-/filter_complex", path, ...args.slice(i + 2)], file: { path, text: args[i + 1] } };
+}
+
 export function runFfmpeg(ffmpeg: string, args: string[], cwd: string, timeoutMs: number, options: RunOptions = {}): Promise<void> {
+  const long = longArgs(args, cwd);
+  if (long.file) {
+    writeFileSync(long.file.path, long.file.text, "utf8");
+    const done = () => rmSync(long.file!.path, { force: true });
+    return runFfmpegNow(ffmpeg, long.args, cwd, timeoutMs, options).then(done, (e) => (done(), Promise.reject(e)));
+  }
+  return runFfmpegNow(ffmpeg, args, cwd, timeoutMs, options);
+}
+
+function runFfmpegNow(ffmpeg: string, args: string[], cwd: string, timeoutMs: number, options: RunOptions = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) return reject(new CancelledError());
     const child = spawn(ffmpeg, ["-progress", "pipe:1", "-nostats", ...args], { cwd, windowsHide: true });
