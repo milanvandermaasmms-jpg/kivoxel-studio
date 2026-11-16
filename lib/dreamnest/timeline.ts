@@ -222,7 +222,10 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
   story.forEach((p, i) => {
     const x = i === story.length - 1 ? KERST_X.later : KERST_X.story;
     // Length so that the next cross-fade starts on a bar line.
-    const len = p.clip ? Math.min(clipLen, Math.max(x + 1, lenOf(p.asset) || clipLen)) : Math.max(x + 1, onBar(t + holdEach - x) - t + x);
+    // A clip: as many whole bars as fit in it plus its cross-fade (on the bar); a clip cut short plays whole.
+    const avail = lenOf(p.asset) || clipLen;
+    const bars = Math.min(2, Math.floor((avail - x) / bar + 1e-9));
+    const len = p.clip ? (bars >= 1 ? bars * bar + x : Math.max(x + 1, avail)) : Math.max(x + 1, onBar(t + holdEach - x) - t + x);
     push(p.asset, len, "story", x);
   });
   const asleep = ["loop-b09-lumi-falls-asleep", "still-b08-blanket-together", "loop-b10-sleep-loop-base"].filter((a) => has(a) && a !== segs[segs.length - 1].asset);
