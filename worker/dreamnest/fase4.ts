@@ -116,7 +116,9 @@ function smoothZoom(amount: number, n: number, cx: number, cy: number) {
 function readdirClips() {
   if (kerst) {
     // Kerst: the Christmas loops and stills only (no AI story moments: they jumped from moving to frozen).
-    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^loop-bdd-.*.mp4$/.test(f) && !f.includes(".ruw.")).map((f) => ({ id: f.replace(/.mp4$/, ""), kind: "loop" as const, file: join(kerstLoops, f) }));
+    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^loop-b\d\d-.*\.mp4$/.test(f) && !f.includes(".ruw.")).map((f) => ({ id: f.replace(/\.mp4$/, ""), kind: "loop" as const, file: join(kerstLoops, f) }));
+    // Without the moving loops the story part would be skipped entirely (bug of 16-11-2026): stop instead.
+    if (!clips.length) throw new Error(`Geen kerstlussen gevonden in ${kerstLoops}`);
     clips.push({ id: "story-b01-welcome-exterior", kind: "story", file: join(keyDir, "b01-welcome-exterior.png") });
     for (const f of readdirSync(keyDir).filter((x) => /^b(0[2-9]|10)-.*.png$/.test(x))) clips.push({ id: `still-${f.replace(/.png$/, "")}`, kind: "still", file: join(keyDir, f) });
     return clips;
