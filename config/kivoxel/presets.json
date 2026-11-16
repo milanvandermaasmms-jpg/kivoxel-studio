@@ -7,7 +7,7 @@
     "audio_mode": "vo_muziek",
 
     "audio_modes": {
-      "vo_muziek": { "label": "Stem + muziek", "voice": true, "music": true, "game": true, "game_db": -10, "music_db": -20, "duck_db": -12, "storytelling": "voice_and_captions" },
+      "vo_muziek": { "label": "Stem + ondertiteling", "voice": true, "music": false, "game": true, "game_db": -10, "music_db": null, "duck_db": null, "storytelling": "voice_and_captions", "$comment": "Milan 16-11-2026: optie 1 = stem, gamegeluid en ondertiteling, geen muziek. (De sleutel heet nog vo_muziek, zodat oude montages blijven werken.)" },
       "muziek_geen_vo": { "label": "Muziek, geen stem", "voice": false, "music": true, "game": true, "game_db": -4, "music_db": -14, "duck_db": -8, "storytelling": "text_overlays", "text_story": true, "sfx": true, "$comment": "Muziek die meebeweegt (druk bij actie, rustig bij zoeken/farmen) + de gele tekst + het verhaal als tekst in beeld." },
       "alleen_game": { "label": "Alleen gamegeluid", "voice": false, "music": false, "game": true, "game_db": 0, "music_db": null, "duck_db": null, "storytelling": "none", "text_story": false, "sfx": false, "$comment": "Milan 16-11-2026: alleen het echte gamegeluid; geen stem, muziek, ondertitels, tekst of effecten (de gele hook bij Shorts blijft)." }
     },

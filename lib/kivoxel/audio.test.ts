@@ -11,7 +11,8 @@ import { seeded, type VoLine } from "./voiceScript";
 const settings = resolveSettings("standaard");
 const plan = (mode: AudioMode, music = true, sfx = 2): MixPlan => ({
   mode,
-  spec: settings.audio_modes[mode],
+  // Voice + music is still possible in a preset (the mix is tested with it); the default option 1 has no music (Milan, 16-11-2026).
+  spec: mode === "vo_muziek" && music ? { ...settings.audio_modes[mode], music: true, music_db: -20, duck_db: -12 } : settings.audio_modes[mode],
   music: music ? { file: "m.wav", startMs: 1200, title: "T" } : null,
   sfx: Array.from({ length: sfx }, (_, i) => ({ file: `s${i}.wav`, atMs: 1000 * (i + 1), db: -6, kind: "whoosh" })),
   voiceChain: true,
@@ -51,7 +52,10 @@ describe("audio modes and mix", () => {
   });
   it("checks that the chosen mode was really applied", () => {
     expect(modeCheck(plan("vo_muziek"), 3).ok).toBe(true);
-    expect(modeCheck(plan("vo_muziek", false), 3).note).toMatch(/geen track/);
+    expect(modeCheck(plan("muziek_geen_vo", false), 0).note).toMatch(/geen track/);
+    // Option 1 (Milan, 16-11-2026): voice, game sound and captions, no music.
+    expect(settings.audio_modes.vo_muziek.music).toBe(false);
+    expect(modeCheck(plan("vo_muziek", false), 3).ok).toBe(true);
     expect(modeCheck(plan("alleen_game", false), 2).note).toMatch(/stem gevonden/);
   });
   it("a stronger duck gives a stronger ratio", () => {

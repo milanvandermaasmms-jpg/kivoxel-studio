@@ -32,12 +32,14 @@ Voeg in `presets.json` onder `presets` een blok toe. Je noemt alleen wat anders 
 ## De gele header
 Elke thumbnail wordt na het maken gecontroleerd: op de plekken waar de letters horen te staan moet de kleur `color_hex` zijn. Wijkt hij af (andere kleur, andere plek, lettertype niet geïnstalleerd), dan wordt de thumbnail weggegooid en staat er een rode regel in de kwaliteitscontrole. Verander dit bestand dus alleen als je de huisstijl echt wilt veranderen.
 
-## Audio-modi
-Per montage kies je in de review (of bij "Montage") het geluid; het script blijft hetzelfde:
-- **Stem + muziek** (`vo_muziek`, standaard): verteller met EQ/compressie/lichte ruimte, muziek zacht en geduckt onder de stem, gamegeluid hoorbaar.
-- **Muziek, geen stem** (`muziek_geen_vo`): het verhaal staat als grote tekst in beeld (vóór de actie), muziek duikt licht onder de game-pieken.
-- **Alleen gamegeluid** (`alleen_game`): tekst in beeld + geluidseffecten.
-Alles eindigt op −14 LUFS en een true peak van hooguit −1 dB (twee passes, het beeld wordt niet opnieuw gecodeerd). De standaard per kanaal staat in `presets.json` bij `channel_default.audio_mode`.
+## Audio-modi (de drie opties, Milan 16-11-2026)
+Per montage kies je in de review het geluid ("Opnieuw monteren met dit geluid"); het script blijft hetzelfde:
+1. **Stem + ondertiteling** (`vo_muziek`, standaard): de verteller (bij Shorts de stem van je zoon met Amerikaanse uitspraak), het gamegeluid en ondertitels die precies met de stem meelopen. Geen muziek.
+2. **Muziek, geen stem** (`muziek_geen_vo`): muziek die meebeweegt met de inhoud (druk en snel bij actie, rustig bij zoeken en farmen, met zachte overgangen; een maatslag valt op de piek), het gamegeluid, het verhaal als tekst in beeld en de gele tekst bovenin.
+3. **Alleen gamegeluid** (`alleen_game`): alleen het echte gamegeluid. Geen stem, muziek, ondertitels, tekst of effecten (bij Shorts blijft de gele hook staan).
+
+De gele tekst bovenin: bij Shorts de hele Short, bij lange video's de eerste minuut (daarna vervaagt hij).
+Alles eindigt op −14 LUFS en een true peak van hooguit −1 dB. De standaard per kanaal staat in `presets.json` bij `channel_default.audio_mode`.
 
 ## Muziek toevoegen
 Onderzoek en advies: `docs/kivoxel-muziek-onderzoek.md`. **Alleen rechtenvrije muziek, met bron en licentie.**
@@ -48,7 +50,9 @@ Onderzoek en advies: `docs/kivoxel-muziek-onderzoek.md`. **Alleen rechtenvrije m
    ```
    - `energy`: 1 (rustig) tot 5 (maximaal). `moods`: een of meer van hype, tense, happy, chill, funny, epic, dark.
    - `bpm`: tempo (staat vaak bij de track). `beat_offset_ms`: waar de eerste tel zit (meestal 0). Hiermee valt een maatslag precies op de payoff.
-3. Klaar: de werker kiest zelf op sfeer en energie en rouleert (dezelfde track pas na 6 video's).
+3. Klaar. Per video kiest de werker één druk nummer (energie 4-5) voor de actie en één rustig nummer (energie 1-3) voor zoeken en farmen, en wisselt mee met de inhoud. Hij rouleert: hetzelfde nummer pas na 6 video's.
+
+Nu in de bibliotheek (16-11-2026): 12 nummers van Pixabay Music (gratis, ook voor YouTube met inkomsten, geen naamsvermelding). Bron en licentie staan per nummer in `library.json`. Krijg je toch een auteursrechtclaim op YouTube, dan betwist je die met de Pixabay-licentie.
 De drie `TEST …`-tracks in die map zijn door ons gemaakt om de mix te testen: de werker gebruikt ze **nooit** in een echte video. Zonder echte tracks wordt een montage in "Stem + muziek" gemaakt zonder muziek, met een oranje regel in de kwaliteitscontrole.
 
 ## Zonder AI-tegoed (gratis modus)
