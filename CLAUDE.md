@@ -39,4 +39,5 @@ Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest, Supabase (eig
 - `050_viral_check.sql`: stappen `viral` en `reference`, tabellen `yt_viral_checks` (scorekaart per montage, alleen de werker schrijft) en `yt_reference_videos` (wekelijkse referentievideo's per kanaal via de YouTube Data API).
 - `054_ivar.sql`: Ivar — Studio Assistant (zie `docs/ivar.md`): stap `assistant` in `yt_jobs`, `ivar_conversations`/`ivar_messages` (alleen via `ivar_send`), `ivar_memory`, `ivar_ideas`, `ivar_revisions` (toepassen/terugdraaien via RPC), `ivar_actions` (logboek).
 - `055_ivar_insights.sql`: stap `insight` (wekelijks per kanaal, door de werker zelf ingepland) en `ivar_insights` (trends, lessen, tips met bewijs; Milan omarmt, wijst af of wist).
+- `057_poortwachter_uit.sql`: de Poortwachter-triggers (goedkeuren en uploaden) zijn weg (besluit Milan, 16-11-2026). Ook de app toont geen Poortwachter meer; een gekloonde stem zet de AI-melding automatisch aan.
 - Privacycontrole: `supabase/tests/rls-check.mjs` (draait in `npm test`, nooit tegen Supabase).

@@ -30,8 +30,7 @@ import {
   type Visibility,
 } from "@/lib/youtube/publication";
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
-import { GateList } from "@/components/youtube/GateList";
-import { hasRed, publicationGate, videoGate } from "@/lib/youtube/gatekeeper";
+import { type publicationGate } from "@/lib/youtube/gatekeeper";
 import { loadClonedVoice, loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import type { StoredThumb } from "@/lib/youtube/thumbnails";
@@ -274,6 +273,11 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
     };
   }, [renderId]);
 
+  // The kid's cloned voice is a realistic synthetic voice: YouTube requires the AI disclosure, so it is switched on by itself.
+  useEffect(() => {
+    if (clonedVoice) setDraft((d) => (d.contains_synthetic_media ? d : { ...d, contains_synthetic_media: true }));
+  }, [clonedVoice]);
+
   // What the Poortwachter needs: channel profile, private words, approved script and privacy flags.
   useEffect(() => {
     let live = true;
@@ -372,7 +376,8 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const problems = draftProblems(draft);
   const before = uploadProblems(draft);
   const advice = draftAdvice(draft, kind);
-  const gate = gateCtx ? [...videoGate(gateCtx), ...publicationGate({ draft, channel: gateCtx.channel, privateTerms: gateCtx.privateTerms, clonedVoice })] : [];
+  // Milan, 16-11-2026: no Poortwachter at all. (A cloned voice still switches the AI disclosure on by itself, below.)
+  const gate: ReturnType<typeof publicationGate> = [];
   const titles = titleSuggestions(hook);
   const aiTitles = gateCtx?.script?.titles ?? [];
   const field = "w-full min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";
@@ -386,9 +391,9 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const publishOk = draft.visibility !== "private" && !draft.publish_at;
   const canAfter = onYouTube && !!current && ["uploaded", "scheduled", "published", "failed"].includes(current.status);
   // The one big button: what it does follows from the privacy choice. Saving happens first when needed.
-  const sendable = !locked && !onYouTube && base.length === 0 && !!renderId && !hasRed(gate) && problems.length === 0;
+  const sendable = !locked && !onYouTube && base.length === 0 && !!renderId && problems.length === 0;
   const primary: Confirm | null = !sendable ? null : draft.publish_at ? (isTest || !scheduleOk ? null : { action: "schedule", at: draft.publish_at, visibility: null }) : draft.visibility === "private" ? { action: "private", at: null, visibility: null } : isTest || !publishOk ? null : { action: "publish", at: null, visibility: draft.visibility as "public" | "unlisted" };
-  const whyNot = !renderId ? "Er is nog geen montage." : base[0] ?? problems[0] ?? (hasRed(gate) ? "De Poortwachter blokkeert deze video (zie de rode punten)." : before[0] ?? null);
+  const whyNot = !renderId ? "Er is nog geen montage." : base[0] ?? problems[0] ?? before[0] ?? null;
 
   async function send(c: Confirm) {
     setBusy(true);
@@ -623,7 +628,6 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         </ul>
       )}
 
-      {gate.length > 0 && !onYouTube && <GateList items={gate} />}
       <div className="flex flex-wrap items-center gap-2">
         <Button disabled={locked || busy || problems.length > 0 || saved} onClick={() => void save()}>
           {saved ? "Concept opgeslagen" : "Concept opslaan"}
