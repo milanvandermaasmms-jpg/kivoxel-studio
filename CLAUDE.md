@@ -28,7 +28,7 @@ Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest, Supabase (eig
 
 ## KIVOXEL montage (fase 1)
 - Uitleg van presets, hooks, muziek, SFX, stemkloon, Whisper en de controles: `docs/kivoxel-presets.md`.
-- Stemkloon (Chatterbox) en Whisper draaien lokaal; de referentie-opname staat alleen in `FamilieMK-YouTubekivoxel-ttsoice-ref`. Bij een gekloonde stem is de AI-melding bij YouTube verplicht (Poortwachter).
+- Stemkloon (Chatterbox) en Whisper draaien lokaal; de referentie-opname staat alleen in `FamilieMK-YouTube/kivoxel-tts/voice-ref`. Bij een gekloonde stem is de AI-melding bij YouTube verplicht (Poortwachter).
 
 ## Database
 - `001_studio.sql`: één studio, leden met rol `eigenaar` of `beheerder`. `is_studio_admin(studio_id)` is de RLS-helper.
