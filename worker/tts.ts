@@ -54,7 +54,7 @@ export function createUsageCounter(file: string, limit = FREE_CHARS_LIMIT) {
   };
 }
 
-export type SpeakOptions = { voiceName: string; speakingRate: number };
+export type SpeakOptions = { voiceName: string; speakingRate: number; /** Line style (spannend, schreeuw, …): local voices that support emotion use it. */ style?: string };
 
 export function synthesizeBody(text: string, { voiceName, speakingRate }: SpeakOptions) {
   return {

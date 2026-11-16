@@ -74,7 +74,8 @@
     "voice": {
       "$comment": "Zonder Google (geen sleutel, gratis deel op, of gratis modus) spreekt de eerste lokale stem die op deze pc staat. Kies na het luisteren naar testrenders/stemmen.",
       "local_order": ["kokoro", "piper", "windows"],
-      "kokoro_voice": "am_puck"
+      "kokoro_voice": "am_puck",
+      "clone": { "use": true, "shorts_only": true, "boost": 0.1 }
     },
 
     "music": { "library_dir": "music", "beat_sync": true, "fade_in_ms": 300, "fade_out_ms": 900 },

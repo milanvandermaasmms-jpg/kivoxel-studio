@@ -32,7 +32,7 @@ import {
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
 import { GateList } from "@/components/youtube/GateList";
 import { hasRed, publicationGate, videoGate } from "@/lib/youtube/gatekeeper";
-import { loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
+import { loadClonedVoice, loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import type { StoredThumb } from "@/lib/youtube/thumbnails";
 import { loadPublication, loadUploadProgress, PUBLICATION_STATUS, requestPublish, savePublication, type DbPublication, type Extras, type PublishAction, type UploadProgress } from "@/lib/youtube/publicationData";
@@ -261,12 +261,14 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [extras, setExtras] = useState<Extras>({ captions_enabled: true, thumbnail_ms: null });
   const [gateCtx, setGateCtx] = useState<GateContext | null>(null);
   const [thumbs, setThumbs] = useState<StoredThumb[]>([]);
+  const [clonedVoice, setClonedVoice] = useState(false);
   const channelId = gateCtx?.channel?.id ?? null;
   const log = (action: string, metadata: Record<string, unknown> = {}) => track(studioId, action, "klaar", { video: videoId, kind, ...metadata }, channelId);
 
   useEffect(() => {
     let live = true;
     if (renderId) void loadThumbs(renderId).then((t) => live && setThumbs(t));
+    if (renderId) void loadClonedVoice(renderId).then((c) => live && setClonedVoice(c));
     return () => {
       live = false;
     };
@@ -370,7 +372,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const problems = draftProblems(draft);
   const before = uploadProblems(draft);
   const advice = draftAdvice(draft, kind);
-  const gate = gateCtx ? [...videoGate(gateCtx), ...publicationGate({ draft, channel: gateCtx.channel, privateTerms: gateCtx.privateTerms })] : [];
+  const gate = gateCtx ? [...videoGate(gateCtx), ...publicationGate({ draft, channel: gateCtx.channel, privateTerms: gateCtx.privateTerms, clonedVoice })] : [];
   const titles = titleSuggestions(hook);
   const aiTitles = gateCtx?.script?.titles ?? [];
   const field = "w-full min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";

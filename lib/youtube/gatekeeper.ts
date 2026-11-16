@@ -55,7 +55,7 @@ export function videoGate({ script, channel, privateTerms, flags }: { script: Ga
 export type GateDraft = { title: string; description: string; tags: string[]; made_for_kids: boolean | null; contains_synthetic_media: boolean | null };
 
 /** Checks before uploading to YouTube (on top of videoGate). */
-export function publicationGate({ draft, channel, privateTerms }: { draft: GateDraft; channel: GateChannel | null; privateTerms: string[] }): GateItem[] {
+export function publicationGate({ draft, channel, privateTerms, clonedVoice = false }: { draft: GateDraft; channel: GateChannel | null; privateTerms: string[]; /** The montage speaks with a cloned (realistic synthetic) voice of a real person. */ clonedVoice?: boolean }): GateItem[] {
   const text = [draft.title, draft.description, draft.tags.join(" ")].join(" ");
   const out: GateItem[] = [];
   const priv = termHit(text, privateTerms);
@@ -73,6 +73,7 @@ export function publicationGate({ draft, channel, privateTerms }: { draft: GateD
   if (draft.made_for_kids && /eindscherm|end ?screen|abonneer|subscribe|meldingsbel|notification bell|link in de beschrijving|link below/i.test(text)) out.push(item("kids-cta", "Oproepen die bij Made for Kids niet werken", "orange", "Eindscherm, bel of 'abonneer' werken niet bij Made for Kids. Haal ze weg."));
 
   if (draft.contains_synthetic_media === null) out.push(item("ai", "AI-melding", "red", "Kies zelf of de video AI-beeld of -geluid bevat."));
+  else if (clonedVoice && !draft.contains_synthetic_media) out.push(item("ai", "AI-melding", "red", "De verteller is een nagemaakte stem van een echt persoon (stemkloon): YouTube eist dan de AI-melding. Zet hem aan."));
   else if (channel?.synthetic_media && !draft.contains_synthetic_media) out.push(item("ai", "AI-melding", "red", "Dit kanaal gebruikt AI-beeld of AI-muziek: zet de AI-melding aan."));
   else out.push(item("ai", "AI-melding", "green"));
 

@@ -102,6 +102,8 @@ export type Montage = {
   phrases?: PhraseLog;
   /** KIVOXEL fase 1, section 8: a voice without cloud credits (Piper, Kokoro or Windows), WAV out. */
   localVoice?: LocalTts;
+  /** The cloned voice (Chatterbox, reference recording on this pc); used first when presets.json voice.clone.use is on. */
+  cloneVoice?: LocalTts;
   /** KIVOXEL fase 1: exact loudness in two passes (picture copied); false when FFmpeg gave no measurement. */
   normalize?: (input: string, output: string, cwd: string, target: LoudnessTarget, options?: RunOptions) => Promise<boolean>;
   /** KIVOXEL fase 1: the local music and SFX libraries, and which tracks/SFX were used lately (rotation). */
@@ -889,7 +891,20 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           speakWithGate({ lines, segments: cut.segments, timeline, targetMs: cut.targetMs, settings: kSettings, tts, voiceName, baseRate: Number(settings.data?.speaking_rate ?? 1.1), tmp, reserve, duration: montage.duration!, run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }) });
         let g: Awaited<ReturnType<typeof speakWithGate>> | null = null;
         let localWhy: string | null = preferLocal ? "gratis modus" : !montage.voice ? "geen Google-sleutel" : null;
-        if (montage.voice && !preferLocal) {
+        // The cloned voice first (payload.voice "kloon"/"google" overrides the preset for comparing).
+        const cloneCfg = kSettings.voice.clone;
+        const wantClone = job.payload?.voice === "kloon" || (job.payload?.voice !== "google" && cloneCfg.use && (video.data.format !== "C" || !cloneCfg.shorts_only));
+        if (wantClone && montage.cloneVoice) {
+          try {
+            g = await gateWith(montage.cloneVoice, async () => undefined);
+            localVoiceName = montage.cloneVoice.name;
+            note = `Stemkloon ${montage.cloneVoice.name}`;
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            localWhy = `stemkloon mislukt: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
+          }
+        }
+        if (!g && montage.voice && !preferLocal) {
           try {
             g = await gateWith(montage.voice.tts, (n) => montage.voice!.usage.reserve(n));
           } catch (e) {

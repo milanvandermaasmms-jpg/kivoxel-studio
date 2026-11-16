@@ -67,3 +67,11 @@ describe("publication checks", () => {
     expect(level(publicationGate({ draft: { ...draft, description: "a@b.nl" }, channel: kivoxel, privateTerms: [] }), "text-data")).toBe("red");
   });
 });
+
+describe("cloned voice", () => {
+  it("a montage with a cloned voice needs YouTube's AI disclosure", () => {
+    const d = { title: "Minecraft but everything is lava", description: "Building.", tags: [], made_for_kids: true, contains_synthetic_media: false };
+    expect(publicationGate({ draft: d, channel: null, privateTerms: [], clonedVoice: true }).find((i) => i.key === "ai")?.level).toBe("red");
+    expect(publicationGate({ draft: { ...d, contains_synthetic_media: true }, channel: null, privateTerms: [], clonedVoice: true }).find((i) => i.key === "ai")?.level).toBe("green");
+  });
+});

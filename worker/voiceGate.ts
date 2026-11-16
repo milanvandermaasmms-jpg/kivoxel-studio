@@ -47,7 +47,7 @@ export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: Voi
       await input.reserve(line.text.length);
       characters += line.text.length;
       const file = `vo${n++}.${input.tts.ext ?? "mp3"}`;
-      await writeFile(join(input.tmp, file), await input.tts.speak(line.text, { voiceName: input.voiceName, speakingRate: rateFor(line.style, input.baseRate) }));
+      await writeFile(join(input.tmp, file), await input.tts.speak(line.text, { voiceName: input.voiceName, speakingRate: rateFor(line.style, input.baseRate), style: line.style }));
       files.set(line, file);
       return input.duration(join(input.tmp, file));
     },

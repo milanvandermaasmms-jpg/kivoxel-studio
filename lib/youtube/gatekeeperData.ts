@@ -53,3 +53,10 @@ export async function loadThumbs(renderId: string): Promise<StoredThumb[]> {
   if (error) return [];
   return Array.isArray(data?.thumbnails) ? data.thumbnails : [];
 }
+
+/** Did this montage speak with the cloned voice (Chatterbox)? Then YouTube's AI disclosure is required. */
+export async function loadClonedVoice(renderId: string): Promise<boolean> {
+  const { data, error } = await supabase.from("yt_renders").select("qc").eq("id", renderId).maybeSingle<{ qc: { audio?: { voiceEngine?: string | null } } | null }>();
+  if (error) return false;
+  return /chatterbox|stemkloon/i.test(data?.qc?.audio?.voiceEngine ?? "");
+}

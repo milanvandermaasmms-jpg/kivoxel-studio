@@ -28,7 +28,7 @@ export type Settings = {
     interrupt_every_ms: [number, number]; interrupts: string[]; word_captions: boolean; loop_ending: boolean; sfx_layer: boolean; cold_open: boolean; kids_reactions: boolean;
   };
   variation: { zoom_styles: string[]; caption_styles: string[]; transitions: string[]; music_no_repeat_within: number; sfx_no_repeat_within: number; opener_no_repeat_within: number };
-  voice: { local_order: ("kokoro" | "piper" | "windows")[]; kokoro_voice: string };
+  voice: { local_order: ("kokoro" | "piper" | "windows")[]; kokoro_voice: string; /** Cloned voice (Chatterbox): first choice when `use`; `boost` makes it livelier. */ clone: { use: boolean; shorts_only: boolean; boost: number } };
   music: { library_dir: string; beat_sync: boolean; fade_in_ms: number; fade_out_ms: number };
   sfx: { library_dir: string };
 };

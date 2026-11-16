@@ -3,7 +3,7 @@
 //   2. Kokoro (npm package kokoro-js, model cached by it)                    - natural, offline
 //   3. Windows (System.Speech, "Microsoft Zira")                             - always there, robotic: last resort
 // Every engine returns WAV; the sync gate measures its real length like it does for Google.
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -102,6 +102,84 @@ export async function kokoroTts(voice = "am_michael", cacheDir?: string): Promis
         return Buffer.from(audio.toWav());
       });
       kokoroQueue = job.catch(() => undefined);
+      return job;
+    },
+  };
+}
+
+/** How lively the cloned voice speaks per line style (Chatterbox "exaggeration": 0.5 = neutral, 1+ = wild). */
+export const CLONE_EXAGGERATION: Record<string, number> = { schreeuw: 1.05, lachend: 0.9, spannend: 0.75, normaal: 0.65, fluisterend: 0.4 };
+export const cloneExaggeration = (style?: string, boost = 0) => Math.max(0.25, Math.min(1.5, (CLONE_EXAGGERATION[style ?? ""] ?? 0.7) + boost));
+
+/**
+ * The cloned voice (Chatterbox) on this pc: its own Python in <data>/kivoxel-tts/chatterbox-venv and the reference
+ * recording in <data>/kivoxel-tts/voice-ref/kind.wav. Null when either is missing. The reference never goes into Git.
+ */
+export function findClone(dataDir: string, script: string): { python: string; script: string; ref: string; hfHome: string } | null {
+  const base = join(dataDir, "kivoxel-tts");
+  const python = join(base, "chatterbox-venv", "Scripts", "python.exe");
+  const ref = join(base, "voice-ref", "kind.wav");
+  return existsSync(python) && existsSync(ref) && existsSync(script) ? { python, script, ref, hfHome: join(base, "hf-cache") } : null;
+}
+
+/**
+ * Chatterbox as one long-running Python process (the model loads once, ~30 s); lines are spoken one after another.
+ * English text, the timbre of the reference, emotion per line style. Slow on a pc without an NVIDIA card.
+ */
+export function chatterboxTts(c: { python: string; script: string; ref: string; hfHome: string }, boost = 0): LocalTts {
+  type Waiting = { resolve: (v: { ok: boolean; error?: string }) => void };
+  let proc: ReturnType<typeof spawn> | null = null;
+  let ready: Promise<void> | null = null;
+  let waiting: Waiting[] = [];
+  let queue: Promise<unknown> = Promise.resolve();
+  const start = () => {
+    proc = spawn(c.python, ["-I", c.script, c.ref], { env: { ...process.env, HF_HOME: c.hfHome, PYTHONIOENCODING: "utf-8" }, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+    let buffer = "";
+    let onReady: { resolve: () => void; reject: (e: Error) => void } | null = null;
+    ready = new Promise<void>((resolve, reject) => (onReady = { resolve, reject }));
+    proc.stdout!.setEncoding("utf8");
+    proc.stdout!.on("data", (chunk: string) => {
+      buffer += chunk;
+      let nl: number;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line.startsWith("{")) continue;
+        const msg = JSON.parse(line) as { ready?: boolean; ok?: boolean; error?: string };
+        if ("ready" in msg) {
+          if (msg.ready) onReady?.resolve();
+          else onReady?.reject(new Error(`Chatterbox laadt niet: ${msg.error ?? "onbekend"}`));
+        } else waiting.shift()?.resolve({ ok: !!msg.ok, error: msg.error });
+      }
+    });
+    proc.on("close", () => {
+      onReady?.reject(new Error("Chatterbox stopte"));
+      for (const w of waiting) w.resolve({ ok: false, error: "Chatterbox stopte" });
+      waiting = [];
+      proc = null;
+      ready = null;
+    });
+  };
+  return {
+    name: "Chatterbox (stemkloon)",
+    ext: "wav",
+    speak(text, options) {
+      const job = queue.then(async () => {
+        if (!proc) start();
+        await ready;
+        const dir = await mkdtemp(join(tmpdir(), "kivoxel-clone-"));
+        try {
+          const out = join(dir, "line.wav");
+          const answer = new Promise<{ ok: boolean; error?: string }>((resolve) => waiting.push({ resolve }));
+          proc!.stdin!.write(JSON.stringify({ text, out, exaggeration: cloneExaggeration(options.style, boost), cfg_weight: 0.3 }) + "\n");
+          const r = await Promise.race([answer, new Promise<{ ok: boolean; error: string }>((resolve) => setTimeout(() => resolve({ ok: false, error: "duurde langer dan 5 minuten" }), 5 * 60_000))]);
+          if (!r.ok) throw new Error(`Chatterbox: ${r.error ?? "mislukt"}`);
+          return await readFile(out);
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+      });
+      queue = job.catch(() => undefined);
       return job;
     },
   };

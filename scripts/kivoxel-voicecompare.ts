@@ -13,7 +13,7 @@ import { captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel
 import { buildAss, renderArgs } from "../lib/youtube/render.ts";
 import { createEventStore } from "../worker/eventTimeline.ts";
 import { audioDurationMs, findTool, runFfmpeg } from "../worker/ffmpeg.ts";
-import { findPiper, kokoroTts, piperTts, windowsTts, type LocalTts } from "../worker/localTts.ts";
+import { chatterboxTts, findClone, findPiper, kokoroTts, piperTts, windowsTts, type LocalTts } from "../worker/localTts.ts";
 import { createTts, createUsageCounter } from "../worker/tts.ts";
 import { speakWithGate } from "../worker/voiceGate.ts";
 
@@ -22,7 +22,7 @@ if (existsSync(envFile)) for (const line of readFileSync(envFile, "utf8").split(
   const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
   if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
-const [query, rankArg] = process.argv.slice(2);
+const [query, rankArg] = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const dataDir = process.env.WORKER_DATA_DIR ?? join(homedir(), "FamilieMK-YouTube");
 const ffmpeg = findTool("ffmpeg");
 const ffprobe = findTool("ffprobe");
@@ -49,8 +49,11 @@ for (const v of ["am_michael", "am_puck"]) {
   const k = await kokoroTts(v, join(dataDir, "kivoxel-tts", "kokoro-cache"));
   if (k) voices.push({ key: `3-kokoro-${v}`, label: `${k.name} (lokaal)`, tts: k, reserve: async () => undefined });
 }
+const clone = findClone(dataDir, join(import.meta.dirname, "..", "worker", "chatterbox_server.py"));
+if (clone) voices.unshift({ key: "0-stemkloon", label: "Chatterbox stemkloon (lokaal, klank van de referentie)", tts: chatterboxTts(clone), reserve: async () => undefined });
+if (process.argv.includes("--alleen-kloon")) voices.splice(1);
 const win: LocalTts = windowsTts();
-voices.push({ key: "4-windows", label: `${win.name} (lokaal, laatste vangnet)`, tts: win, reserve: async () => undefined });
+if (!process.argv.includes("--alleen-kloon")) voices.push({ key: "4-windows", label: `${win.name} (lokaal, laatste vangnet)`, tts: win, reserve: async () => undefined });
 
 const report: string[] = [`Zelfde Short (${rec.label}: ${event.description}, ${(plan.targetMs / 1000).toFixed(1)} s), zelfde zinnen, per stem:`, ...script.lines.map((l) => `   [${l.kind}] ${l.text}`), ""];
 const samples: string[] = [];
@@ -84,3 +87,4 @@ if (samples.length) {
 }
 await writeFile(join(out, "rapport.txt"), report.join("\n"), "utf8");
 console.log(report.join("\n"));
+process.exit(0); // the voice-clone process would keep Node alive
