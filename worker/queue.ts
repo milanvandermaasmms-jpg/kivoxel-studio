@@ -45,11 +45,14 @@ import type { Uploader } from "./youtubeUpload.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
-import { thumbArgs, thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
+import { thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
 import { costCents, type Gemini, type Usage } from "./gemini.ts";
 import type { Store } from "./store.ts";
 import type { Tts } from "./tts.ts";
 import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
+import type { EventStore } from "./eventTimeline.ts";
+import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
+import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
 
 /**
  * FFmpeg montage on this pc: previews go to `rendersDir`, work files to a temporary folder in `tmpDir`.
@@ -66,6 +69,8 @@ export type Montage = {
   voice: { tts: Tts; usage: { reserve: (characters: number) => Promise<unknown> } } | null;
   /** KIVOXEL fase 1: proves a thumbnail's yellow header matches brand/thumbnail_header.json. Optional for older setups. */
   headerCheck?: (thumb: string, assFile: string, size: { width: number; height: number }, cwd: string) => Promise<HeaderCheck>;
+  /** KIVOXEL fase 1: the Event Timeline per recording (free signals + AI moments), cached on this pc. */
+  events?: EventStore;
 };
 
 /** YouTube upload (fase D3); null while YouTube is not set up in worker/.env.local. */
@@ -405,8 +410,25 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     }
 
+    // KIVOXEL fase 1: the Event Timeline (when what happens), free signals plus these moments. Never blocks the analysis.
+    let events: { events: number; top: string[] } | null = null;
+    if (!row.is_test && montage?.events) {
+      try {
+        await lv.phase("Event Timeline maken (hartjes, doodscherm, geluidspieken)", 0);
+        const local = await store.get(row.fingerprint);
+        if (local) {
+          const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { moments, signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+          events = { events: t.events.length, top: topPayoffs(t, 3).map((e) => `${formatTimecode(e.t_peak)} ${e.description}`) };
+          await lv.event("note", `Event Timeline: ${t.events.length} events${events.top.length ? `, beste: ${events.top.join("; ")}` : ""}`);
+        }
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        await lv.event("error", `Event Timeline niet gelukt: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
     const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
-    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected };
+    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events };
   }
 
   /** Plans the videos of a recording and queues a script per video; returns how many videos were planned. */
@@ -669,10 +691,23 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await lv.phase("Thumbnails maken");
         const tsize = video.data.format === "C" ? THUMB_SIZE.long : THUMB_SIZE.short;
         const texts = [...new Set([chosen?.overlay, ...hooks.map((h) => h.overlay), cut.topLine, cut.hook].filter((t): t is string => !!t))];
+        // KIVOXEL fase 1: the frame comes from the recording itself (no burned-in captions), at the best event the video shows.
+        let timeline: EventTimeline | null = null;
+        if (montage.events && !video.data.is_test) {
+          timeline = await montage.events.timeline(rec.data.fingerprint, local.file, local.probe.durationMs, { signal: lv.signal }).catch(async (e) => {
+            if (e instanceof CancelledError) throw e;
+            await lv.event("error", `Event Timeline niet gelukt, thumbnails op het geplande moment: ${e instanceof Error ? e.message : String(e)}`);
+            return null;
+          });
+        }
+        const recordingPath = join(store.recordingsDir, local.file);
         for (const [i, p] of thumbnailPlans(video.data.format, cut.segments, texts).entries()) {
           const file = thumbFileName(fileName, i);
           await writeFile(join(tmp, `thumb${i}.ass`), thumbAss(tsize, p.text), "utf8");
-          await montage.run(thumbArgs(output, { ...p, atMs: p.atMs.map((t) => Math.min(t, Math.max(0, plan.durationMs - 500))) }, tsize, `thumb${i}.ass`, join(montage.rendersDir, file)), tmp, 2 * 60_000, { signal: lv.signal });
+          const outMs = p.atMs.map((t) => Math.min(t, Math.max(0, plan.durationMs - 500)));
+          // The main thumbnail (cover / most exciting moment) follows the events; result and before/after keep their planned moments.
+          const srcMs = p.key === "cover" || p.key === "moment" ? [sourceThumbMs(cut.segments, timeline, outMs[0]).srcMs] : outMs.map((t) => outToSource(cut.segments, t));
+          await montage.run(thumbFromSourceArgs(recordingPath, srcMs, tsize, `thumb${i}.ass`, join(montage.rendersDir, file), blur), tmp, 2 * 60_000, { signal: lv.signal });
           // The yellow header is sacred: a thumbnail whose header deviates from the brand file is thrown away.
           if (montage.headerCheck && p.text.trim()) {
             const check = await montage.headerCheck(join(montage.rendersDir, file), `thumb${i}.ass`, tsize, tmp);

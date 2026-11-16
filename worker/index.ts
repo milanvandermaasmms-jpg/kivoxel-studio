@@ -30,6 +30,7 @@ import { createIvarLane } from "./ivar/lane.ts";
 import { createIvarModel } from "./ivar/model.ts";
 import { DEFAULT_MODEL } from "./gemini.ts";
 import { checkThumbnailHeader, fontPath } from "./brandCheck.ts";
+import { createEventStore } from "./eventTimeline.ts";
 import { configProblems } from "../lib/kivoxel/config.ts";
 import { brandProblems } from "../lib/kivoxel/brand.ts";
 
@@ -112,6 +113,7 @@ const montage: Montage | null = version
       boost: (input, output, cwd, options) => boostLoudness(ffmpeg, input, output, cwd, options),
       loudness: (file, cwd) => measureLoudness(ffmpeg, file, cwd),
       headerCheck: (thumb, assFile, size, cwd) => checkThumbnailHeader(ffmpeg, thumb, assFile, size, cwd),
+      events: createEventStore(ffmpeg, dataDir),
       // Narrator: Google TTS, free tier only; the character counter lives next to the recordings.
       voice: env.GOOGLE_TTS_API_KEY ? { tts: createTts(env.GOOGLE_TTS_API_KEY), usage: createUsageCounter(join(dataDir, "tts-usage.json")) } : null,
     }
