@@ -139,6 +139,27 @@ function readableText(e: Evidence, at: Map<number, number>): string[] {
   return quotes.length ? ["Story text read on screen (quote these words in the narration at that time; they are the mystery of this part):", ...quotes.slice(0, 12)] : [];
 }
 
+/**
+ * KIVOXEL fase 1, section 1a (frame description): what the frames of the real recording show, as facts for the
+ * anticipation script. Only the facts and the truth rules; the timing rules of the anticipation prompt stay in charge.
+ */
+export function evidenceFacts(e: Evidence, frames: FramePick[]): string {
+  const at = new Map(frames.map((f) => [f.index, f.outMs]));
+  const healthSeen = e.frames.some((f) => f.health !== "not_visible");
+  const dark = e.frames.some((f) => f.light === "cave_dark" || f.light === "night");
+  return [
+    "",
+    "WHAT THE FRAMES OF THE REAL RECORDING SHOW (times in the finished video). Every fact you hint at must match this:",
+    ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; ${f.mobs.length ? `mobs ${f.mobs.join(", ")}; ` : ""}action ${f.action || "-"}${f.events.length ? `; events ${f.events.join(", ")}` : ""}`),
+    `Overall: ${e.summary}`,
+    ...readableText(e, at),
+    ...(e.uncertain.length ? [`Not visible / uncertain: ${e.uncertain.join("; ")}`] : []),
+    healthSeen ? "- Hint at health only as the frames show it." : "- Health is never clearly visible: do NOT mention hearts or health.",
+    dark ? "- Only call it dark where the frames say cave_dark or night." : "- It is never really dark: do NOT call it dark.",
+    "- No mobs, falls, deaths or explosions that are not in the events or the frames.",
+  ].join("\n");
+}
+
 export function groundingBlock(e: Evidence, frames: FramePick[], format: Format, durationMs: number): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   const healthSeen = e.frames.some((f) => f.health !== "not_visible");

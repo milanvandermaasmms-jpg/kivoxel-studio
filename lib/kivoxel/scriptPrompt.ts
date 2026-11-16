@@ -28,7 +28,7 @@ const KINDS: LineKind[] = ["hook", "anticipation", "reaction", "open_loop", "bri
 const STYLES: TtsStyle[] = ["spannend", "fluisterend", "schreeuw", "lachend", "normaal"];
 const tc = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string }): { prompt: string; ids: Map<string, number> } {
+export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string; /** What the frames show (section 1a, vision model). */ evidence?: string; /** Milan's own story of the recording. */ story?: string }): { prompt: string; ids: Map<string, number> } {
   // KIVOXEL videos are English, always.
   const lang = "English";
   const events = eventsInMontage(input.segments, input.timeline).filter((e) => e.peak_out < input.targetMs - 800);
@@ -44,6 +44,8 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
     `You write the voice-over for a ${input.short ? "YouTube Short" : "long YouTube video"} of Minecraft gameplay recorded by kids, in ${lang}. Video length: ${tc(input.targetMs)}.`,
     "These events happen in the video (times are in the finished video). Use ONLY these; invent nothing:",
     ...(list.length ? list : ["(no clear events: keep it short, curious and light)"]),
+    ...(input.evidence ? [input.evidence] : []),
+    ...(input.story?.trim() ? [input.story.trim()] : []),
     "",
     "THE MOST IMPORTANT RULE (anticipation): the voice tells what is ABOUT to happen, never what is already on screen.",
     `A line about an event must END ${(s.lead_min_ms / 1000).toFixed(1)}-${(s.lead_max_ms / 1000).toFixed(1)} s BEFORE its peak. During the peak: silence (let the game sound hit). After the peak at most ONE short reaction (1-4 words), then on to the next build-up.`,

@@ -4,6 +4,7 @@ import { configProblems, hookFile, looksDutch, persona, resolveSettings } from "
 import type { EventTimeline, GameEvent } from "./events";
 import { anticipationPrompt, parseAnticipation } from "./scriptPrompt";
 import { estimateMs, fill, freeScript, pick, runGate, seeded, sourceToOut, syncGate, templates, type VoLine } from "./voiceScript";
+import { evidenceFacts } from "../youtube/grounding";
 
 const settings = resolveSettings("standaard");
 // The montage shows the recording from 100 s to 125 s; the event peaks at 118 s in the recording = 18 s in the video.
@@ -143,6 +144,14 @@ describe("AI script (Gemini) with the same rules", () => {
     expect(prompt).toContain("Write ONLY in English");
     expect(prompt).not.toMatch(/Dutch/);
     expect(ids.get("E1")).toBe(118_000);
+  });
+  it("adds what the frames show (section 1a) without dropping the anticipation rule", () => {
+    const facts = evidenceFacts({ frames: [{ i: 0, light: "day", health: "low", mobs: ["creeper"], action: "running", events: ["damage"] }], summary: "A creeper chase.", uncertain: [] }, [{ index: 0, srcMs: 110_000, outMs: 10_000, segment: 0 }]);
+    const { prompt } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, short: true, evidence: facts });
+    expect(prompt).toContain("mobs creeper");
+    expect(prompt).toContain("A creeper chase.");
+    expect(prompt).toMatch(/END 0\.3-1\.5 s BEFORE its peak/);
+    expect(facts).not.toMatch(/6-14 words/);
   });
   it("reads the answer, links lines to events and keeps only shorter alternatives", () => {
     const { ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), settings, short: true });

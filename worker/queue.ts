@@ -35,7 +35,7 @@ import { parseSuggestions, readSuggestions, suggestPrompt, testSuggestions, type
 import { defaultTags, learnTags, likedTitles, type Preference, type StudioEvent } from "../lib/youtube/learning.ts";
 import { buildViral, defaultQueries, listenAudioArgs, listenPrompt, parseListen, summarizeReference, testListen, type ListenResult, type ReferenceVideo } from "../lib/youtube/viral.ts";
 import type { Research } from "./research.ts";
-import { applyVerification, contentStrength, coverage, evidenceBatches, evidencePrompt, expandPrompt, framePlan, groundingBlock, LONG_FRAME_EVERY_MS, mergeEvidence, longestSilenceMs, mergeAdded, dropMetaLines, dropRepeats, withEvidence, naturalize, storyBlock, parseEvidence, silentGaps, targetWords, verifyPrompt, WPS, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
+import { contentStrength, evidenceFacts, evidenceBatches, evidencePrompt, framePlan, LONG_FRAME_EVERY_MS, mergeEvidence, naturalize, storyBlock, parseEvidence, type Evidence, type FramePick } from "../lib/youtube/grounding.ts";
 import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
@@ -655,111 +655,52 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         engineNote = wantsFree ? "Gratis modus: script uit de sjabloon-engine" : "Geen analysedienst: script uit de gratis sjabloon-engine";
       } else {
         try {
-          // Studio 2.0: the gameplay is the source of truth. Frames of the real recording first (free), then Gemini reports
-          // only what is visible; the script must lean on that, and a check removes lines without support.
+          // KIVOXEL fase 1, section 1: every line hangs on an event of the timeline and goes through the sync gate.
+          // Section 1a "frame description": frames of the real recording (free) are described by Gemini, and those facts
+          // go into the anticipation prompt, so the hints are true (Studio 2.0) AND come before the action (fase 1).
           const evidence = job.payload?.grounded === false ? null : await gatherEvidence(job, video.data.recording_id, plan.segments, video.data.format === "C");
+          await reserve(job, 2 + (evidence ? evidenceBatches(evidence.frames).length : 0));
           const feedback = await previousFeedback(job, video.data.id, version);
+          let facts = "";
           if (evidence) {
-            await reserve(job, 3 + evidenceBatches(evidence.frames).length);
-            let ev: { evidence: Evidence; frames: FramePick[] };
-            let edit: { removedMs: number; cuts: [number, number][]; zooms: number } | null = null;
-            const parsedEv = await describeEvidence(job, evidence);
-            // Studio 2.0 editor: idle stretches out and zooms on real events, BEFORE the narration. With an Event Timeline the
-            // plan is already cut by the timeline (and zooms come from the interrupts at render), so it is not cut twice.
-            const polished = job.payload?.polish === false || timeline ? null : polishPlan(plan.segments, evidence.frames, parsedEv, video.data.format, video.data.plan_key);
+            const ev = await describeEvidence(job, evidence);
+            let edit: { removedMs: number; zooms: number } | null = null;
+            // Without an Event Timeline the frames cut the idle stretches (Studio 2.0 editor); with one the timeline already did.
+            const polished = timeline || job.payload?.polish === false ? null : polishPlan(plan.segments, evidence.frames, ev, video.data.format, video.data.plan_key);
             if (polished) {
               plan.segments = polished.segments;
               plan.targetMs = totalMs(polished.segments);
-              edit = { removedMs: polished.removedMs, cuts: polished.cuts, zooms: polished.zooms };
-              ev = { evidence: polished.evidence, frames: polished.frames };
-            } else ev = { evidence: parsedEv, frames: evidence.frames };
-            const prompt = withEvidence(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series)) + groundingBlock(ev.evidence, ev.frames, video.data.format, plan.targetMs) + storyText;
-            const { json } = await paid(job, () => ai.gemini.generateText(prompt));
-            const parsed = parseScript(json, plan.targetMs);
-            if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
-            draft = parsed.draft;
-            // Labels from the plan (promise, chapter notes, moment kinds) are never narration.
-            const labels = [video.data.promise ?? "", ...plan.segments.map((s) => s.note), ...moments.map((m) => m.reason)];
-            const meta = dropMetaLines(draft.lines, labels);
-            draft = { ...draft, lines: meta.lines };
-            // The check must really judge the lines; an answer without verdicts is asked once more, and then stops the step.
-            const askCheck = async () => (await paid(job, () => ai.gemini.generateText(verifyPrompt(draft.lines, ev.evidence, ev.frames, { topLine: draft.topLine, hook: draft.hook, titles: draft.titles ?? [], windowS: video.data.format === "C" ? 10 : 3 })))).json;
-            let checkJson = await askCheck();
-            let v = applyVerification(draft.lines, checkJson);
-            if (v.checked < draft.lines.length * 0.8) v = applyVerification(draft.lines, (checkJson = await askCheck()));
-            if (v.checked < draft.lines.length * 0.8) {
-              const file = join(tmpdir(), `kivoxel-controle-onleesbaar-${Date.now()}.json`);
-              await writeFile(file, JSON.stringify(checkJson, null, 1)).catch(() => undefined);
-              throw new Error(`De controle op het beeld gaf maar ${v.checked} van ${draft.lines.length} oordelen (antwoord in ${file})`);
-            }
-            draft = { ...draft, lines: dropRepeats(v.lines), ...(v.titles ? { titles: v.titles } : {}), ...(v.topLine ? { topLine: v.topLine.slice(0, 60) } : {}), ...(v.hook ? { hook: v.hook } : {}) };
-            // Too little narration: fill the silent gaps with supported lines, and check those again.
-            let added = 0;
-            const expandLog: { gaps: number; asked: number; returned: number; inGaps: number; kept: number }[] = [];
-            const share = video.data.format === "C" ? 0.5 : 0.7;
-            // Long videos get a second round: one pass rarely fills minutes of silence.
-            for (let round = 0; round < (video.data.format === "C" ? 2 : 1) && coverage(draft.lines, plan.targetMs) < share * (video.data.format === "C" ? 0.9 : 0.8); round++) {
-              const gaps = silentGaps(draft.lines, plan.targetMs, video.data.format === "C" ? 6000 : 1800);
-              const have = draft.lines.reduce((n, l) => n + l.text.split(/\s+/).filter(Boolean).length, 0);
-              const extra = Math.max(0, targetWords(video.data.format, plan.targetMs) - have);
-              if (gaps.length && extra >= 5) {
-                const more = await paid(job, () => ai.gemini.generateText(expandPrompt(draft.lines, ev.evidence, ev.frames, gaps, extra)));
-                const merged = mergeAdded(draft.lines, more.json, gaps, plan.targetMs);
-                const returned = Array.isArray((more.json as { lines?: unknown })?.lines) ? (more.json as { lines: unknown[] }).lines.length : 0;
-                expandLog.push({ gaps: gaps.length, asked: extra, returned, inGaps: merged.length - draft.lines.length, kept: 0 });
-                if (merged.length > draft.lines.length) {
-                  const recheck = await paid(job, () => ai.gemini.generateText(verifyPrompt(merged, ev.evidence, ev.frames, { windowS: video.data.format === "C" ? 10 : 3 })));
-                  const v2 = applyVerification(merged, recheck.json);
-                  if (v2.checked < merged.length * 0.8) continue;
-                  added += v2.lines.length - draft.lines.length;
-                  expandLog[expandLog.length - 1].kept = v2.lines.length - draft.lines.length;
-                  v.issues.push(...v2.issues);
-                  draft = { ...draft, lines: dropRepeats(v2.lines) };
-                }
-              }
-            }
-            draft = withShortHook(draft);
-            engine = "ai";
-            grounding = {
-              frames: ev.frames.length,
-              summary: ev.evidence.summary,
-              uncertain: ev.evidence.uncertain,
-              rewritten: v.rewritten,
-              checked: v.checked,
-              metaDropped: meta.dropped.length,
-              dropped: v.dropped,
-              issues: v.issues,
-              spokenPct: Math.round(coverage(draft.lines, plan.targetMs) * 100),
-              longestSilenceS: Math.round(longestSilenceMs(draft.lines, plan.targetMs) / 1000),
-              added,
-              expand: expandLog,
-              strength: contentStrength(ev.evidence),
-              edit,
+              edit = { removedMs: polished.removedMs, zooms: polished.zooms };
+              facts = evidenceFacts(polished.evidence, polished.frames);
+            } else facts = evidenceFacts(ev, evidence.frames);
+            grounding = { frames: evidence.frames.length, summary: ev.summary, uncertain: ev.uncertain, strength: contentStrength(ev), mode: "anticipation", edit };
+          }
+          // Packaging (hooks, titles, top line) with the same facts; the lines themselves come from the anticipation prompt.
+          const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series) + facts + storyText));
+          const parsed = parseScript(json, plan.targetMs);
+          if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
+          draft = withShortHook(parsed.draft);
+          engine = "ai";
+          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note, evidence: facts || undefined, story: storyText || undefined });
+          const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
+          const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
+          if ("lines" in lines) {
+            // The AI may leave long silences: fill them with tension lines, like the free engine does.
+            const fillRnd = seeded(`${video.data.id}:fill:${version}`);
+            const usedNow: string[] = [];
+            const take = (options: string[]) => {
+              const t = pick(options, [...recent, ...usedNow], fillRnd);
+              usedNow.push(t);
+              return t;
             };
+            const filled = fillSilences(lines.lines, take, fillRnd);
+            draft = { ...draft, lines: filled };
+            void montage?.phrases?.add(filled.map((l) => l.text)).catch(() => {});
           } else {
-            // No frames on this pc: packaging (hooks, titles, top line) as before; then the lines against the timeline.
-            await reserve(job, 2);
-            const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series) + storyText));
-            const parsed = parseScript(json, plan.targetMs);
-            if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
-            draft = withShortHook(parsed.draft);
-            engine = "ai";
-            const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note });
-            const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
-            const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
-            if ("lines" in lines) {
-              // The AI may leave long silences: fill them with tension lines, like the free engine does.
-              const fillRnd = seeded(`${video.data.id}:fill:${version}`);
-              const usedNow: string[] = [];
-              const take = (options: string[]) => {
-                const t = pick(options, [...recent, ...usedNow], fillRnd);
-                usedNow.push(t);
-                return t;
-              };
-              const filled = fillSilences(lines.lines, take, fillRnd);
-              draft = { ...draft, lines: filled };
-              void montage?.phrases?.add(filled.map((l) => l.text)).catch(() => {});
-            } else engineNote = `Anticipatie-regels van de AI onbruikbaar (${lines.error}); de oude regels blijven`;
+            // Lines without events cannot pass the sync gate: the free engine writes them instead (same timeline).
+            const f = free();
+            draft = { ...draft, lines: f.lines };
+            engineNote = `Anticipatie-regels van de AI onbruikbaar (${lines.error}); zinnen uit de gratis sjabloon-engine`;
           }
         } catch (e) {
           if (e instanceof CancelledError) throw e;
