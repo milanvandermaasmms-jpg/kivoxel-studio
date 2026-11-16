@@ -138,7 +138,30 @@ if (montage) {
   // The cloned voice (Chatterbox): only when the reference recording and its Python are on this pc.
   const clone = findClone(dataDir, join(import.meta.dirname, "chatterbox_server.py"));
   if (clone) {
-    montage.cloneVoice = chatterboxTts(clone, v.clone.boost);
+    // Milan, 16-11-2026: American pronunciation. Google (free tier, counted) speaks the line, Chatterbox only changes
+    // the voice colour to the kid's. Free tier used up or no key: Kokoro speaks it instead.
+    const voiceCfg = montage.voice;
+    const local = montage.localVoice;
+    const pron = v.clone.pronunciation;
+    const source = pron
+      ? {
+          name: pron.split("-").pop() ?? pron,
+          ext: "mp3",
+          async speak(text: string, o: { voiceName: string; speakingRate: number; style?: string }) {
+            if (voiceCfg) {
+              try {
+                await voiceCfg.usage.reserve(text.length);
+                return await voiceCfg.tts.speak(text, { ...o, voiceName: pron });
+              } catch {
+                /* free tier used up or Google down: the local voice below */
+              }
+            }
+            if (!local) throw new Error("Geen stem voor de uitspraak");
+            return local.speak(text, o);
+          },
+        }
+      : undefined;
+    montage.cloneVoice = chatterboxTts(clone, v.clone.boost, source ? { source } : {});
     log(`Stemkloon klaar: ${montage.cloneVoice.name}${v.clone.use ? " (eerste keus)" : " (uit; aanzetten in presets.json voice.clone.use)"}`);
   }
 }

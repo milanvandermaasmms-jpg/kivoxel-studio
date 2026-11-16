@@ -14,7 +14,7 @@ import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
 import { PrivateTermsSettings } from "@/components/youtube/GateList";
-import { archiveVideo, remontage } from "@/lib/youtube/analysisData";
+import { archiveVideo, queueRender, remontage } from "@/lib/youtube/analysisData";
 import { oldScript } from "@/components/youtube/AudioModeSwitch";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
@@ -216,14 +216,29 @@ export function StudioApp({ route }: { route?: string } = {}) {
   });
 
   // KIVOXEL fase 1: finished videos of the gaming channels (not Dreamnest), for "Opnieuw door de nieuwe montage".
+  // Ready to send, or still waiting for Milan's check, on a gaming channel (not Dreamnest).
+  const candidates = flowReady
+    ? flowReady.items.filter((i) => (i.flow === "ready" || i.reviewKind !== null) && (!channel || i.channelId === channel) && (flowReady.board.channels.find((c) => c.id === i.channelId) as { safety_profile?: string } | undefined)?.safety_profile === "kids_gaming")
+    : [];
+  const newestScript = (videoId: string) => flowReady?.board.scripts.filter((s) => s.video_id === videoId).sort((x, y) => y.version - x.version)[0];
+  // Old montage (script not tied to the moments): a new script with the new engine.
   const remontageItems = flowReady
-    ? flowReady.items
-        // Ready to send, or still waiting for Milan's check: both were made with the old montage.
-        .filter((i) => (i.flow === "ready" || i.reviewKind !== null) && (!channel || i.channelId === channel) && (flowReady.board.channels.find((c) => c.id === i.channelId) as { safety_profile?: string } | undefined)?.safety_profile === "kids_gaming")
-                // Only videos whose newest script is still from the old montage (never send a new montage around again).
-        .filter((i) => { const newest = flowReady.board.scripts.filter((s) => s.video_id === i.videoId).sort((x, y) => y.version - x.version)[0]; return !newest || oldScript(newest); })
+    ? candidates
+        .filter((i) => { const newest = newestScript(i.videoId); return !newest || oldScript(newest); })
         .map((i) => ({ videoId: i.videoId, nextVersion: Math.max(0, ...flowReady.board.scripts.filter((s) => s.video_id === i.videoId).map((s) => s.version)) + 1 }))
     : [];
+  // New script, but voice and captions from before 16-11-2026 evening (accent, captions out of step): only the montage again.
+  const rerenderItems = flowReady
+    ? candidates
+        .map((i) => ({ i, script: flowReady.board.scripts.find((s) => s.video_id === i.videoId && s.status === "approved") }))
+        .filter(({ script }) => !!script && !oldScript(script))
+        .filter(({ i }) => {
+          const latest = flowReady.board.renders.filter((r) => r.video_id === i.videoId)[0] as { qc?: { audio?: { voiceVersion?: number } } | null } | undefined;
+          return !!latest && (latest.qc?.audio?.voiceVersion ?? 0) < 2;
+        })
+        .map(({ script }) => ({ script: script!, attempt: flowReady.board.jobs.filter((j) => j.step === "render" && (j as { payload?: { script_id?: string } | null }).payload?.script_id === script!.id).length + 1 }))
+    : [];
+  const redoCount = remontageItems.length + rerenderItems.length;
   const act = async (action: () => Promise<unknown>) => {
     try {
       setError(null);
@@ -464,9 +479,9 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h2 className="text-sm font-semibold">🚀 Klaar voor YouTube ({flowReady.items.filter((i) => (i.flow === "ready" || i.flow === "uploading") && (!channel || i.channelId === channel)).length})</h2>
-                      {remontageItems.length > 0 && (
-                        <Button variant="secondary" onClick={() => { if (window.confirm(`${remontageItems.length} KIVOXEL-video's opnieuw maken met de nieuwe montage (tijdlijn, sync-gate, hooks, stem)? Ze komen daarna weer bij Te keuren; publiceren blijft jouw klik.`)) void act(() => remontage(studio.id, remontageItems)); }}>
-                          🔁 Opnieuw door de nieuwe montage ({remontageItems.length})
+                      {redoCount > 0 && (
+                        <Button variant="secondary" onClick={() => { if (window.confirm(`${redoCount} KIVOXEL-video's opnieuw maken met de nieuwe montage (tijdlijn, sync-gate, hooks, stem van je zoon met Amerikaanse uitspraak, ondertitels op de stem)? Ze komen daarna weer bij Te keuren; publiceren blijft jouw klik.`)) void act(async () => { await remontage(studio.id, remontageItems); for (const r of rerenderItems) await queueRender(studio.id, r.script, r.attempt); }); }}>
+                          🔁 Opnieuw door de nieuwe montage ({redoCount})
                         </Button>
                       )}
                     </div>

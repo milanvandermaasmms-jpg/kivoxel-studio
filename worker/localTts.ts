@@ -126,14 +126,22 @@ export function findClone(dataDir: string, script: string): { python: string; sc
  * Chatterbox as one long-running Python process (the model loads once, ~30 s); lines are spoken one after another.
  * English text, the timbre of the reference, emotion per line style. Slow on a pc without an NVIDIA card.
  */
-export function chatterboxTts(c: { python: string; script: string; ref: string; hfHome: string }, boost = 0): LocalTts {
+/**
+ * mode "vc" (default when a source is given): an American voice speaks the line, Chatterbox only changes the voice
+ * colour to the reference, so pronunciation and timing stay American (Milan, 16-11-2026: "laat hem Amerikaans klinken").
+ * mode "tts": Chatterbox speaks the text itself (carries the accent of the reference).
+ */
+export type CloneOptions = { mode?: "tts" | "vc"; source?: { speak: (text: string, o: SpeakOptions) => Promise<Buffer>; ext?: string; name?: string }; cfgWeight?: number };
+
+export function chatterboxTts(c: { python: string; script: string; ref: string; hfHome: string }, boost = 0, o: CloneOptions = {}): LocalTts {
+  const mode = o.mode ?? (o.source ? "vc" : "tts");
   type Waiting = { resolve: (v: { ok: boolean; error?: string }) => void };
   let proc: ReturnType<typeof spawn> | null = null;
   let ready: Promise<void> | null = null;
   let waiting: Waiting[] = [];
   let queue: Promise<unknown> = Promise.resolve();
   const start = () => {
-    proc = spawn(c.python, ["-I", c.script, c.ref], { env: { ...process.env, HF_HOME: c.hfHome, PYTHONIOENCODING: "utf-8" }, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+    proc = spawn(c.python, ["-I", c.script, c.ref, mode], { env: { ...process.env, HF_HOME: c.hfHome, PYTHONIOENCODING: "utf-8" }, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
     let buffer = "";
     let onReady: { resolve: () => void; reject: (e: Error) => void } | null = null;
     ready = new Promise<void>((resolve, reject) => (onReady = { resolve, reject }));
@@ -161,7 +169,7 @@ export function chatterboxTts(c: { python: string; script: string; ref: string; 
     });
   };
   return {
-    name: "Chatterbox (stemkloon)",
+    name: mode === "vc" ? `Chatterbox (stemkloon, uitspraak ${o.source?.name ?? "Amerikaans"})` : "Chatterbox (stemkloon)",
     ext: "wav",
     speak(text, options) {
       const job = queue.then(async () => {
@@ -171,7 +179,13 @@ export function chatterboxTts(c: { python: string; script: string; ref: string; 
         try {
           const out = join(dir, "line.wav");
           const answer = new Promise<{ ok: boolean; error?: string }>((resolve) => waiting.push({ resolve }));
-          proc!.stdin!.write(JSON.stringify({ text, out, exaggeration: cloneExaggeration(options.style, boost), cfg_weight: 0.3 }) + "\n");
+          let job: Record<string, unknown>;
+          if (mode === "vc" && o.source) {
+            const src = join(dir, `bron.${o.source.ext ?? "mp3"}`);
+            await writeFile(src, await o.source.speak(text, options));
+            job = { mode: "vc", source: src, out };
+          } else job = { mode: "tts", text, out, exaggeration: cloneExaggeration(options.style, boost), cfg_weight: o.cfgWeight ?? 0.3 };
+          proc!.stdin!.write(JSON.stringify(job) + "\n");
           const r = await Promise.race([answer, new Promise<{ ok: boolean; error: string }>((resolve) => setTimeout(() => resolve({ ok: false, error: "duurde langer dan 5 minuten" }), 5 * 60_000))]);
           if (!r.ok) throw new Error(`Chatterbox: ${r.error ?? "mislukt"}`);
           return await readFile(out);
