@@ -180,7 +180,7 @@ export function buildEpisodeTimeline(assets: AssetV2[], totalMin: number, seed =
 // moments that jump from moving to frozen), every change of view is a long, soft cross-fade (5 s in the story, 8 s
 // later), and the sleep part alternates a calm loop and a still with its living layer, never the same view twice.
 
-export const KERST_X = { welcome: 8, story: 5, later: 8 };
+export const KERST_X = { welcome: 8, story: 5, later: 10, sleep: 12 };
 
 export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1): Segment[] {
   const has = (id: string) => assets.some((a) => a.id === id);
@@ -199,23 +199,21 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
   const asleepEach = (PARTS.asleepEnd - t) / Math.max(1, asleep.length) + KERST_X.later;
   for (const a of asleep) push(a, asleepEach, "falling_asleep", KERST_X.later);
   const stills = ["still-b10-sleep-loop-base", "still-b06-window-momo", "still-b08-blanket-together", "still-b05-mo-by-fire", "still-b09-lumi-falls-asleep"].filter(has);
-  const loops = ["loop-b10-sleep-loop-base", "loop-b06-window-momo", "loop-b08-blanket-together", "loop-b05-mo-by-fire", "loop-b09-lumi-falls-asleep"].filter(has);
+  // Sleep (reference Milan 16-11-2026, "Deep Sleep Piano"): one calm picture for 10-15 minutes, no AI loops (they
+  // shimmer), very slow 12 s cross-fades between views.
   let s = seed >>> 0 || 1;
   const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
   const end = totalMin * 60;
   const outroS = 120;
   const view = (id: string) => id.replace(/^(story|loop|still)-/, "");
   let last = segs[segs.length - 1].asset;
-  let useStill = !last.startsWith("still-");
   while (t < end - outroS - 60) {
-    const pool = (useStill && stills.length ? stills : loops.length ? loops : stills).filter((c) => view(c) !== view(last));
+    const pool = stills.filter((c) => view(c) !== view(last));
     const pick = pool[Math.floor(rand() * pool.length)];
-    const want = pick.startsWith("still-") ? 240 + rand() * 180 : 120 + rand() * 120;
-    push(pick, Math.min(want, end - outroS - t + KERST_X.later), "sleep", KERST_X.later);
+    push(pick, Math.min(600 + rand() * 300, end - outroS - t + KERST_X.sleep), "sleep", KERST_X.sleep);
     last = pick;
-    useStill = !useStill;
   }
   const outro = ["still-b10-sleep-loop-base", "still-b08-blanket-together"].find((c) => has(c) && view(c) !== view(last)) ?? last;
-  push(outro, end - t, "outro", KERST_X.later);
+  push(outro, end - t, "outro", KERST_X.sleep);
   return segs;
 }

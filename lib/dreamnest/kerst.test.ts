@@ -60,3 +60,13 @@ describe("Dreamnest kerst: only Christmas music", () => {
     }
   });
 });
+
+describe("Dreamnest kerst: reference quality (Milan, 16-11-2026)", () => {
+  it("sleep part: only stills (no shimmering AI loops), long scenes, slow cross-fades", () => {
+    const segs = buildKerstTimeline(assets, 60, 11);
+    const sleep = segs.filter((s) => s.part === "sleep");
+    expect(sleep.every((s) => s.asset.startsWith("still-"))).toBe(true);
+    expect(sleep.slice(0, -1).every((s) => s.lengthS >= 600)).toBe(true);
+    expect(sleep.every((s) => s.xfadeS >= 12)).toBe(true);
+  });
+});

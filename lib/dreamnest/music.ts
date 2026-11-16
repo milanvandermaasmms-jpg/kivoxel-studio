@@ -170,7 +170,7 @@ export type Style = "plain" | "arpeggio" | "answer" | "low";
  * flowing broken chords; answer = a second voice answers each bar just below; low = melody an octave lower on the
  * felt piano with only the pad. thin (0-1) removes notes for the falling-asleep and sleep parts. Times in seconds.
  */
-export function arrange(m: Melody, bpm: number, opts: { transpose?: number; thin?: number; seed?: number; lead?: Lead; style?: Style; second?: Lead; /** Semitones above the written melody (default 12). Dreamnest kerst: 0, warmer and not shrill. */ octave?: number } = {}): { events: NoteEvent[]; lengthS: number } {
+export function arrange(m: Melody, bpm: number, opts: { transpose?: number; thin?: number; seed?: number; lead?: Lead; style?: Style; second?: Lead; /** Semitones above the written melody (default 12). Dreamnest kerst: 0, warmer and not shrill. */ octave?: number; /** Instrument of the broken chords and arpeggios (default harp; kerst: felt piano). */ chord?: Lead } = {}): { events: NoteEvent[]; lengthS: number } {
   const beat = 60 / bpm;
   const tr = opts.transpose ?? 0;
   const thin = opts.thin ?? 0;
@@ -194,8 +194,8 @@ export function arrange(m: Melody, bpm: number, opts: { transpose?: number; thin
     if (style === "arpeggio") {
       // Up and down through the chord, two notes per beat, softly.
       const tones = [...CHORDS[c], CHORDS[c][0] + 12, CHORDS[c][2], CHORDS[c][1]];
-      for (let k = 0; k < m.beatsPerBar * 2; k++) if (r() >= thin * 0.6) events.push({ t: start + (k * beat) / 2, dur: beat * 1.5, midi: tones[k % tones.length] + tr, instrument: "harp", vel: 0.22 });
-    } else if (r() >= thin * 0.7) CHORDS[c].forEach((p, k) => events.push({ t: start + k * beat, dur: beat * 2, midi: p + tr, instrument: "harp", vel: 0.28 }));
+      for (let k = 0; k < m.beatsPerBar * 2; k++) if (r() >= thin * 0.6) events.push({ t: start + (k * beat) / 2, dur: beat * 1.5, midi: tones[k % tones.length] + tr, instrument: opts.chord ?? "harp", vel: 0.22 });
+    } else if (r() >= thin * 0.7) CHORDS[c].forEach((p, k) => events.push({ t: start + k * beat, dur: beat * 2, midi: p + tr, instrument: opts.chord ?? "harp", vel: opts.chord === "felt" ? 0.2 : 0.28 }));
     if (style === "answer" && bars[bar]?.length && r() >= thin) {
       // The longest note of the bar, answered half a bar later by a chord tone just below it.
       const main = [...bars[bar]].sort((x, y) => y[1] - x[1])[0][0] + octave;

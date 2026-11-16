@@ -55,7 +55,7 @@ function room(seconds: number, amb: number, s: number, kerst = false): Stereo {
 }
 
 /** Kerst: the carol first, soft leads only (no music box, which Milan found tiring), a bit more space between songs. */
-export const KERST_CUES: CueOptions = { themes: KERST_MELODIES, themesOnly: true, leads: { story: ["felt", "harp"], falling_asleep: ["felt", "harp"], sleep: ["felt", "harp"] }, second: ["harp", "bells"], storyGapS: 6, octave: 0 };
+export const KERST_CUES: CueOptions = { themes: KERST_MELODIES, themesOnly: true, leads: { story: ["felt"], falling_asleep: ["felt"], sleep: ["felt"] }, second: ["felt"], styles: { story: ["plain", "answer"], falling_asleep: ["plain", "low"], sleep: ["low", "plain"] }, bpmScale: 0.82, storyGapS: 8, octave: 0, chord: "felt" };
 
 /** Kerst outro: only the soft pad chords, no loose high notes. */
 function padOnly(seconds: number, s: number): Song {
@@ -117,7 +117,7 @@ export async function renderScorePiece(ffmpeg: string, dir: string, irFile: stri
   const raw = join(dir, `${p.id}.raw.wav`);
   await writeFile(raw, wav(out));
   const target = (p.part === "outro" ? TARGETS.sleep : TARGETS[p.part]) + (kerst ? KERST_OFFSET : 0);
-  const chain = `[0:a][1:a]afir=dry=7:wet=3[rv];[rv]lowpass=f=${kerst ? 2600 : 7000},highpass=f=40`;
+  const chain = `[0:a][1:a]afir=dry=${kerst ? 5 : 7}:wet=${kerst ? 5 : 3}[rv];[rv]lowpass=f=${kerst ? 2600 : 7000},highpass=f=40`;
   // The outro is measured on its first 30 s (before the fade), so the fixed gain keeps the fade instead of undoing it.
   const measure = p.part === "outro" ? ",atrim=0:30" : "";
   const m1 = await run(ffmpeg, ["-hide_banner", "-i", raw, "-i", irFile, "-filter_complex", `${chain}${measure},loudnorm=I=${target}:TP=${TRUE_PEAK_MAX - 0.5}:LRA=5:print_format=json`, "-f", "null", "-"]);

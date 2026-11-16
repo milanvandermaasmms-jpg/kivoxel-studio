@@ -5,7 +5,7 @@
 import { arrange, composeSong, MELODIES, rng, type Lead, type Melody, type NoteEvent, type Style } from "./music.ts";
 
 export type Part = "story" | "falling_asleep" | "sleep";
-export type Cue = { melody: Melody; style: Style; lead: Lead; second: Lead; bpm: number; transpose: number; thin: number; gapS: number; octave?: number };
+export type Cue = { melody: Melody; style: Style; lead: Lead; second: Lead; bpm: number; transpose: number; thin: number; gapS: number; octave?: number; chord?: Lead };
 
 const LEADS: Record<Part, Lead[]> = { story: ["musicbox", "celesta", "harp", "felt"], falling_asleep: ["celesta", "felt", "harp"], sleep: ["felt", "harp", "celesta"] };
 const STYLES: Record<Part, Style[]> = { story: ["plain", "answer", "arpeggio"], falling_asleep: ["answer", "arpeggio", "low"], sleep: ["low", "plain", "arpeggio"] };
@@ -17,7 +17,7 @@ const KEYS = [0, 5, 2, -5, -2];
  * range, so no composed song comes back anywhere in the episode.
  */
 /** Options (Dreamnest kerst): other known themes, and softer leads (no music box). */
-export type CueOptions = { themes?: Melody[]; leads?: Partial<Record<Part, Lead[]>>; storyGapS?: number; /** Only the themes (cycled with other key, instrument and style), no composed songs: Dreamnest kerst. */ themesOnly?: boolean; /** Semitones above the written melody (arrange default 12). */ octave?: number; /** The answering instrument (e.g. soft Christmas bells). */ second?: Lead[] };
+export type CueOptions = { themes?: Melody[]; leads?: Partial<Record<Part, Lead[]>>; storyGapS?: number; /** Only the themes (cycled with other key, instrument and style), no composed songs: Dreamnest kerst. */ themesOnly?: boolean; /** Semitones above the written melody (arrange default 12). */ octave?: number; /** Allowed styles per part (kerst: no harp arpeggios). */ styles?: Partial<Record<Part, Style[]>>; /** Tempo factor (kerst: slower). */ bpmScale?: number; /** Instrument of the chords (kerst: felt piano). */ chord?: Lead; /** The answering instrument (e.g. soft Christmas bells). */ second?: Lead[] };
 
 export function planCues(part: Part, lengthS: number, seed: number, o: CueOptions = {}): Cue[] {
   const r = rng(seed * 31 + part.length);
@@ -32,16 +32,17 @@ export function planCues(part: Part, lengthS: number, seed: number, o: CueOption
     // Kerst: only the carols, each part starting at another one, so an hour never sounds like one loop.
     const melody = o.themesOnly && all.length ? all[(k + (part === "story" ? 0 : part === "falling_asleep" ? 1 : seed)) % all.length] : (part === "story" && k % 2 === 0) || (part === "falling_asleep" && k === 0) ? (themes.shift() ?? composeSong(base + k)) : composeSong(base + k);
     const progress = Math.min(1, t / Math.max(1, lengthS));
-    const bpm = part === "story" ? 64 + Math.round(r() * 6) : part === "falling_asleep" ? Math.round(60 - progress * 6) : 50 + Math.round(r() * 4);
+    const bpm = Math.round((part === "story" ? 64 + Math.round(r() * 6) : part === "falling_asleep" ? Math.round(60 - progress * 6) : 50 + Math.round(r() * 4)) * (o.bpmScale ?? 1));
     const thin = part === "story" ? 0 : part === "falling_asleep" ? 0.1 + progress * 0.35 : 0.3 + r() * 0.15;
     const prev = cues[cues.length - 1];
     const lead = leads.filter((l) => l !== prev?.lead)[Math.floor(r() * Math.max(1, leads.length - 1))] ?? leads[0];
-    const style = STYLES[part].filter((s) => s !== prev?.style)[Math.floor(r() * (STYLES[part].length - 1))];
+    const stylePool = o.styles?.[part] ?? STYLES[part];
+    const style = stylePool.filter((s) => s !== prev?.style)[Math.floor(r() * Math.max(1, stylePool.length - 1))] ?? stylePool[0];
     const secondPool = o.second ?? (["celesta", "harp", "felt"] as Lead[]);
     const second = secondPool.filter((l) => l !== lead)[Math.floor(r() * Math.max(1, secondPool.filter((l) => l !== lead).length))] ?? secondPool[0];
     const transpose = KEYS[k % KEYS.length];
     const gapS = part === "story" ? (o.storyGapS ?? 3) : part === "falling_asleep" ? 6 : 14 + Math.round(r() * 14);
-    cues.push({ melody, style, lead, second, bpm, transpose, thin, gapS, ...(o.octave !== undefined ? { octave: o.octave } : {}) });
+    cues.push({ melody, style, lead, second, bpm, transpose, thin, gapS, ...(o.octave !== undefined ? { octave: o.octave } : {}), ...(o.chord ? { chord: o.chord } : {}) });
     t += (melodyLength(melody) * 60) / bpm + gapS;
   }
   return cues;
@@ -57,7 +58,7 @@ export function renderCues(cues: Cue[], lengthS: number, seed: number): { events
   const events: NoteEvent[] = [];
   let t = 0;
   cues.forEach((c, k) => {
-    const song = arrange(c.melody, c.bpm, { transpose: c.transpose, thin: c.thin, lead: c.lead, second: c.second, style: c.style, seed: seed + k, ...(c.octave !== undefined ? { octave: c.octave } : {}) });
+    const song = arrange(c.melody, c.bpm, { transpose: c.transpose, thin: c.thin, lead: c.lead, second: c.second, style: c.style, seed: seed + k, ...(c.octave !== undefined ? { octave: c.octave } : {}), ...(c.chord ? { chord: c.chord } : {}) });
     for (const e of song.events) events.push({ ...e, t: e.t + t });
     const pads = song.events.filter((e) => e.instrument === "pad");
     const lastStart = Math.max(...pads.map((e) => e.t));

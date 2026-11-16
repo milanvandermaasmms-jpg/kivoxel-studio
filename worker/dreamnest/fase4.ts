@@ -107,7 +107,17 @@ if (kerst) {
   SET.regions = { ...SET.regions, "b01-welcome-exterior": { window: { cx: 0.5, cy: 0.5, r: 1.3 } } };
 }
 const STILL_LEN = 430;
+/** Kerst: length of the breathing still (one full breath, loops seamlessly). */
+const BREATH_S = 120;
+/** Kerst: only the views the sleep part uses get a still (saves render time). */
+const KERST_STILLS = ["b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
 const viewOf = (id: string) => id.replace(/^(story|loop|still)-/, "");
+/** Sub-pixel breathing zoom: 0 -> amount -> 0 over n frames (one cosine), centred on (cx, cy); loops seamlessly. */
+function breathZoom(amount: number, n: number, cx: number, cy: number) {
+  const z = `(1+${(amount / 2).toFixed(6)}*(1-cos(2*PI*in/${n})))`;
+  const x0 = `W*${cx}-W*${cx}/${z}`, x1 = `W*${cx}+W*${(1 - cx).toFixed(4)}/${z}`, y0 = `H*${cy}-H*${cy}/${z}`, y1 = `H*${cy}+H*${(1 - cy).toFixed(4)}/${z}`;
+  return `perspective=x0='${x0}':y0='${y0}':x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}':interpolation=cubic:eval=frame`;
+}
 /** Sub-pixel zoom of `amount` over n frames towards (cx, cy) as fractions: smooth, no stepping on whole pixels. */
 function smoothZoom(amount: number, n: number, cx: number, cy: number) {
   const z = `(1+${(amount / n).toFixed(9)}*in)`;
@@ -121,7 +131,7 @@ function readdirClips() {
     // Without the moving loops the story part would be skipped entirely (bug of 16-11-2026): stop instead.
     if (!clips.length) throw new Error(`Geen kerstlussen gevonden in ${kerstLoops}`);
     clips.push({ id: "story-b01-welcome-exterior", kind: "story", file: join(keyDir, "b01-welcome-exterior.png") });
-    for (const f of readdirSync(keyDir).filter((x) => /^b(0[2-9]|10)-.*.png$/.test(x))) clips.push({ id: `still-${f.replace(/.png$/, "")}`, kind: "still", file: join(keyDir, f) });
+    for (const f of readdirSync(keyDir).filter((x) => KERST_STILLS.some((v) => x === `${v}.png`))) clips.push({ id: `still-${f.replace(/.png$/, "")}`, kind: "still", file: join(keyDir, f) });
     return clips;
   }
   const manifest = JSON.parse(readFileSync(join(clipsDir, "manifest.json"), "utf8")) as { rows: { clip: { id: string; kind: "story" | "loop" }; file: string | null; safety: { ok: boolean } | null }[] };
@@ -158,9 +168,19 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
     } else if (c.kind === "still") {
       // A still stays perfectly still (16-11-2026): the slow zoom trembled (zoompan steps on whole pixels, and the zoom
       // jumped back when the still was looped). Its life comes from the living layer (snow/rain, fireflies, fire glow).
-      const n = STILL_LEN * FPS;
-      await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", c.file, "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,scale=out_range=tv,format=yuv420p", "-frames:v", String(n), ...ENC, tmp]);
-      log(`${c.id}: stil beeld (${STILL_LEN} s), leven komt van de levende laag`);
+      if (kerst) {
+        // Kerst (reference "Deep Sleep Piano", 16-11-2026): a very slow breathing camera, 1.5% in and out over 2 minutes,
+        // sub-pixel smooth, centred on the window (so the living layer stays in place). The breath is one full cosine,
+        // so the 2-minute asset loops without a seam.
+        const n = BREATH_S * FPS;
+        const reg = SET.regions?.[viewOf(c.id)];
+        await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", c.file, "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,format=yuv444p,${breathZoom(0.015, n, reg?.window.cx ?? 0.5, reg?.window.cy ?? 0.45)},setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
+        log(`${c.id}: stil beeld met heel langzame ademende camera (${BREATH_S} s, naadloos)`);
+      } else {
+        const n = STILL_LEN * FPS;
+        await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", c.file, "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,scale=out_range=tv,format=yuv420p", "-frames:v", String(n), ...ENC, tmp]);
+        log(`${c.id}: stil beeld (${STILL_LEN} s), leven komt van de levende laag`);
+      }
     } else {
       // Loops at their own speed. AI video "boils": fine details flicker every frame (Milan, 16-11-2026: "het beeld trilt").
       // A soft temporal blend over 5 frames (1-2-3-2-1) takes 71% of that flicker away and keeps 83% of the real motion
