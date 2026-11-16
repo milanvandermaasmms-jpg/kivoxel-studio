@@ -33,7 +33,8 @@ import { checkThumbnailHeader, fontPath } from "./brandCheck.ts";
 import { createEventStore } from "./eventTimeline.ts";
 import { createPhraseLog } from "./phraseLog.ts";
 import { createMediaLibrary } from "./mediaLibrary.ts";
-import { configProblems } from "../lib/kivoxel/config.ts";
+import { bestLocalTts } from "./localTts.ts";
+import { configProblems, resolveSettings } from "../lib/kivoxel/config.ts";
 import { brandProblems } from "../lib/kivoxel/brand.ts";
 
 const VERSION = "65.0";
@@ -125,6 +126,12 @@ const montage: Montage | null = version
     }
   : null;
 if (montage) await mkdir(montage.tmpDir, { recursive: true });
+// KIVOXEL fase 1, section 8: the best voice on this pc without cloud credits (Piper, Kokoro, else Windows).
+if (montage) {
+  const v = resolveSettings(null).voice;
+  montage.localVoice = await bestLocalTts(dataDir, v.local_order, v.kokoro_voice).catch(() => undefined);
+  if (montage.localVoice) log(`Lokale stem (terugval zonder Google): ${montage.localVoice.name}`);
+}
 // KIVOXEL fase 1: a typo in config/kivoxel or brand/ shows up here, in Dutch, when the worker starts.
 for (const problem of [...configProblems(), ...brandProblems()]) log(`Config: ${problem}`);
 if (!fontPath()) log("Config: het lettertype van de thumbnail-header (brand/thumbnail_header.json) is niet geïnstalleerd; thumbnails worden afgekeurd.");

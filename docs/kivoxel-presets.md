@@ -51,5 +51,21 @@ Onderzoek en advies: `docs/kivoxel-muziek-onderzoek.md`. **Alleen rechtenvrije m
 3. Klaar: de werker kiest zelf op sfeer en energie en rouleert (dezelfde track pas na 6 video's).
 De drie `TEST …`-tracks in die map zijn door ons gemaakt om de mix te testen: de werker gebruikt ze **nooit** in een echte video. Zonder echte tracks wordt een montage in "Stem + muziek" gemaakt zonder muziek, met een oranje regel in de kwaliteitscontrole.
 
+## Zonder AI-tegoed (gratis modus)
+Alles werkt ook zonder Gemini en zonder Google-stem, automatisch:
+- **Analyse:** zonder sleutel, zonder tegoed of als de dienst plat ligt, komen de momenten uit de gratis analyse (hartjes, doodscherm, klappen, harde geluiden). In het mini-rapport staat dan "gratis engine".
+- **Script:** de sjabloon-engine (`script_templates.json`) met dezelfde anticipatieregel en sync-gate.
+- **Stem:** Google zolang er een sleutel is en het gratis deel niet op is; anders de beste lokale stem op deze pc.
+- **Altijd gratis kiezen:** zet in `presets.json` bij `channel_default` `"engine": "free"`.
+
+### Lokale stemmen
+| Stem | Waar | Kwaliteit |
+|---|---|---|
+| **Kokoro** (`am_puck`, `am_michael`, …) | npm-pakket `kokoro-js`, model in `FamilieMK-YouTube\kivoxel-tts\kokoro-cache` | meestal de natuurlijkste lokale stem |
+| **Piper** (`en_US-ryan-high`) | `FamilieMK-YouTube\kivoxel-tts\piper\` | natuurlijk en snel |
+| **Windows** (Zira) | ingebouwd | robotachtig, alleen als laatste vangnet |
+
+Welke eerst komt, staat in `presets.json` bij `voice.local_order`; de Kokoro-stem bij `voice.kokoro_voice`. Luister eerst naar de vergelijking (`node scripts/kivoxel-voicecompare.ts <opname>` maakt `testrenders/stemmen/`) en zet je favoriet bovenaan.
+
 ## Geluidseffecten (SFX)
 De standaard-SFX (whoosh, impact, record scratch, pop, riser) zijn door ons zelf gemaakt met `scripts/kivoxel-make-media.ts` en staan in de repo (`assets/kivoxel/sfx`). Whoosh komt op elke knip, impact op grote pieken, scratch bij een dood; varianten rouleren. Eigen SFX: zet ze in `FamilieMK-YouTube\kivoxel-media\sfx\` met een `library.json` (`{ "sfx": [{ "file": "boom.wav", "kind": "impact" }] }`; kind is whoosh, impact, scratch, pop of riser).

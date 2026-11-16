@@ -22,6 +22,16 @@ export function parseMeasured(log: string): Measured | null {
   }
 }
 
+/**
+ * Fine correction after pass 2: the limiter lowers the level a little on peaky clips (measured -15.5 LUFS). A plain
+ * gain towards the target and the same limiter again; the picture is copied.
+ */
+export function trimArgs(input: string, output: string, t: LoudnessTarget, measuredLufs: number): string[] {
+  const ceiling = Math.pow(10, (t.truePeakDb - 1.5) / 20).toFixed(3);
+  const gain = Math.max(-6, Math.min(6, t.lufs - measuredLufs));
+  return ["-hide_banner", "-loglevel", "error", "-y", "-i", input, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=${ceiling}:level=false,aresample=48000`, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", output];
+}
+
 /** Section 9: loudness within ±tolerance LU of the target and true peak at or below the ceiling. */
 export function loudnessCheck(integratedLufs: number | null, truePeakDb: number | null, s: { target_lufs: number; lufs_tolerance: number; true_peak_db: number }) {
   const okI = integratedLufs !== null && Math.abs(integratedLufs - s.target_lufs) <= s.lufs_tolerance;

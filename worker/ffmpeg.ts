@@ -1,13 +1,14 @@
 // FFmpeg/ffprobe on Milan's pc (installed with winget: Gyan.FFmpeg).
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
+import { rename } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { promisify } from "node:util";
 import { checkStall, createProgressParser, type FfmpegSnapshot } from "../lib/youtube/progress.ts";
 import type { ProbeInfo } from "../lib/youtube/protocol.ts";
 import { parseQcLog, type QcProbe } from "../lib/youtube/qc.ts";
 import { createSignalParser, signalArgs, type Signals } from "../lib/youtube/footage.ts";
-import { correctArgs, measureArgs, parseMeasured, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
+import { correctArgs, measureArgs, parseMeasured, trimArgs, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 
 const run = promisify(execFile);
 
@@ -307,5 +308,15 @@ export async function normalizeLoudness(ffmpeg: string, input: string, output: s
   const measured = parseMeasured(log);
   if (!measured) return false;
   await runFfmpeg(ffmpeg, correctArgs(input, output, target, measured), cwd, 10 * 60_000, options);
+  // Measure again; off by more than 0.4 LU: a small gain + limiter pass (at most twice).
+  for (let i = 0; i < 2; i++) {
+    let check = "";
+    await runFfmpeg(ffmpeg, measureArgs(output, target), cwd, 10 * 60_000, { ...options, onStderr: (c) => { check = (check + c).slice(-20_000); } });
+    const now = Number(parseMeasured(check)?.input_i);
+    if (!Number.isFinite(now) || Math.abs(now - target.lufs) <= 0.4) break;
+    const trimmed = output.replace(/\.mp4$/, `.trim${i}.mp4`);
+    await runFfmpeg(ffmpeg, trimArgs(output, trimmed, target, now), cwd, 10 * 60_000, options);
+    await rename(trimmed, output);
+  }
   return true;
 }

@@ -16,7 +16,8 @@ export type VoiceGateInput = {
   timeline: EventTimeline | null;
   targetMs: number;
   settings: Settings;
-  tts: Tts;
+  /** Google TTS, or a local voice (worker/localTts.ts) that returns WAV. */
+  tts: Pick<Tts, "speak"> & { ext?: string };
   voiceName: string;
   baseRate: number;
   tmp: string;
@@ -45,7 +46,7 @@ export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: Voi
     async speak(line) {
       await input.reserve(line.text.length);
       characters += line.text.length;
-      const file = `vo${n++}.mp3`;
+      const file = `vo${n++}.${input.tts.ext ?? "mp3"}`;
       await writeFile(join(input.tmp, file), await input.tts.speak(line.text, { voiceName: input.voiceName, speakingRate: rateFor(line.style, input.baseRate) }));
       files.set(line, file);
       return input.duration(join(input.tmp, file));
@@ -58,7 +59,7 @@ export async function speakWithGate(input: VoiceGateInput): Promise<{ clips: Voi
     let file = files.get(line);
     if (!file || !item?.ok) continue;
     if (item.speed > 1) {
-      const fast = file.replace(/\.mp3$/, "-snel.wav");
+      const fast = file.replace(/\.(mp3|wav)$/, "-snel.wav");
       await input.run(tempoArgs(file, fast, item.speed), input.tmp, 60_000);
       file = fast;
     }

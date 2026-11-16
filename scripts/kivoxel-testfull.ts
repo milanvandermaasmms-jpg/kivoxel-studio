@@ -33,6 +33,7 @@ import { createMediaLibrary } from "../worker/mediaLibrary.ts";
 import { createPhraseLog } from "../worker/phraseLog.ts";
 import { createTts, createUsageCounter } from "../worker/tts.ts";
 import { speakWithGate } from "../worker/voiceGate.ts";
+import { bestLocalTts } from "../worker/localTts.ts";
 
 const envFile = join(import.meta.dirname, "..", "worker", ".env.local");
 if (existsSync(envFile)) for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
@@ -42,7 +43,14 @@ if (existsSync(envFile)) for (const line of readFileSync(envFile, "utf8").split(
 const args = process.argv.slice(2);
 const flag = (k: string) => /--(\w+)=(\S+)/.exec(args.find((a) => a.startsWith(`--${k}=`)) ?? "")?.[2];
 const [what, ...rest] = args.filter((a) => !a.startsWith("--"));
-if (!what || !process.env.GOOGLE_TTS_API_KEY) throw new Error("Gebruik: node scripts/kivoxel-testfull.ts shorts <opname...> | long <opname> <van s> <tot s>");
+// --zonder-sleutels: everything as if there were no API keys at all (section 8): local voice, free script, free analysis.
+const noKeys = args.includes("--zonder-sleutels");
+const report: string[] = [];
+if (noKeys) {
+  delete process.env.GOOGLE_TTS_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+}
+if (!what || (!noKeys && !process.env.GOOGLE_TTS_API_KEY)) throw new Error("Gebruik: node scripts/kivoxel-testfull.ts shorts <opname...> | long <opname> <van s> <tot s>");
 const dataDir = process.env.WORKER_DATA_DIR ?? join(homedir(), "FamilieMK-YouTube");
 const ffmpeg = findTool("ffmpeg");
 const ffprobe = findTool("ffprobe");
@@ -53,8 +61,6 @@ const find = (q: string) => {
   if (!r?.probe) throw new Error(`Geen opname "${q}"`);
   return r as Rec & { probe: NonNullable<Rec["probe"]> };
 };
-const out = resolve("testrenders", "full");
-await mkdir(out, { recursive: true });
 const mode = (AUDIO_MODES as readonly string[]).includes(flag("mode") ?? "") ? (flag("mode") as AudioMode) : "vo_muziek";
 const settings = resolveSettings(flag("preset") ?? null, mode);
 const spec = settings.audio_modes[mode];
@@ -62,12 +68,15 @@ const events = createEventStore(ffmpeg, dataDir);
 const media = createMediaLibrary(dataDir, resolve("assets", "kivoxel", "sfx"), console.log);
 const musicLib = await media.music();
 const sfxLib = await media.sfx();
-const tts = createTts(process.env.GOOGLE_TTS_API_KEY);
+const local = noKeys ? await bestLocalTts(dataDir, settings.voice.local_order, settings.voice.kokoro_voice) : null;
+const tts = local ?? createTts(process.env.GOOGLE_TTS_API_KEY!);
+const out = resolve("testrenders", noKeys ? "zonder-sleutels" : "full");
+await mkdir(out, { recursive: true });
+if (local) report.push(`ZONDER API-SLEUTELS: stem ${local.name}, script uit de gratis engine, analyse uit de gratis Event Timeline`, "");
 const usage = createUsageCounter(join(dataDir, "tts-usage.json"));
 const phrases = createPhraseLog(resolve("testrenders", "phrases.json"));
 const hookLog = createPhraseLog(resolve("testrenders", "hooks.json"));
 const styleLog = createPhraseLog(resolve("testrenders", "styles.json"));
-const report: string[] = [];
 
 function lufs(file: string): string {
   const log = spawnSync(ffmpeg, ["-hide_banner", "-nostats", "-i", file, "-af", "ebur128=peak=true", "-f", "null", "-"], { encoding: "utf8" }).stderr;
@@ -88,7 +97,7 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   let story: StoryText[] = [];
   let sync = "geen stem in deze modus";
   if (spec.voice) {
-    const g = await speakWithGate({ lines: script.lines, segments, timeline, targetMs, settings, tts, voiceName: "en-US-Chirp3-HD-Fenrir", baseRate: 1.1, tmp: out, reserve: (c) => usage.reserve(c), duration: (f) => audioDurationMs(ffprobe, f), run: (a, cwd, t) => runFfmpeg(ffmpeg, a, cwd, t) });
+    const g = await speakWithGate({ lines: script.lines, segments, timeline, targetMs, settings, tts, voiceName: "en-US-Chirp3-HD-Fenrir", baseRate: 1.1, tmp: out, reserve: async (c) => (local ? undefined : usage.reserve(c)), duration: (f) => audioDurationMs(ffprobe, f), run: (a, cwd, t) => runFfmpeg(ffmpeg, a, cwd, t) });
     // Each video gets its own copies of the voice files (the gate reuses vo0, vo1, … in this shared folder).
     clips = [];
     for (const [i, c] of g.clips.entries()) {

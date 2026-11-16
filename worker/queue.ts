@@ -62,10 +62,12 @@ import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
 import { chooseHook, hookChecks, hookEvents, hookStyle, hookType } from "../lib/kivoxel/hookText.ts";
 import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
 import type { PhraseLog } from "./phraseLog.ts";
+import type { LocalTts } from "./localTts.ts";
 import { AUDIO_MODES, type AudioMode } from "../lib/kivoxel/config.ts";
 import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
 import { beatStart, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
 import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
+import { momentsFromTimeline } from "../lib/kivoxel/freeMoments.ts";
 import { loudnessCheck, targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
 import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
@@ -93,6 +95,8 @@ export type Montage = {
   duration?: (file: string) => Promise<number>;
   /** Recently used phrases (rotation), on this pc. */
   phrases?: PhraseLog;
+  /** KIVOXEL fase 1, section 8: a voice without cloud credits (Piper, Kokoro or Windows), WAV out. */
+  localVoice?: LocalTts;
   /** KIVOXEL fase 1: exact loudness in two passes (picture copied); false when FFmpeg gave no measurement. */
   normalize?: (input: string, output: string, cwd: string, target: LoudnessTarget, options?: RunOptions) => Promise<boolean>;
   /** KIVOXEL fase 1: the local music and SFX libraries, and which tracks/SFX were used lately (rotation). */
@@ -402,7 +406,36 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
       return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source: "replan", rejected: [] as string[] };
     }
-    const { moments: found, rejected } = row.is_test ? { moments: testMoments(row.duration_ms), rejected: [] as string[] } : await aiMoments(job, { ...row, duration_ms: row.duration_ms }, lv);
+    // KIVOXEL fase 1, section 8: without a key, without credits, with the service down or in free mode, the moments
+    // come from the free Event Timeline instead of the paid analysis.
+    // A holder object: the closure below changes it (a plain variable would be narrowed by TypeScript).
+    const used: { engine: "test" | "ai" | "free"; note: string | null } = { engine: row.is_test ? "test" : "ai", note: null };
+    const freeAnalysis = async (why: string) => {
+      const local = await store.get(row.fingerprint);
+      if (!local || !montage?.events) throw new Error(`${why}; de gratis analyse kan hier niet (geen FFmpeg of bestand)`);
+      await lv.phase("Gratis analyse: hartjes, doodscherm, klappen en harde geluiden", 0);
+      const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+      used.engine = "free";
+      used.note = why;
+      await lv.event("note", `${why}: momenten uit de gratis analyse (${t.events.length} events)`);
+      return { moments: momentsFromTimeline(t, durationMs), rejected: [] as string[] };
+    };
+    const wantsFreeAnalysis = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
+    let result: { moments: Moment[]; rejected: string[] };
+    if (row.is_test) result = { moments: testMoments(row.duration_ms), rejected: [] };
+    else if (wantsFreeAnalysis) result = await freeAnalysis("Gratis modus");
+    else if (!ai) result = await freeAnalysis("Geen analysedienst (GEMINI_API_KEY ontbreekt)");
+    else {
+      try {
+        result = await aiMoments(job, { ...row, duration_ms: row.duration_ms }, lv);
+      } catch (e) {
+        if (e instanceof CancelledError) throw e;
+        // Credits gone, budget cap reached, key refused or the service is down: carry on for free.
+        result = await freeAnalysis(`Analysedienst niet beschikbaar (${e instanceof Error ? e.message.slice(0, 120) : "onbekend"})`);
+      }
+    }
+    const { moments: found, rejected } = result;
+    // yt_moments.source only knows test/ai/manual (migration 009); the free engine is recorded in "model".
     const source = row.is_test ? "test" : "ai";
     const rows = found.map((m) => ({
       studio_id: job.studio_id,
@@ -421,7 +454,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       privacy_flags: m.privacyFlags,
       suggested_format: m.suggestedFormat,
       source,
-      model: row.is_test ? null : ai?.gemini.model,
+      model: row.is_test ? null : used.engine === "free" ? FREE_ENGINE_MODEL : (ai?.gemini.model ?? null),
       is_test: row.is_test,
     }));
     const saved = await db.from("yt_moments").upsert(rows, { onConflict: "studio_id,recording_id,kind,start_ms" }).select(MOMENT_COLUMNS).returns<MomentRow[]>();
@@ -443,7 +476,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
 
     // KIVOXEL fase 1: the Event Timeline (when what happens), free signals plus these moments. Never blocks the analysis.
     let events: { events: number; top: string[] } | null = null;
-    if (!row.is_test && montage?.events) {
+    // The free analysis built the timeline already; merging its own moments back in would count them twice.
+    if (!row.is_test && montage?.events && used.engine !== "free") {
       try {
         await lv.phase("Event Timeline maken (hartjes, doodscherm, geluidspieken)", 0);
         const local = await store.get(row.fingerprint);
@@ -459,7 +493,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
 
     const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
-    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events };
+    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
   }
 
   /** Plans the videos of a recording and queues a script per video; returns how many videos were planned. */
@@ -718,6 +752,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       });
     }
     let sync: { ok: boolean; flagged: boolean; summary: string; items: GateItem[] } | null = null;
+    /** Set when a local voice (no cloud) spoke this montage. */
+    let localVoiceName: string | null = null;
     // KIVOXEL fase 1, section 3: the audio mode of this montage (chosen in the review, else the channel default).
     const askedMode = typeof job.payload?.audio_mode === "string" && (AUDIO_MODES as readonly string[]).includes(job.payload.audio_mode) ? (job.payload.audio_mode as AudioMode) : null;
     const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, askedMode ?? presetFile.channel_default.audio_mode);
@@ -744,42 +780,51 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         storyOverlays = story.overlays;
         spoken = [];
         note = `Audio-modus "${modeSpec.label}": geen stem, het verhaal staat als tekst in beeld (${story.overlays.length} teksten${story.dropped.length ? `, ${story.dropped.length} weggelaten` : ""})`;
+      } else if (fase1 && montage.duration && (montage.voice || montage.localVoice)) {
+        // Line by line, with the real spoken length; lines that do not fit are shortened (max 3 attempts) or left out.
+        // Google first (free tier); without a key, with the free tier used up, or in free mode: the best local voice.
+        await lv.phase("Voice-over maken");
+        const preferLocal = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
+        const lines = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[];
+        const gateWith = (tts: Parameters<typeof speakWithGate>[0]["tts"], reserve: (n: number) => Promise<unknown>) =>
+          speakWithGate({ lines, segments: cut.segments, timeline, targetMs: cut.targetMs, settings: kSettings, tts, voiceName, baseRate: Number(settings.data?.speaking_rate ?? 1.1), tmp, reserve, duration: montage.duration!, run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }) });
+        let g: Awaited<ReturnType<typeof speakWithGate>> | null = null;
+        let localWhy: string | null = preferLocal ? "gratis modus" : !montage.voice ? "geen Google-sleutel" : null;
+        if (montage.voice && !preferLocal) {
+          try {
+            g = await gateWith(montage.voice.tts, (n) => montage.voice!.usage.reserve(n));
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            localWhy = e instanceof Error ? e.message.slice(0, 160) : String(e);
+            if (!montage.localVoice) note = localWhy;
+          }
+        }
+        if (!g && montage.localVoice) {
+          try {
+            g = await gateWith(montage.localVoice, async () => undefined);
+            localVoiceName = montage.localVoice.name;
+            note = `Lokale stem ${montage.localVoice.name} (${localWhy ?? "terugval"})`;
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            note = `Lokale stem mislukt: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        }
+        if (g) {
+          voice.push(...g.clips);
+          spoken = g.spoken;
+          characters = localVoiceName ? 0 : g.characters;
+          sync = { ok: g.result.gate.ok && !g.result.flagged, flagged: g.result.flagged, summary: gateSummary(g.result.gate, g.result.attempts, g.result.dropped), items: g.result.gate.items };
+          await lv.event(sync.ok ? "note" : "error", `VO-sync: ${sync.summary}${localVoiceName ? ` (stem: ${localVoiceName})` : ""}`);
+        }
+        if (characters) {
+          const cost = await db.from("yt_costs").insert({ studio_id: job.studio_id, job_id: job.id, category: "voiceover", service: "Google TTS Chirp 3 HD", amount_cents: 0, is_estimate: false, description: `${characters} tekens, binnen het gratis deel (per zin, met sync-controle)` });
+          if (cost.error && cost.error.code !== "23505") log(`Stemgebruik van stap ${job.id} niet vastgelegd: ${cost.error.message}`);
+        }
       } else if (!montage.voice) note = "Montage zonder stem: stem nog te verbinden (GOOGLE_TTS_API_KEY in worker/.env.local)";
       else {
         await lv.phase("Voice-over maken");
         const needed = spoken.reduce((sum, l) => sum + l.text.length, 0);
-        if (fase1 && montage.duration) {
-          // Line by line, with the real spoken length; lines that do not fit are shortened (max 3 attempts) or left out.
-          const presetSettings = kSettings;
-          try {
-            const g = await speakWithGate({
-              lines: narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[],
-              segments: cut.segments,
-              timeline,
-              targetMs: cut.targetMs,
-              settings: presetSettings,
-              tts: montage.voice.tts,
-              voiceName,
-              baseRate: Number(settings.data?.speaking_rate ?? 1.1),
-              tmp,
-              reserve: (n) => montage.voice!.usage.reserve(n),
-              duration: montage.duration,
-              run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }),
-            });
-            voice.push(...g.clips);
-            spoken = g.spoken;
-            characters = g.characters;
-            sync = { ok: g.result.gate.ok && !g.result.flagged, flagged: g.result.flagged, summary: gateSummary(g.result.gate, g.result.attempts, g.result.dropped), items: g.result.gate.items };
-            await lv.event(sync.ok ? "note" : "error", `VO-sync: ${sync.summary}`);
-          } catch (e) {
-            if (e instanceof CancelledError) throw e;
-            note = e instanceof Error ? e.message : String(e);
-          }
-          if (characters) {
-            const cost = await db.from("yt_costs").insert({ studio_id: job.studio_id, job_id: job.id, category: "voiceover", service: "Google TTS Chirp 3 HD", amount_cents: 0, is_estimate: false, description: `${characters} tekens, binnen het gratis deel (per zin, met sync-controle)` });
-            if (cost.error && cost.error.code !== "23505") log(`Stemgebruik van stap ${job.id} niet vastgelegd: ${cost.error.message}`);
-          }
-        } else try {
+        try {
           await montage.voice.usage.reserve(needed);
           characters = needed;
         } catch (e) {
@@ -901,7 +946,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // Fase D4b: the same captions as a separate file, for YouTube (search and accessibility).
       await writeFile(join(montage.rendersDir, srtFileName(fileName)), buildSrt(spoken, plan.durationMs), "utf8");
       const insert = await db.from("yt_renders").upsert(
-        { studio_id: job.studio_id, video_id: video.data.id, script_id: s.data.id, job_id: job.id, file_name: fileName, duration_ms: Math.max(1, plan.durationMs), width: size.width, height: size.height, voice_name: voice.length ? voiceName : null, tts_characters: characters, is_test: video.data.is_test, ...(privacyReady ? { privacy_blur: blur.length > 0, game_muted: muteGame } : {}) },
+        { studio_id: job.studio_id, video_id: video.data.id, script_id: s.data.id, job_id: job.id, file_name: fileName, duration_ms: Math.max(1, plan.durationMs), width: size.width, height: size.height, voice_name: voice.length && !localVoiceName ? voiceName : null, tts_characters: characters, is_test: video.data.is_test, ...(privacyReady ? { privacy_blur: blur.length > 0, game_muted: muteGame } : {}) },
         { onConflict: "job_id", ignoreDuplicates: true },
       );
       if (insert.error) throw new Error(insert.error.message);
@@ -981,7 +1026,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
           // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
-          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0 } : null;
+          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null } : null;
           // Chapters of a long video, ready for the description (section 7.7).
           const chapterLines = fase1 && !isShort ? chapters(cut.segments, timeline, plan.durationMs) : [];
           const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length } } : {}) } }).eq("job_id", job.id);
@@ -1041,7 +1086,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });
