@@ -14,7 +14,7 @@ import { VideoMaker } from "@/components/youtube/VideoMaker";
 import { ContentCalendar, PublicationsOverview } from "@/components/youtube/PublicationsBoard";
 import { overviewFrom, TodayOverview } from "@/components/youtube/TodayOverview";
 import { PrivateTermsSettings } from "@/components/youtube/GateList";
-import { archiveVideo } from "@/lib/youtube/analysisData";
+import { archiveVideo, remontage } from "@/lib/youtube/analysisData";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
@@ -214,6 +214,12 @@ export function StudioApp({ route }: { route?: string } = {}) {
     privacyReady: !!a?.montage?.privacy,
   });
 
+  // KIVOXEL fase 1: finished videos of the gaming channels (not Dreamnest), for "Opnieuw door de nieuwe montage".
+  const remontageItems = flowReady
+    ? flowReady.items
+        .filter((i) => i.flow === "ready" && (!channel || i.channelId === channel) && (flowReady.board.channels.find((c) => c.id === i.channelId) as { safety_profile?: string } | undefined)?.safety_profile === "kids_gaming")
+        .map((i) => ({ videoId: i.videoId, nextVersion: Math.max(0, ...flowReady.board.scripts.filter((s) => s.video_id === i.videoId).map((s) => s.version)) + 1 }))
+    : [];
   const act = async (action: () => Promise<unknown>) => {
     try {
       setError(null);
@@ -452,7 +458,14 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   loading
                 ) : (
                   <>
-                    <h2 className="text-sm font-semibold">🚀 Klaar voor YouTube ({flowReady.items.filter((i) => (i.flow === "ready" || i.flow === "uploading") && (!channel || i.channelId === channel)).length})</h2>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-semibold">🚀 Klaar voor YouTube ({flowReady.items.filter((i) => (i.flow === "ready" || i.flow === "uploading") && (!channel || i.channelId === channel)).length})</h2>
+                      {remontageItems.length > 0 && (
+                        <Button variant="secondary" onClick={() => { if (window.confirm(`${remontageItems.length} KIVOXEL-video's opnieuw maken met de nieuwe montage (tijdlijn, sync-gate, hooks, stem)? Ze komen daarna weer bij Te keuren; publiceren blijft jouw klik.`)) void act(() => remontage(studio.id, remontageItems)); }}>
+                          🔁 Opnieuw door de nieuwe montage ({remontageItems.length})
+                        </Button>
+                      )}
+                    </div>
                     <VideoQueue byProject state={flowReady} flows={["ready", "uploading"]} channel={channel} workerOnline={!!health} studioId={studio.id} onOpenProduction={() => chooseTab("production")} onArchive={(id) => void act(() => archiveVideo(id))} empty="Niets klaar om te versturen. Een video komt hier zodra je de eindversie hebt goedgekeurd." />
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3">
                       <div>

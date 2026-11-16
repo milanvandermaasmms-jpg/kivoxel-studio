@@ -754,7 +754,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}) };
+    // Re-montage (Milan asked for it in bulk): this version is approved right away and the montage starts; the new
+    // montage goes to his review again. Same steps as "Goedkeuren" in the review (approveConcept).
+    let remontaged = false;
+    if (job.payload?.remontage === true && !video.data.is_test) {
+      const mine = await db.from("yt_scripts").select("id").eq("video_id", video.data.id).eq("version", version).single<{ id: string }>();
+      if (mine.error) throw new Error(mine.error.message);
+      const reset = await db.from("yt_scripts").update({ status: "draft" }).eq("video_id", video.data.id).eq("status", "approved");
+      if (reset.error) throw new Error(reset.error.message);
+      const ok = await db.from("yt_scripts").update({ status: "approved" }).eq("id", mine.data.id);
+      if (ok.error) throw new Error(ok.error.message);
+      await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${mine.data.id}:remontage`, payload: { script_id: mine.data.id } });
+      await db.from("yt_videos").update({ status: "rendering" }).eq("id", video.data.id).in("status", ["idea", "scripted", "review", "approved"]);
+      remontaged = true;
+    }
+    return { version, remontaged, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}) };
   }
 
   /**

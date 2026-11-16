@@ -298,3 +298,18 @@ export async function createManualVideos(studioId: string, recordingId: string, 
   }
   return made;
 }
+
+/**
+ * KIVOXEL fase 1: send finished videos through the new montage engine once more. Per video a new script version with
+ * `remontage` (Event Timeline, anticipation, sync gate); the worker approves that version itself and starts the
+ * montage, because Milan asked for exactly this. The new montage goes to his review again; publishing stays his click.
+ */
+export async function remontage(studioId: string, items: { videoId: string; nextVersion: number }[]): Promise<number> {
+  let queued = 0;
+  for (const i of items) {
+    const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: i.videoId, step: "script", idempotency_key: `script:${i.videoId}:v${i.nextVersion}`, payload: { version: i.nextVersion, remontage: true } });
+    if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
+    if (!error) queued++;
+  }
+  return queued;
+}
