@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DnJob } from "./lane.ts";
 import { createLedger } from "./ledger.ts";
 import { createDnHandlers, qcProblems, type RunScript } from "./steps.ts";
+import { renderFolder } from "../../lib/dreamnest/steps.ts";
 
 function fakeDb(episode: Record<string, unknown>) {
   const updates: { table: string; values: Record<string, unknown> }[] = [];
@@ -33,7 +34,7 @@ afterEach(() => rm(dir, { recursive: true, force: true }));
 describe("Dreamnest worker steps (fase 0.5)", () => {
   it("runs the phase script and shows the result: render with QC and preview, episode to packaging", async () => {
     dir = await mkdtemp(join(tmpdir(), "dn-steps-"));
-    const out = join(dir, "dreamnest", "fase4", "60min-v3");
+    const out = join(dir, "dreamnest", "fase4", renderFolder(60));
     await mkdir(out, { recursive: true });
     await writeFile(join(out, "qc.json"), JSON.stringify({ ok: true, video: { problems: [] }, audio: [] }));
     const ran: string[][] = [];
@@ -45,7 +46,7 @@ describe("Dreamnest worker steps (fase 0.5)", () => {
     const h = createDnHandlers({ db, dataDir: dir, log: () => {}, run });
     const r = (await h.dn_render!(job("dn_render", { seed: 7 }))) as Record<string, unknown>;
     expect(ran).toEqual([["fase4.ts", "--minutes", "60", "--seed", "7"]]);
-    expect(r).toMatchObject({ qc_ok: true, qc_problems: [], files: ["fase4/60min-v3/preview.mp4"], video: "fase4/60min-v3/dreamnest-60min.mp4", paid_cents: 0 });
+    expect(r).toMatchObject({ qc_ok: true, qc_problems: [], files: [`fase4/${renderFolder(60)}/preview.mp4`], video: `fase4/${renderFolder(60)}/dreamnest-60min.mp4`, paid_cents: 0 });
     expect(updates.filter((u) => u.table === "dn_episodes").map((u) => u.values.status)).toEqual(["rendering", "packaging"]);
     expect(updates.find((u) => u.table === "dn_render_jobs")?.values).toMatchObject({ progress: 54 });
   });

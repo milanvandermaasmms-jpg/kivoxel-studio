@@ -1,6 +1,7 @@
 // Dreamnest fase 0.5: the production steps as the Studio shows them, and which tested script the worker runs for each.
 // Pure (no Node, no database), so the Studio and the worker share it. Every step waits for Milan's "Goedkeuren"
 // before the next one is queued; paid steps say their maximum cost on the button.
+import seasonFile from "../../content/dreamnest/season.json" with { type: "json" };
 import type { DnStep } from "./core";
 
 export type FlowStep = {
@@ -86,4 +87,6 @@ export function safeMediaPath(p: string): boolean {
 }
 
 /** Fase 6: the render folder of the current version (v3: own speed, living layers, new music). */
-export const renderFolder = (minutes: number) => `${minutes}min-v3`;
+/** Dreamnest season (content/dreamnest/season.json): "kerst" renders the Christmas living room into its own folder. */
+export const SEASON: "kerst" | "gewoon" = seasonFile.season === "kerst" ? "kerst" : "gewoon";
+export const renderFolder = (minutes: number, season: "kerst" | "gewoon" = SEASON) => (season === "kerst" ? `${minutes}min-kerst` : `${minutes}min-v3`);

@@ -12,10 +12,10 @@ import { constants, homedir, setPriority, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { judgeAudio, parseEbur128, parseSilences, TARGETS } from "../../lib/dreamnest/audioqc.ts";
 import { calmEndFrame } from "../../lib/dreamnest/motion.ts";
-import { buildEpisodeTimeline, dimFilter, episodeLength, PARTS, planPieces, type AssetV2 as Asset, type Piece } from "../../lib/dreamnest/timeline.ts";
+import { buildEpisodeTimeline, buildKerstTimeline, dimFilter, episodeLength, PARTS, planPieces, type AssetV2 as Asset, type Piece } from "../../lib/dreamnest/timeline.ts";
 import { LOOP_S, type Region, type Weather } from "../../lib/dreamnest/overlay.ts";
 import { renderOverlay } from "./overlay.ts";
-import { renderFolder } from "../../lib/dreamnest/steps.ts";
+import { renderFolder, SEASON } from "../../lib/dreamnest/steps.ts";
 import { judgeVideo, parseBlack, perMinute } from "../../lib/dreamnest/videoqc.ts";
 import { findTool } from "../ffmpeg.ts";
 import { lockFolder, waitForKivoxel as waitKivoxelFirst } from "./kivoxelFirst.ts";
@@ -36,10 +36,14 @@ const seed = Number(arg("--seed", "11"));
 const qcOnly = process.argv.includes("--qc-only");
 // Fase 6: only the pieces the 3-minute preview needs (minutes instead of the whole hour), for Milan's judgement first.
 const previewOnly = process.argv.includes("--preview-only");
+// Dreamnest kerst (16-11-2026): the Christmas living room (content/dreamnest/season.json, or --kerst / --gewoon).
+const kerst = process.argv.includes("--kerst") || (SEASON === "kerst" && !process.argv.includes("--gewoon"));
 const base = join(env.WORKER_DATA_DIR || join(homedir(), "FamilieMK-YouTube"), "dreamnest");
 const clipsDir = join(base, "fase2", "1080p");
+const kerstLoops = join(base, "fase2", "kerst");
+const keyDir = join(base, "keyframes", kerst ? "huiskamer-kerst" : "huiskamer-01");
 // Fase 6 (crisp motion, new music): its own folder, so the earlier version stays as it was.
-const out = join(base, "fase4", renderFolder(minutes));
+const out = join(base, "fase4", renderFolder(minutes, kerst ? "kerst" : "gewoon"));
 const assetsDir = join(out, "assets-v3"), piecesDir = join(out, "pieces"), audioDir = join(out, "audio");
 const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
 const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
@@ -96,9 +100,27 @@ const waitForKivoxel = () => waitKivoxelFirst(log);
 // ---------- 1. Clips: only the calm part, anti-jitter, loops slower ----------
 const CLIPS = readdirClips();
 const SET = JSON.parse(readFileSync(join(resolve(import.meta.dirname, "../.."), "content", "dreamnest", "sets", "huiskamer.json"), "utf8")) as { weather?: Weather; regions?: Record<string, Region> };
+if (kerst) {
+  // Snow instead of rain; and over the whole welcome picture (outside), so it moves from the very first frame.
+  SET.weather = "snow";
+  SET.regions = { ...SET.regions, "b01-welcome-exterior": { window: { cx: 0.5, cy: 0.5, r: 1.3 } } };
+}
 const STILL_LEN = 430;
 const viewOf = (id: string) => id.replace(/^(story|loop|still)-/, "");
+/** Sub-pixel zoom of `amount` over n frames towards (cx, cy) as fractions: smooth, no stepping on whole pixels. */
+function smoothZoom(amount: number, n: number, cx: number, cy: number) {
+  const z = `(1+${(amount / n).toFixed(9)}*in)`;
+  const x0 = `W*${cx}-W/2/${z}`, x1 = `W*${cx}+W/2/${z}`, y0 = `H*${cy}-H/2/${z}`, y1 = `H*${cy}+H/2/${z}`;
+  return `perspective=x0='${x0}':y0='${y0}':x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}':interpolation=cubic:eval=frame`;
+}
 function readdirClips() {
+  if (kerst) {
+    // Kerst: the Christmas loops and stills only (no AI story moments: they jumped from moving to frozen).
+    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^loop-bdd-.*.mp4$/.test(f) && !f.includes(".ruw.")).map((f) => ({ id: f.replace(/.mp4$/, ""), kind: "loop" as const, file: join(kerstLoops, f) }));
+    clips.push({ id: "story-b01-welcome-exterior", kind: "story", file: join(keyDir, "b01-welcome-exterior.png") });
+    for (const f of readdirSync(keyDir).filter((x) => /^b(0[2-9]|10)-.*.png$/.test(x))) clips.push({ id: `still-${f.replace(/.png$/, "")}`, kind: "still", file: join(keyDir, f) });
+    return clips;
+  }
   const manifest = JSON.parse(readFileSync(join(clipsDir, "manifest.json"), "utf8")) as { rows: { clip: { id: string; kind: "story" | "loop" }; file: string | null; safety: { ok: boolean } | null }[] };
   const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = manifest.rows.filter((r) => r.file).map((r) => ({ id: r.clip.id, kind: r.clip.kind, file: join(clipsDir, r.file!) }));
   // Fase 6: a still of every keyframe after the welcome, for scenes without a loop and for the calm sleep views.
@@ -112,12 +134,13 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
     await waitForKivoxel();
     const norm = "settb=AVTB,fps=24,setpts=PTS-STARTPTS";
     const tmp = `${dst}.tmp.mp4`;
-    const still = join(base, "keyframes", "huiskamer-01", `${c.id.replace(/^story-/, "")}.png`);
+    const still = join(keyDir, `${c.id.replace(/^story-/, "")}.png`);
     if (c.id === "story-b01-welcome-exterior" && existsSync(still)) {
       // Welcome: our own slow dolly-in on the chosen keyframe (2% per 10 s, megaprompt §4). Upscaled first so the
       // zoom does not wobble on whole pixels.
       const n = 42 * FPS;
-      await ff(["-y", "-v", "error", "-loop", "1", "-i", still, "-vf", `scale=7680:-2,zoompan=z='1+${(0.08 / n).toFixed(7)}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=24,setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
+      // Smooth dolly with sub-pixel interpolation (perspective): zoompan stepped on whole pixels and trembled (16-11-2026).
+      await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", still, "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,format=yuv444p,${smoothZoom(0.08, n, 0.5, 0.5)},setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
       log(`${c.id}: welkomstbeeld met langzame dolly-in (42 s)`);
     } else if (c.kind === "story") {
       // The own-scene part: until the picture looks more like the next scene than like its own start, never past a cut.
@@ -130,13 +153,11 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
       await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end=${endS.toFixed(3)},setpts=PTS-STARTPTS[v]`, "-map", "[v]", ...ENC, tmp]);
       log(`${c.id}: eigen scène ${endS.toFixed(1)} s op eigen snelheid`);
     } else if (c.kind === "still") {
-      // A still with a very slow zoom (3.5% in 7 minutes) towards the window, so the living layer stays in its place.
-      // Upscaled first, so the zoom never steps on whole pixels.
-      const reg = SET.regions?.[viewOf(c.id)];
-      const cx = reg?.window.cx ?? 0.5, cy = reg?.window.cy ?? 0.45;
+      // A still stays perfectly still (16-11-2026): the slow zoom trembled (zoompan steps on whole pixels, and the zoom
+      // jumped back when the still was looped). Its life comes from the living layer (snow/rain, fireflies, fire glow).
       const n = STILL_LEN * FPS;
-      await ff(["-y", "-v", "error", "-loop", "1", "-i", c.file, "-vf", `scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,scale=7680:4320,zoompan=z='1+${(0.035 / n).toFixed(9)}*on':x='max(0,min(iw-iw/zoom,${cx}*iw-iw/zoom/2))':y='max(0,min(ih-ih/zoom,${cy}*ih-ih/zoom/2))':d=1:s=1920x1080:fps=24,setsar=1,scale=out_range=tv,format=yuv420p`, "-frames:v", String(n), ...ENC, tmp]);
-      log(`${c.id}: stil beeld met heel langzame zoom (${STILL_LEN} s)`);
+      await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", c.file, "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,scale=out_range=tv,format=yuv420p", "-frames:v", String(n), ...ENC, tmp]);
+      log(`${c.id}: stil beeld (${STILL_LEN} s), leven komt van de levende laag`);
     } else {
       // Loops: at their own speed (the seam was already made seamless in fase 2).
       await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm}[v]`, "-map", "[v]", ...ENC, tmp]);
@@ -166,7 +187,7 @@ async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number)
   const off = (id: string, s: number) => (s % assets.get(id)!.lengthS).toFixed(3);
   // Fase 6: the living layer (20 s seamless loop) of the view over every loop and still, timed on the episode clock,
   // so it runs on without a seam across pieces and cross-fades.
-  const ov = (asset: string) => (/^(loop|still)-/.test(asset) && overlays.has(viewOf(asset)) ? overlays.get(viewOf(asset))! : null);
+  const ov = (asset: string) => ((/^(loop|still)-/.test(asset) || kerst) && overlays.has(viewOf(asset)) ? overlays.get(viewOf(asset))! : null);
   const ovOff = (p.globalS % LOOP_S).toFixed(3);
   const layer = (asset: string, label: string, input: number) => {
     const o = ov(asset);
@@ -200,7 +221,7 @@ async function soundtrack(totalS: number) {
     if (!existsSync(`${f}.ok`)) {
       await waitForKivoxel();
       log(`Muziek ${p.id} (${Math.round(p.lengthS)} s)...`);
-      await renderScorePiece(ffmpeg, audioDir, ir, p);
+      await renderScorePiece(ffmpeg, audioDir, ir, p, kerst);
       await writeFile(`${f}.ok`, "");
     }
     files.push(f);
@@ -302,7 +323,7 @@ if (!qcOnly) {
     }
     overlays.set(view, f);
   }
-  const segs = buildEpisodeTimeline([...assets.values()], minutes, seed);
+  const segs = (kerst ? buildKerstTimeline : buildEpisodeTimeline)([...assets.values()], minutes, seed);
   const pieces = planPieces(segs);
   await writeFile(join(out, "timeline.json"), JSON.stringify({ minutes, seed, length_s: episodeLength(segs), segments: segs, pieces }, null, 1));
   log(`Tijdlijn: ${segs.length} delen, ${pieces.length} renderstukken.`);

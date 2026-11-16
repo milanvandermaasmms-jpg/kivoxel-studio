@@ -5,8 +5,8 @@ import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { TARGETS, TRUE_PEAK_MAX } from "../../../lib/dreamnest/audioqc.ts";
-import { rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
-import { planCues, renderCues } from "../../../lib/dreamnest/setlist.ts";
+import { KERST_MELODIES, MELODIES, rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
+import { planCues, renderCues, type CueOptions } from "../../../lib/dreamnest/setlist.ts";
 import { brownNoise, fade, fireplace, mix, rain, renderEvents, SR, stereo, wav, type Stereo } from "./synth.ts";
 
 type Song = { events: NoteEvent[]; lengthS: number };
@@ -45,12 +45,22 @@ export function sleepMusic(seconds: number, s: number): Song {
   return { events, lengthS: seconds };
 }
 
-function room(seconds: number, amb: number, s: number): Stereo {
+function room(seconds: number, amb: number, s: number, kerst = false): Stereo {
   const r = stereo(seconds);
   mix(r, brownNoise(seconds, 0.25, s), amb);
   mix(r, fireplace(seconds, 0.35, s + 1), amb);
-  mix(r, rain(seconds, 0.3, s + 2), amb);
+  // Kerst: it snows outside, so no rain sound (snow is silent; the fire and the soft noise stay).
+  if (!kerst) mix(r, rain(seconds, 0.3, s + 2), amb);
   return r;
+}
+
+/** Kerst: the carol first, soft leads only (no music box, which Milan found tiring), a bit more space between songs. */
+export const KERST_CUES: CueOptions = { themes: [...KERST_MELODIES, MELODIES[1], MELODIES[0]], leads: { story: ["celesta", "felt", "harp"], falling_asleep: ["felt", "celesta"], sleep: ["felt", "harp"] }, storyGapS: 5 };
+
+/** Kerst outro: only the soft pad chords, no loose high notes. */
+function padOnly(seconds: number, s: number): Song {
+  const song = sleepMusic(seconds, s);
+  return { events: song.events.filter((e) => e.instrument === "pad"), lengthS: seconds };
 }
 
 export type ScorePiece = { id: string; part: keyof typeof TARGETS | "outro"; lengthS: number; seed: number };
@@ -69,28 +79,31 @@ export function planScore(totalS: number, seed: number, xfadeS = 10): ScorePiece
   return pieces;
 }
 
-export async function renderScorePiece(ffmpeg: string, dir: string, irFile: string, p: ScorePiece): Promise<string> {
+export async function renderScorePiece(ffmpeg: string, dir: string, irFile: string, p: ScorePiece, kerst = false): Promise<string> {
+  const cueOpts = kerst ? KERST_CUES : {};
   const len = p.lengthS;
   let music: Song;
   let musicGain = 1, amb = 0.25;
   // Fase 6: a setlist per part (lib/dreamnest/setlist.ts): every song once per episode, changing instrument, style
   // and key; the sleep part is a row of new, slow songs with quiet space between them instead of loose notes.
   if (p.part === "story") {
-    music = renderCues(planCues("story", len, p.seed), len, p.seed);
+    music = renderCues(planCues("story", len, p.seed, cueOpts), len, p.seed);
   } else if (p.part === "falling_asleep") {
-    music = renderCues(planCues("falling_asleep", len, p.seed), len, p.seed);
+    music = renderCues(planCues("falling_asleep", len, p.seed, cueOpts), len, p.seed);
     musicGain = 0.8;
     amb = 0.5;
   } else if (p.part === "sleep") {
-    music = renderCues(planCues("sleep", len, p.seed), len, p.seed);
+    music = renderCues(planCues("sleep", len, p.seed, cueOpts), len, p.seed);
     musicGain = 0.75;
     amb = 0.55;
   } else {
-    music = sleepMusic(len, p.seed);
+    music = kerst ? padOnly(len, p.seed) : sleepMusic(len, p.seed);
     musicGain = 0.8;
     amb = 0.6;
   }
-  const out = mix(room(len, amb, p.seed + 30), renderEvents(music.events, len, p.seed), musicGain);
+  // Kerst: the music sits a little further back behind the fire (Milan: "de muziek is vervelend").
+  if (kerst) musicGain *= 0.8;
+  const out = mix(room(len, amb, p.seed + 30, kerst), renderEvents(music.events, len, p.seed), musicGain);
   if (p.part === "outro") {
     // Music and room sounds fade out over the outro; a very soft brown noise stays, so it never goes silent.
     for (let i = 0; i < out.l.length; i++) {
@@ -104,7 +117,7 @@ export async function renderScorePiece(ffmpeg: string, dir: string, irFile: stri
   const raw = join(dir, `${p.id}.raw.wav`);
   await writeFile(raw, wav(out));
   const target = p.part === "outro" ? TARGETS.sleep : TARGETS[p.part];
-  const chain = `[0:a][1:a]afir=dry=7:wet=3[rv];[rv]lowpass=f=7000,highpass=f=40`;
+  const chain = `[0:a][1:a]afir=dry=7:wet=3[rv];[rv]lowpass=f=${kerst ? 5000 : 7000},highpass=f=40`;
   // The outro is measured on its first 30 s (before the fade), so the fixed gain keeps the fade instead of undoing it.
   const measure = p.part === "outro" ? ",atrim=0:30" : "";
   const m1 = await run(ffmpeg, ["-hide_banner", "-i", raw, "-i", irFile, "-filter_complex", `${chain}${measure},loudnorm=I=${target}:TP=${TRUE_PEAK_MAX - 0.5}:LRA=5:print_format=json`, "-f", "null", "-"]);

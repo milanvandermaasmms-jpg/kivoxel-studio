@@ -50,6 +50,24 @@ export const MELODIES: Melody[] = [
   },
 ];
 
+/** Christmas (Dreamnest kerst, 16-11-2026): public-domain carols, newly arranged by the own generator. */
+export const KERST_MELODIES: Melody[] = [
+  {
+    id: "stille-nacht",
+    title: "Stille Nacht (Silent Night)",
+    source: "Franz Xaver Gruber, 1818 (overleden 1863): publiek domein. Eigen arrangement.",
+    beatsPerBar: 3,
+    notes: [
+      [G4, 1.5], [A4, 0.5], [G4, 1], [E4, 3], [G4, 1.5], [A4, 0.5], [G4, 1], [E4, 3],
+      [D5, 2], [D5, 1], [B4, 3], [C5, 2], [C5, 1], [G4, 3],
+      [A4, 2], [A4, 1], [C5, 1.5], [B4, 0.5], [A4, 1], [G4, 1.5], [A4, 0.5], [G4, 1], [E4, 3],
+      [A4, 2], [A4, 1], [C5, 1.5], [B4, 0.5], [A4, 1], [G4, 1.5], [A4, 0.5], [G4, 1], [E4, 3],
+      [D5, 2], [D5, 1], [77, 1.5], [D5, 0.5], [B4, 1], [C5, 3], [76, 3],
+      [C5, 1.5], [G4, 0.5], [E4, 1], [G4, 1.5], [F4, 0.5], [D4, 1], [C4, 3], [C4, 3],
+    ],
+  },
+];
+
 /** Small deterministic random generator, so the same seed always gives the same song. */
 export function rng(seed: number) {
   let s = seed >>> 0 || 1;

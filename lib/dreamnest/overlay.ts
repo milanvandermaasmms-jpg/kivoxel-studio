@@ -33,7 +33,8 @@ export function particlesAt(t: number, reg: Region, weather: Weather, seed = 1):
   const top = win.cy - win.r, span = 2 * win.r;
   const phase = (t % LOOP_S) / LOOP_S;
   const out: Particle[] = [];
-  const count = weather === "rain" ? 70 : 90;
+  // A big "window" (the whole welcome picture outside) gets as many flakes per area as a real window (kerst, 16-11-2026).
+  const count = Math.round((weather === "rain" ? 70 : 90) * (win.r > 600 ? (win.r / 400) ** 2 : 1));
   for (let i = 0; i < count; i++) {
     const x0 = win.cx - win.r + r() * span;
     const y0 = r();
