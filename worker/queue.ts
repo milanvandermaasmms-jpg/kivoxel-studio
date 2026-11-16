@@ -49,6 +49,7 @@ import { thumbArgs, thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type St
 import { costCents, type Gemini, type Usage } from "./gemini.ts";
 import type { Store } from "./store.ts";
 import type { Tts } from "./tts.ts";
+import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
 
 /**
  * FFmpeg montage on this pc: previews go to `rendersDir`, work files to a temporary folder in `tmpDir`.
@@ -63,6 +64,8 @@ export type Montage = {
   boost?: (input: string, output: string, cwd: string, options?: RunOptions & { limit?: number }) => Promise<void>;
   loudness?: (file: string, cwd: string) => Promise<{ integratedLufs: number | null; truePeakDb: number | null }>;
   voice: { tts: Tts; usage: { reserve: (characters: number) => Promise<unknown> } } | null;
+  /** KIVOXEL fase 1: proves a thumbnail's yellow header matches brand/thumbnail_header.json. Optional for older setups. */
+  headerCheck?: (thumb: string, assFile: string, size: { width: number; height: number }, cwd: string) => Promise<HeaderCheck>;
 };
 
 /** YouTube upload (fase D3); null while YouTube is not set up in worker/.env.local. */
@@ -660,6 +663,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
       // Fase C: thumbnails from the montage itself (so blurred corners stay blurred). Never fails the montage.
       let thumbs: StoredThumb[] = [];
+      const headerFails: string[] = [];
       try {
         if (lv.signal.aborted) throw new CancelledError();
         await lv.phase("Thumbnails maken");
@@ -669,7 +673,27 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const file = thumbFileName(fileName, i);
           await writeFile(join(tmp, `thumb${i}.ass`), thumbAss(tsize, p.text), "utf8");
           await montage.run(thumbArgs(output, { ...p, atMs: p.atMs.map((t) => Math.min(t, Math.max(0, plan.durationMs - 500))) }, tsize, `thumb${i}.ass`, join(montage.rendersDir, file)), tmp, 2 * 60_000, { signal: lv.signal });
+          // The yellow header is sacred: a thumbnail whose header deviates from the brand file is thrown away.
+          if (montage.headerCheck && p.text.trim()) {
+            const check = await montage.headerCheck(join(montage.rendersDir, file), `thumb${i}.ass`, tsize, tmp);
+            if (!check.ok) {
+              await rm(join(montage.rendersDir, file), { force: true });
+              headerFails.push(`${p.label}: ${check.reason}`);
+              await lv.event("error", `Thumbnail "${p.label}" afgekeurd: ${check.reason}`);
+              continue;
+            }
+          }
           thumbs.push({ file, key: p.key, label: p.label, text: p.text, at_ms: p.atMs[0] });
+        }
+        if (headerFails.length) {
+          // A red line in the quality check, so the review shows why a thumbnail is missing.
+          const current = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: { items?: QcItem[] } | null }>();
+          const qc = current.data?.qc ?? null;
+          if (qc && !current.error) {
+            const item: QcItem = { key: "thumbnail_header", label: "Thumbnail-header geel", level: "red", value: `${headerFails.length} afgekeurd`, note: headerFails.join(" ").slice(0, 400) };
+            await db.from("yt_renders").update({ qc: { ...qc, items: [...(qc.items ?? []), item] } }).eq("job_id", job.id);
+          }
+          if (qcSummary) qcSummary.red += 1;
         }
         const savedThumbs = await db.from("yt_renders").update({ thumbnails: thumbs }).eq("job_id", job.id);
         if (savedThumbs.error && !liveMissing(savedThumbs.error)) await lv.event("error", `Thumbnails niet opgeslagen: ${savedThumbs.error.message}`);

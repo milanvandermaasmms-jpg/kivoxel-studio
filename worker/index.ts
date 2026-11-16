@@ -29,6 +29,9 @@ import { createDnPublish } from "./dreamnest/publish.ts";
 import { createIvarLane } from "./ivar/lane.ts";
 import { createIvarModel } from "./ivar/model.ts";
 import { DEFAULT_MODEL } from "./gemini.ts";
+import { checkThumbnailHeader, fontPath } from "./brandCheck.ts";
+import { configProblems } from "../lib/kivoxel/config.ts";
+import { brandProblems } from "../lib/kivoxel/brand.ts";
 
 const VERSION = "65.0";
 
@@ -108,11 +111,15 @@ const montage: Montage | null = version
       measure: (file, cwd, options) => measureRender(ffmpeg, ffprobe, file, cwd, options),
       boost: (input, output, cwd, options) => boostLoudness(ffmpeg, input, output, cwd, options),
       loudness: (file, cwd) => measureLoudness(ffmpeg, file, cwd),
+      headerCheck: (thumb, assFile, size, cwd) => checkThumbnailHeader(ffmpeg, thumb, assFile, size, cwd),
       // Narrator: Google TTS, free tier only; the character counter lives next to the recordings.
       voice: env.GOOGLE_TTS_API_KEY ? { tts: createTts(env.GOOGLE_TTS_API_KEY), usage: createUsageCounter(join(dataDir, "tts-usage.json")) } : null,
     }
   : null;
 if (montage) await mkdir(montage.tmpDir, { recursive: true });
+// KIVOXEL fase 1: a typo in config/kivoxel or brand/ shows up here, in Dutch, when the worker starts.
+for (const problem of [...configProblems(), ...brandProblems()]) log(`Config: ${problem}`);
+if (!fontPath()) log("Config: het lettertype van de thumbnail-header (brand/thumbnail_header.json) is niet geïnstalleerd; thumbnails worden afgekeurd.");
 
 // YouTube connection (fase D1): the key that encrypts the tokens on this pc. Missing? Make one and keep it in .env.local.
 if (!/^[0-9a-f]{64}$/i.test(env.YT_TOKEN_KEY ?? "")) {

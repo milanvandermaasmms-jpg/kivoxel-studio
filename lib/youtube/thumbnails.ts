@@ -3,25 +3,21 @@
 // Milan chooses one for the upload; the other two he can use himself in YouTube Studio (Test & Compare).
 import type { Format, Segment } from "./analysis.ts";
 import { assText, type Size } from "./render.ts";
+import { HEADER, headerStyle, headerText } from "../kivoxel/brand.ts";
 
 export type ThumbPlan = { key: "moment" | "result" | "before_after" | "cover"; label: string; text: string; atMs: number[] };
 export type StoredThumb = { file: string; key: ThumbPlan["key"]; label: string; text: string; at_ms: number };
 
-export const THUMB_SIZE: Record<"long" | "short", Size> = { long: { width: 1280, height: 720 }, short: { width: 1080, height: 1920 } };
+/** Sizes come from brand/thumbnail_header.json, the one source of the header. */
+export const THUMB_SIZE: Record<"long" | "short", Size> = { long: { width: HEADER.long.width, height: HEADER.long.height }, short: { width: HEADER.short.width, height: HEADER.short.height } };
 
 const lengthOf = (s: Segment) => Math.round((s.src_end_ms - s.src_start_ms) / s.speed);
 /** A moment inside a segment of the final video: share 0..1 of its length. */
 const inside = (s: Segment, share: number) => s.out_start_ms + Math.round(lengthOf(s) * share);
 
 /** "the creeper got him!!" -> "THE CREEPER GOT HIM": capitals, no punctuation, at most 4 words. */
-export function thumbWords(text: string | null | undefined, max = 4): string {
-  return (text ?? "")
-    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, max)
-    .join(" ")
-    .toUpperCase();
+export function thumbWords(text: string | null | undefined, max = HEADER.max_words): string {
+  return headerText(text, { ...HEADER, max_words: max });
 }
 
 /** Which frames and words: from the cut segments of the montage and the texts of the script. */
@@ -44,9 +40,8 @@ export function thumbnailPlans(format: Format, segments: Segment[], texts: strin
   ];
 }
 
-/** Big text at the top, thick outline: readable as a small picture. */
+/** Big yellow header at the top, thick outline: readable as a small picture. Style only from brand/thumbnail_header.json. */
 export function thumbAss(size: Size, text: string): string {
-  const vertical = size.height > size.width;
   return [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -57,7 +52,7 @@ export function thumbAss(size: Size, text: string): string {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Thumb,Arial Black,${vertical ? 130 : 110},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,${vertical ? 10 : 8},4,8,40,40,${vertical ? 220 : 36},1`,
+    headerStyle(size),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
