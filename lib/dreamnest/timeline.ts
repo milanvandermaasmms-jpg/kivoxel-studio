@@ -213,14 +213,16 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
   ].filter((p) => has(p.asset));
   // Without the story clips: only the moving loops, as before.
   const story = plan.some((p) => p.clip) ? plan : ["loop-b02-lumi-rocking-chair", "loop-b05-mo-by-fire", "loop-b06-window-momo", "loop-b08-blanket-together"].filter(has).map((a) => ({ asset: a, clip: false }));
-  const clipLen = 2 * bar + KERST_X.story; // a story clip plays 2 bars plus its cross-fade (fits in the 8 s clip)
+  const lenOf = (id: string) => assets.find((a) => a.id === id)?.lengthS ?? 0;
+  // A story clip plays whole (it may have been cut short before an AI camera jump); the hold after it puts the next
+  // cross-fade back on a bar line.
+  const clipLen = 2 * bar + KERST_X.story;
   const clips = story.filter((p) => p.clip).length, holds = story.length - clips;
   const holdEach = (PARTS.storyEnd - t - clips * (clipLen - KERST_X.story)) / Math.max(1, holds) + KERST_X.story;
   story.forEach((p, i) => {
     const x = i === story.length - 1 ? KERST_X.later : KERST_X.story;
     // Length so that the next cross-fade starts on a bar line.
-    const want = p.clip ? clipLen : holdEach;
-    const len = Math.max(x + 1, onBar(t + want - x) - t + x);
+    const len = p.clip ? Math.min(clipLen, Math.max(x + 1, lenOf(p.asset) || clipLen)) : Math.max(x + 1, onBar(t + holdEach - x) - t + x);
     push(p.asset, len, "story", x);
   });
   const asleep = ["loop-b09-lumi-falls-asleep", "still-b08-blanket-together", "loop-b10-sleep-loop-base"].filter((a) => has(a) && a !== segs[segs.length - 1].asset);

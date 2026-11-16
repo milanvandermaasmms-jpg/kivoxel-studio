@@ -159,8 +159,12 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
     } else if (c.kind === "story" && kerst) {
       // D0: a Christmas story clip (from one keyframe to the next: a friend comes in, Lumi moves) is used whole, at its
       // own speed, with the same soft temporal blend as the loops against the AI flicker.
-      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},tmix=frames=5:weights='1 2 3 2 1',setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
-      log(`${c.id}: verhaalclip heel, flikkeren gedempt`);
+      // The AI sometimes jumps to another camera position halfway (a hard cut): only the part before the first cut is used.
+      const steps = parseAllSsim(await ff(["-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2,${STEPS}`, "-f", "null", "-"]));
+      const cut = steps.findIndex((v) => v < 0.6);
+      const endFrame = cut >= 0 ? Math.max(FPS * 2, cut - 1) : steps.length + 1;
+      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end_frame=${endFrame},tmix=frames=5:weights='1 2 3 2 1',setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
+      log(`${c.id}: verhaalclip ${cut >= 0 ? `tot de knip (${(endFrame / FPS).toFixed(1)} s)` : "heel"}, flikkeren gedempt`);
     } else if (c.kind === "story") {
       // The own-scene part: until the picture looks more like the next scene than like its own start, never past a cut.
       const vs = (pick: string) => ff(["-i", c.file, "-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2[a];[1:v]${norm},scale=480:-2,${pick},loop=loop=-1:size=1,setpts=N/${FPS}/TB[b];[a][b]ssim=stats_file=-:shortest=1`, "-f", "null", "-"]).then(parseAllSsim);
