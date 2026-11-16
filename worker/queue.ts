@@ -53,9 +53,13 @@ import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
 import type { EventStore } from "./eventTimeline.ts";
 import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
 import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
-import { gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
+import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
 import { freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
+import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
+import type { GameEvent } from "../lib/kivoxel/events.ts";
+import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
+import { chooseHook, hookChecks, hookEvents, hookStyle, hookType } from "../lib/kivoxel/hookText.ts";
 import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
 import type { PhraseLog } from "./phraseLog.ts";
 import { speakWithGate } from "./voiceGate.ts";
@@ -473,13 +477,39 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { note, previous: { hook: prev.data.hook, topLine: prev.data.top_line, lines: prev.data.lines } };
   }
 
+  /** KIVOXEL fase 1: the length bucket of the Short made just before this one from the same recording (batch order). */
+  async function previousShortBucket(studioId: string, video: { id: string; recording_id: string | null; created_at?: string }, s: ReturnType<typeof resolveSettings>): Promise<string | null> {
+    if (!video.recording_id || !video.created_at) return null;
+    const prev = await db.from("yt_videos").select("id").eq("studio_id", studioId).eq("recording_id", video.recording_id).neq("format", "C").neq("id", video.id).lt("created_at", video.created_at).order("created_at", { ascending: false }).limit(1).returns<{ id: string }[]>();
+    const prevId = prev.data?.[0]?.id;
+    if (prev.error || !prevId) return null;
+    const sc = await db.from("yt_scripts").select("target_ms").eq("video_id", prevId).order("version", { ascending: false }).limit(1).returns<{ target_ms: number }[]>();
+    const ms = sc.data?.[0]?.target_ms;
+    return typeof ms === "number" ? (bucketOf(ms, s.shorts.length_buckets)?.key ?? null) : null;
+  }
+
+  /** KIVOXEL fase 1: the hooks (top line) of the latest Shorts in the studio, oldest first; never fails the script. */
+  async function recentShortHooks(studioId: string, exceptVideo: string): Promise<string[]> {
+    const r = await db.from("yt_scripts").select("video_id, top_line, yt_videos!inner(format)").eq("studio_id", studioId).neq("video_id", exceptVideo).neq("yt_videos.format", "C").order("created_at", { ascending: false }).limit(60).returns<{ video_id: string; top_line: string | null }[]>();
+    if (r.error || !Array.isArray(r.data)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const row of r.data) {
+      if (seen.has(row.video_id) || !row.top_line) continue;
+      seen.add(row.video_id);
+      out.push(row.top_line);
+      if (out.length === 10) break;
+    }
+    return out.reverse();
+  }
+
   /** Script: hook, top line, narration and edit plan with timecodes for one video, as a new version. */
   async function script(job: Job) {
     if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
     const version = Number(job.payload?.version ?? 1);
     if (!Number.isInteger(version) || version < 1) throw new Error("Ongeldige versie");
-    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null };
-    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null; created_at?: string };
+    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key, created_at").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     const linked = await db.from("yt_video_moments").select(`position, yt_moments(${MOMENT_COLUMNS})`).eq("video_id", video.data.id).order("position").returns<Array<{ position: number; yt_moments: MomentRow }>>();
     if (linked.error) throw new Error(linked.error.message);
@@ -496,8 +526,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const others = all.data.map(fromRow);
       series = { part, previous: others.filter((m) => m.peakMs < part.startMs).slice(-2), next: others.filter((m) => m.peakMs >= part.endMs).slice(0, 2) };
     }
-    const plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
+    let plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
+    let shortInfo: { bucket: string; reason: string; cutMs: number; hook: string; hookRepeated: boolean } | null = null;
     // KIVOXEL fase 1: "ai" = Gemini writes the anticipation lines, "free" = the template engine (no credits needed).
     let engine: "test" | "ai" | "free" = "test";
     let engineNote: string | null = null;
@@ -514,9 +545,24 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs).catch(() => null);
       }
       const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
+      // KIVOXEL fase 1, sections 5 and 6: a Short gets its length from the content and a hook from the library.
+      let shortEvent: GameEvent | null = null;
+      let shortHook: string | null = null;
+      if (short && timeline?.events.length) {
+        const main = moments[0];
+        const near = timeline.events.filter((e) => Math.abs(e.t_peak - main.peakMs) <= 6000).sort((a, b) => (b.type ? 1 : 0) - (a.type ? 1 : 0) || b.payoff - a.payoff)[0];
+        shortEvent = near ?? { id: `moment-${main.peakMs}`, kind: "ai_moment", type: eventTypeForMoment(main.kind), t_start: main.startMs, t_peak: main.peakMs, t_end: main.endMs, intensity: main.score / 100, payoff: main.score, description: main.reason, t_thumb: main.peakMs, sources: [`ai:${main.kind}`] };
+        const previousBucket = await previousShortBucket(job.studio_id, video.data, kSettings);
+        const sp = planShort(shortEvent, timeline, kSettings, seeded(`${video.data.id}:len:${version}`), previousBucket);
+        plan = { segments: sp.segments, targetMs: sp.targetMs, warnings: [...plan.warnings.filter((w) => !/lengte|duur|seconden/i.test(w))] };
+        const recentHooks = await recentShortHooks(job.studio_id, video.data.id);
+        const h = chooseHook(shortEvent.type ?? eventTypeForMoment(main.kind), recentHooks, seeded(`${video.data.id}:hook:${version}`), kSettings.hooks.no_repeat_within, hookFile, shortEvent.kind === "death");
+        shortHook = h.hook;
+        shortInfo = { bucket: sp.bucket, reason: sp.reason, cutMs: sp.cutMs, hook: h.hook, hookRepeated: h.repeated };
+      }
       const free = () => {
         const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short });
-        const overlay = pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
+        const overlay = shortHook ?? pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
         void montage?.phrases?.add([...f.used, overlay]).catch(() => {});
         return { topLine: overlay, hook: f.hook, lines: f.lines, hooks: [], loopLine: null, titles: [] } satisfies ScriptDraft;
       };
@@ -537,6 +583,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note });
           const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
           const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
+          // The text at the top comes from the hook library (fits the real event, not used in the last 10 Shorts).
+          if (shortHook) draft = { ...draft, topLine: shortHook, hooks: draft.hooks.map((h) => ({ ...h, overlay: shortHook! })) };
           if ("lines" in lines) {
             draft = { ...draft, lines: lines.lines };
             void montage?.phrases?.add(lines.lines.map((l) => l.text)).catch(() => {});
@@ -580,7 +628,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote };
+    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, short: shortInfo };
   }
 
   /** Render: cuts the edit plan into a preview with subtitles (the narrator follows with Google TTS). The file stays on this pc. */
@@ -592,8 +640,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     type ScriptRow = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; hooks?: unknown; loop_line?: string | null; chosen_hook?: number | null };
     const s = await db.from("yt_scripts").select("*").eq("id", scriptId).eq("studio_id", job.studio_id).single<ScriptRow>();
     if (s.error) throw new Error(s.error.message);
-    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null };
-    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null; created_at?: string };
+    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key, created_at").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     if (!video.data.recording_id) throw new Error("De opname van deze video is verwijderd");
     const rec = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).single<{ fingerprint: string }>();
@@ -708,7 +756,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         blur,
         muteGame,
       });
-      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs) }), "utf8");
+      // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
+      const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
+      const isShort = video.data.format !== "C";
+      const mainEvent = isShort ? eventsInMontage(cut.segments, timeline).sort((a, b) => b.payoff - a.payoff)[0] ?? null : null;
+      const hook = isShort && fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) } : undefined;
+      await writeFile(join(tmp, "subs.ass"), buildAss({ size, topLine: cut.topLine, lines: spoken, durationMs: plan.durationMs, overlays: segmentOverlays(cut.segments, local.probe.durationMs), hook }), "utf8");
       if (lv.signal.aborted) throw new CancelledError();
       await lv.phase("Video renderen", 0);
       await lv.event("log", `FFmpeg gestart: ${plan.segments} fragmenten, ${size.width}×${size.height}${blur.length ? `, ${blur.length} hoeken vervaagd` : ""}${muteGame ? ", gamegeluid gedempt" : ""}`);
@@ -770,6 +823,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             captionsInSafeZone: true,
           });
           if (sync) items.push({ key: "vo_sync", label: "VO-sync (stem vóór de piek)", level: sync.ok ? "green" : "red", value: sync.ok ? "op tijd" : sync.flagged ? "nakijken" : "fout", note: sync.summary.slice(0, 400) });
+          // Section 9: hook and length of a Short (fase-1 scripts only; older Shorts keep their old checks).
+          if (isShort && fase1) {
+            const recentHooks = await recentShortHooks(job.studio_id, video.data.id);
+            const checks = [
+              ...(cut.topLine ? hookChecks(cut.topLine, mainEvent?.type ?? null, recentHooks, kSettings, mainEvent?.kind === "death") : []),
+              ...lengthChecks(plan.durationMs, await previousShortBucket(job.studio_id, { id: video.data.id, recording_id: video.data.recording_id, created_at: video.data.created_at }, kSettings), kSettings),
+            ];
+            for (const c of checks) items.push({ key: c.key, label: c.label, level: c.ok ? "green" : c.key === "hook_fresh" || c.key === "length_varies" ? "orange" : "red", value: c.value, note: c.note });
+          }
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
           const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items } }).eq("job_id", job.id);

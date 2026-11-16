@@ -32,7 +32,7 @@ export type Settings = {
   sfx: { library_dir: string };
 };
 export type PresetFile = { version: number; channel_default: { preset: string; audio_mode: AudioMode; engine: "auto" | "free" }; base: Settings; presets: Record<string, { label: string } & Record<string, unknown>> };
-export type HookFile = { version: number; event_types: Record<EventType, { label: string; from_moments: string[] }>; hooks: Record<EventType, string[]> };
+export type HookFile = { version: number; event_types: Record<EventType, { label: string; from_moments: string[] }>; hooks: Record<EventType, string[]>; /** Only when the player really dies (otherwise clickbait). */ death_only?: string[] };
 export type Persona = typeof personaJson;
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -92,10 +92,15 @@ export function configProblems(file: PresetFile = presetFile, hooks: HookFile = 
     const list = hooks.hooks[t] ?? [];
     if (!Array.isArray(list)) out.push(`Hooks "${t}": moet één Engelse lijst zijn.`);
     else {
-      if (list.length < 3) out.push(`Hooks "${t}": minstens 3 nodig voor afwisseling.`);
+      // Never more than once per 10 Shorts: so at least that many hooks per type.
+      // With the last N used blocked there must still be one left, also without the death-only hooks.
+      const need = file.base.hooks.no_repeat_within + 1;
+      const usable = list.filter((h) => !(hooks.death_only ?? []).includes(h)).length;
+      if (usable < need) out.push(`Hooks "${t}": minstens ${need} nodig zonder de dood-hooks (nu ${usable}), anders komt dezelfde hook binnen ${need - 1} Shorts terug.`);
       for (const h of list) {
         const n = words(h).length;
-        if (n < 1 || n > 4) out.push(`Hook "${h}" heeft ${n} woorden (1-4).`);
+        const { min_words: lo, max_words: hi } = file.base.hooks;
+        if (n < lo || n > hi) out.push(`Hook "${h}" heeft ${n} woorden (${lo}-${hi}).`);
         if (h !== h.toUpperCase()) out.push(`Hook "${h}" staat niet in HOOFDLETTERS.`);
         if (looksDutch(h)) out.push(`Hook "${h}" lijkt Nederlands: video's zijn altijd Engels.`);
       }

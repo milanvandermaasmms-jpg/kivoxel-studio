@@ -156,6 +156,23 @@ describe("AI script (Gemini) with the same rules", () => {
   });
 });
 
+describe("no long silences in a Short", () => {
+  it("fills a long build-up with tension lines, never more than ~6 s without a word before the moment", () => {
+    const long: Segment[] = [{ part: "build", src_start_ms: 100_000, src_end_ms: 128_000, out_start_ms: 0, speed: 1, effects: [], note: "" }];
+    const s = freeScript({ segments: long, targetMs: 28_000, timeline: timeline([ev(125_000)]), settings, seed: "gap", short: true });
+    const sorted = [...s.lines].sort((a, b) => a.at_ms - b.at_ms);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i].at_ms - (sorted[i - 1].at_ms + estimateMs(sorted[i - 1].text))).toBeLessThanOrEqual(7000);
+    expect(sorted.some((l) => templates.build.includes(l.text) || /…$/.test(l.text))).toBe(true);
+  });
+  it("a hit the player survives never gets a 'he is gone' line", () => {
+    for (const seed of ["a", "b", "c", "d", "e", "f", "g"]) {
+      const hit = { ...ev(118_000), kind: "damage" as const };
+      const r = freeScript({ segments: segs, targetMs: 25_000, timeline: timeline([hit]), settings, seed, short: true }).lines.find((l) => l.kind === "reaction")!;
+      expect(persona.expressions.after_fail).not.toContain(r.text);
+    }
+  });
+});
+
 describe("reactions fit the event", () => {
   it("a death never gets a hyped reaction, a lucky find never a shocked one", () => {
     for (const seed of ["a", "b", "c", "d", "e", "f"]) {

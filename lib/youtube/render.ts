@@ -49,7 +49,7 @@ export function captions(lines: ScriptLine[], durationMs: number): Caption[] {
 }
 
 /** Subtitle file: captions at the bottom, and for Shorts the fixed top line during the whole video. */
-export function buildAss({ size, topLine, lines, durationMs, overlays = [] }: { size: Size; topLine: string | null; lines: ScriptLine[]; durationMs: number; overlays?: Overlay[] }): string {
+export function buildAss({ size, topLine, lines, durationMs, overlays = [], hook }: { size: Size; topLine: string | null; lines: ScriptLine[]; durationMs: number; overlays?: Overlay[]; /** KIVOXEL fase 1: animated hook (lib/kivoxel/hookText.ts) instead of the fixed top line. */ hook?: { style: string; events: string[] } }): string {
   const vertical = size.height > size.width;
   const captionSize = vertical ? 64 : 52;
   const topSize = vertical ? 78 : 60;
@@ -58,7 +58,8 @@ export function buildAss({ size, topLine, lines, durationMs, overlays = [] }: { 
   const style = (name: string, fontSize: number, alignment: number, margin: number) =>
     `Style: ${name},Arial,${fontSize},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,${vertical ? 6 : 4},2,${alignment},60,60,${margin},1`;
   const events = captions(lines, durationMs).map((c) => `Dialogue: 0,${assTime(c.startMs)},${assTime(c.endMs)},Caption,,0,0,0,,${assText(c.text)}`);
-  if (vertical && topLine?.trim()) events.unshift(`Dialogue: 1,${assTime(0)},${assTime(durationMs)},Top,,0,0,0,,${assText(topLine).toUpperCase()}`);
+  if (hook) events.unshift(...hook.events);
+  else if (vertical && topLine?.trim()) events.unshift(`Dialogue: 1,${assTime(0)},${assTime(durationMs)},Top,,0,0,0,,${assText(topLine).toUpperCase()}`);
   for (const o of overlays) if (o.text.trim() && o.endMs > o.startMs) events.push(`Dialogue: 2,${assTime(o.startMs)},${assTime(Math.min(o.endMs, durationMs))},Overlay,,0,0,0,,${assText(o.text).toUpperCase()}`);
   return [
     "[Script Info]",
@@ -73,6 +74,7 @@ export function buildAss({ size, topLine, lines, durationMs, overlays = [] }: { 
     style("Caption", captionSize, 2, marginV),
     style("Top", topSize, 8, vertical ? 180 : 60),
     style("Overlay", vertical ? 70 : 56, 8, vertical ? Math.round(size.height * 0.3) : 200),
+    ...(hook ? [hook.style] : []),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

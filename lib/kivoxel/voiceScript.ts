@@ -27,6 +27,8 @@ type Templates = {
   anticipation: Record<EventType, string[]>;
   open_loop: string[];
   bridge: string[];
+  /** Tension fillers for a long stretch before the next moment. */
+  build: string[];
   loop_end: string[];
 };
 export const templates = templatesJson as unknown as Templates;
@@ -166,7 +168,8 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
     // After the peak at most one short reaction, then on to the next arc.
     // Bad things get shocked reactions, good things hyped ones (never "UNREAL!" after a death).
     const good = type === "geluk" || type === "bouw";
-    const pool = type === "fail" ? [...reactions.reaction, ...reactions.after_fail] : good ? [...reactions.reaction_good, ...reactions.after_win] : type === "grap" ? [...reactions.reaction, ...reactions.reaction_good] : reactions.reaction;
+    // "…GONE." / "Rest in pixels" only after a real death, never after a hit the player survives.
+    const pool = good ? [...reactions.reaction_good, ...reactions.after_win] : e.kind === "death" ? [...reactions.reaction, ...reactions.after_fail] : type === "grap" ? [...reactions.reaction, ...reactions.reaction_good] : reactions.reaction;
     const shortPool = pool.filter((r) => r.split(/\s+/).length <= 5);
     const reaction = take(shortPool);
     lines.push({ at_ms: e.peak_out + settings.sync.peak_quiet_ms / 2, text: reaction, kind: "reaction", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("reaction", type), alts: shorterAlts(reaction, shortPool) });
@@ -180,7 +183,23 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
     lines.push({ at_ms: Math.max(0, input.targetMs - estimateMs(end) - 400), text: end, kind: "loop", style: "spannend", alts: shorterAlts(end, templates.loop_end) });
   }
   lines.sort((a, b) => a.at_ms - b.at_ms);
-  return { hook, lines, mainType, used };
+
+  // Keep the tension up: no stretch of more than ~6 s without a word before the next moment (an explosive narrator
+  // does not go quiet for 14 s). Fillers are interjections that hint at what is coming, never a description.
+  const MAX_GAP = 6000;
+  const filled: VoLine[] = [];
+  for (const [i, l] of lines.entries()) {
+    filled.push(l);
+    const next = lines[i + 1];
+    let cursor = l.at_ms + estimateMs(l.text) + 1500;
+    const until = next ? next.at_ms - 800 : -Infinity;
+    while (until - cursor > MAX_GAP - 2000) {
+      const text = take(rnd() < 0.35 ? persona.expressions.interjection.map((x) => `${x[0].toUpperCase()}${x.slice(1)}${/[!?.…—]$/.test(x) ? "" : "…"}`) : templates.build);
+      filled.push({ at_ms: Math.round(cursor + 1500), text, kind: "bridge", style: "spannend" });
+      cursor += 1500 + estimateMs(text) + 2500;
+    }
+  }
+  return { hook, lines: filled, mainType, used };
 }
 
 export type GateItem = { index: number; text: string; ok: boolean; reason: string | null; atMs: number; ms: number; speed: number };

@@ -21,9 +21,9 @@
   "no_repeat_within": 12,
   "expressions": {
     "interjection": ["wait wait WAIT", "okay okay OKAY", "no no NO", "bro. BRO.", "hold on—", "oh no…", "easy… EASY…", "come ON"],
-    "reaction": ["NOOO!", "BRO!", "WHAT?!", "HE'S GONE!", "OH NO!", "NOT LIKE THIS!", "NO NO NO!"],
+    "reaction": ["NOOO!", "BRO!", "WHAT?!", "OH NO!", "NOT LIKE THIS!", "NO NO NO!", "OUCH!", "That's gonna leave a mark!"],
     "reaction_good": ["NO WAY!", "UNREAL!", "THAT'S INSANE!", "CLUTCH!", "LET'S GO!", "HOW?!"],
-    "after_fail": ["And just like that… GONE.", "Rest in pixels, legend.", "That's gonna leave a mark!", "We do NOT talk about this."],
+    "after_fail": ["HE'S GONE!", "And just like that… GONE.", "Rest in pixels, legend.", "We do NOT talk about this."],
     "after_win": ["LET'S GOOO!", "CLUTCH!", "UNREAL!", "Nobody saw THAT coming!"]
   },
   "tts_styles": {
