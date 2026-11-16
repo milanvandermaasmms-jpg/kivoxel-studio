@@ -30,7 +30,13 @@ export function renderEvents(events: NoteEvent[], seconds: number, seed = 1): St
   for (const e of events) {
     const f = midiToHz(e.midi);
     const w = 2 * Math.PI * f / SR;
-    if (e.instrument === "musicbox" || e.instrument === "celesta") {
+    if (e.instrument === "bells") {
+      // Soft Christmas bells (Dreamnest kerst): inharmonic bell partials, a slow fade, quiet; never a sharp attack.
+      const parts = [[1, 1], [2.76, 0.32], [5.4, 0.12], [8.93, 0.04]];
+      const decay = 2.6;
+      const n = Math.floor(decay * 4 * SR);
+      addVoice(out, e.t, n, (r() - 0.5) * 0.6, (i) => e.vel * 0.16 * envelope(i, n, 0.012, decay) * parts.reduce((s2, [k, a]) => s2 + a * Math.sin(w * k * i) * Math.exp(-(k - 1) * i / SR / 1.6), 0));
+    } else if (e.instrument === "musicbox" || e.instrument === "celesta") {
       // Bell-like: a few slightly inharmonic partials that die away; celesta is rounder and shorter.
       const parts = e.instrument === "musicbox" ? [[1, 1], [2.01, 0.35], [3.98, 0.12], [5.4, 0.05]] : [[1, 1], [2, 0.25], [3, 0.06]];
       const decay = e.instrument === "musicbox" ? 1.8 : 1.2;

@@ -42,3 +42,21 @@ describe("Dreamnest kerst music", () => {
     expect(cues.some((c) => c.lead === "musicbox")).toBe(false);
   });
 });
+
+describe("Dreamnest kerst: only Christmas music", () => {
+  it("every carol is whole bars and arranges", () => {
+    for (const m of KERST_MELODIES) {
+      expect(m.notes.reduce((s, n) => s + n[1], 0) % m.beatsPerBar, m.id).toBe(0);
+      expect(arrange(m, 56, { lead: "celesta", second: "bells", style: "answer" }).events.some((e) => e.instrument === "bells"), m.id).toBe(true);
+    }
+    expect(KERST_MELODIES.map((m) => m.id)).toEqual(["stille-nacht", "jingle-bells", "deck-the-halls", "we-wish-you"]);
+  });
+  it("story, falling asleep and sleep play only carols (no composed songs), soft instruments", () => {
+    const o = { themes: KERST_MELODIES, themesOnly: true, leads: { story: ["celesta", "felt", "harp"] as const, falling_asleep: ["felt", "celesta"] as const, sleep: ["felt", "harp"] as const }, second: ["bells", "celesta"] as const };
+    for (const part of ["story", "falling_asleep", "sleep"] as const) {
+      const cues = planCues(part, 1200, 11, o as never);
+      expect(cues.every((c) => KERST_MELODIES.some((m) => m.id === c.melody.id)), part).toBe(true);
+      expect(cues.some((c) => c.lead === "musicbox")).toBe(false);
+    }
+  });
+});

@@ -4,7 +4,7 @@
 export type Note = [midi: number, beats: number];
 export type Melody = { id: string; title: string; source: string; beatsPerBar: 3 | 4; notes: Note[]; home?: "C" | "Am" };
 export type NoteEvent = { t: number; dur: number; midi: number; instrument: Instrument; vel: number };
-export type Instrument = "musicbox" | "celesta" | "harp" | "pad" | "felt";
+export type Instrument = "musicbox" | "celesta" | "harp" | "pad" | "felt" | "bells";
 export type Lead = Exclude<Instrument, "pad">;
 
 export const midiToHz = (m: number) => 440 * 2 ** ((m - 69) / 12);
@@ -64,6 +64,40 @@ export const KERST_MELODIES: Melody[] = [
       [A4, 2], [A4, 1], [C5, 1.5], [B4, 0.5], [A4, 1], [G4, 1.5], [A4, 0.5], [G4, 1], [E4, 3],
       [D5, 2], [D5, 1], [77, 1.5], [D5, 0.5], [B4, 1], [C5, 3], [76, 3],
       [C5, 1.5], [G4, 0.5], [E4, 1], [G4, 1.5], [F4, 0.5], [D4, 1], [C4, 3], [C4, 3],
+    ],
+  },
+  {
+    id: "jingle-bells",
+    title: "Jingle Bells (refrein), als slaapliedje",
+    source: "James Lord Pierpont, 1857 (overleden 1893): publiek domein. Eigen, langzaam arrangement.",
+    beatsPerBar: 4,
+    notes: [
+      [E4, 1], [E4, 1], [E4, 2], [E4, 1], [E4, 1], [E4, 2], [E4, 1], [G4, 1], [C4, 1.5], [D4, 0.5], [E4, 4],
+      [F4, 1], [F4, 1], [F4, 1.5], [F4, 0.5], [F4, 1], [E4, 1], [E4, 1], [E4, 0.5], [E4, 0.5], [E4, 1], [D4, 1], [D4, 1], [E4, 1], [D4, 2], [G4, 2],
+      [E4, 1], [E4, 1], [E4, 2], [E4, 1], [E4, 1], [E4, 2], [E4, 1], [G4, 1], [C4, 1.5], [D4, 0.5], [E4, 4],
+      [F4, 1], [F4, 1], [F4, 1], [F4, 1], [F4, 1], [E4, 1], [E4, 1], [E4, 0.5], [E4, 0.5], [G4, 1], [G4, 1], [F4, 1], [D4, 1], [C4, 4],
+    ],
+  },
+  {
+    id: "deck-the-halls",
+    title: "Deck the Halls",
+    source: "Traditioneel (Welsh, 16e eeuw; Engelse tekst 1862): publiek domein. Eigen arrangement.",
+    beatsPerBar: 4,
+    notes: [
+      [G4, 1.5], [F4, 0.5], [E4, 1], [D4, 1], [C4, 1], [D4, 1], [E4, 1], [C4, 1], [D4, 0.5], [E4, 0.5], [F4, 0.5], [D4, 0.5], [E4, 1.5], [D4, 0.5], [C4, 1], [B3, 1], [C4, 2],
+      [G4, 1.5], [F4, 0.5], [E4, 1], [D4, 1], [C4, 1], [D4, 1], [E4, 1], [C4, 1], [D4, 0.5], [E4, 0.5], [F4, 0.5], [D4, 0.5], [E4, 1.5], [D4, 0.5], [C4, 1], [B3, 1], [C4, 2],
+      [D4, 1.5], [E4, 0.5], [F4, 1], [D4, 1], [E4, 1.5], [F4, 0.5], [G4, 1], [D4, 1], [E4, 0.5], [F4, 0.5], [G4, 1], [A4, 0.5], [B4, 0.5], [C5, 1], [B4, 1], [A4, 1], [G4, 2],
+      [G4, 1.5], [F4, 0.5], [E4, 1], [D4, 1], [C4, 1], [D4, 1], [E4, 1], [C4, 1], [A4, 0.5], [A4, 0.5], [A4, 0.5], [A4, 0.5], [G4, 1.5], [F4, 0.5], [E4, 1], [D4, 1], [C4, 2],
+    ],
+  },
+  {
+    id: "we-wish-you",
+    title: "We Wish You a Merry Christmas",
+    source: "Traditioneel Engels (16e eeuw): publiek domein. Eigen arrangement.",
+    beatsPerBar: 3,
+    notes: [
+      [C5, 1], [C5, 0.5], [D5, 0.5], [C5, 0.5], [B4, 0.5], [A4, 1], [A4, 1], [A4, 1], [D5, 1], [D5, 0.5], [76, 0.5], [D5, 0.5], [C5, 0.5], [B4, 1], [G4, 1], [G4, 1],
+      [76, 1], [76, 0.5], [77, 0.5], [76, 0.5], [D5, 0.5], [C5, 1], [A4, 1], [G4, 0.5], [G4, 0.5], [A4, 1], [D5, 1], [B4, 1], [C5, 3],
     ],
   },
 ];
