@@ -35,7 +35,7 @@ Elke thumbnail wordt na het maken gecontroleerd: op de plekken waar de letters h
 ## Audio-modi (de drie opties, Milan 16-11-2026)
 Per montage kies je in de review het geluid ("Opnieuw monteren met dit geluid"); het script blijft hetzelfde:
 1. **Stem + ondertiteling** (`vo_muziek`, standaard): de verteller (bij Shorts de stem van je zoon met Amerikaanse uitspraak), het gamegeluid en ondertitels die precies met de stem meelopen. Geen muziek.
-2. **Muziek, geen stem** (`muziek_geen_vo`): muziek die meebeweegt met de inhoud (druk en snel bij actie, rustig bij zoeken en farmen, met zachte overgangen; een maatslag valt op de piek), het gamegeluid, het verhaal als tekst in beeld en de gele tekst bovenin.
+2. **Muziek, geen stem** (`muziek_geen_vo`): muziek die meebeweegt met de inhoud (druk en snel bij actie, rustig bij zoeken en farmen, met zachte overgangen; een maatslag valt op de piek), het gamegeluid en alleen de gele tekst bovenin. Geen ondertiteling of verhaaltekst.
 3. **Alleen gamegeluid** (`alleen_game`): alleen het echte gamegeluid. Geen stem, muziek, ondertitels, tekst of effecten (bij Shorts blijft de gele hook staan).
 
 De gele tekst bovenin: bij Shorts de hele Short, bij lange video's de eerste minuut (daarna vervaagt hij).

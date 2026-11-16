@@ -234,7 +234,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
         .filter(({ script }) => !!script && !oldScript(script))
         .filter(({ i }) => {
           const latest = flowReady.board.renders.filter((r) => r.video_id === i.videoId)[0] as { qc?: { audio?: { voiceVersion?: number } } | null } | undefined;
-          return !!latest && (latest.qc?.audio?.voiceVersion ?? 0) < 2;
+          return !!latest && (latest.qc?.audio?.voiceVersion ?? 0) < 3;
         })
         .map(({ script }) => ({ script: script!, attempt: flowReady.board.jobs.filter((j) => j.step === "render" && (j as { payload?: { script_id?: string } | null }).payload?.script_id === script!.id).length + 1 }))
     : [];

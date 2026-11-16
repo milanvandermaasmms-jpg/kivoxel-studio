@@ -893,9 +893,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       let characters = 0;
       if (video.data.is_test) note = "Testdata: montage zonder stem";
       else if (fase1 && !modeSpec.voice && modeSpec.text_story === false) {
-        // "Alleen gamegeluid": no voice, no captions, no story text; only the real game sound (and the hook in a Short).
+        // "Muziek, geen stem" and "Alleen gamegeluid": no voice, no captions, no story text; only the yellow header text.
         spoken = [];
-        note = `Audio-modus "${modeSpec.label}": alleen het gamegeluid, geen stem, tekst of effecten`;
+        note = `Audio-modus "${modeSpec.label}": geen stem, geen ondertiteling of verhaaltekst, alleen de gele tekst bovenin`;
       } else if (fase1 && !modeSpec.voice) {
         // No voice in this mode: the same anticipation lines become text in the picture (no TTS, no characters used).
         const story = textOverlays(narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[], cut.segments, timeline, cut.targetMs, kSettings);
@@ -1176,7 +1176,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
           // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
-          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null, /** Captions on the real word times and the voice version of 16-11-2026 (for re-montage). */ aligned: (spoken as { heard?: unknown[] }[]).some((l) => !!l.heard?.length), voiceVersion: 2 } : null;
+          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null, /** Captions on the real word times and the voice version of 16-11-2026 (for re-montage). */ aligned: (spoken as { heard?: unknown[] }[]).some((l) => !!l.heard?.length), voiceVersion: 3 } : null;
           // Chapters of a long video, ready for the description (section 7.7).
           const chapterLines = fase1 && !isShort ? chapters(cut.segments, timeline, plan.durationMs) : [];
           const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length, freezes: freezes.map((f) => f.text) } } : {}) } }).eq("job_id", job.id);

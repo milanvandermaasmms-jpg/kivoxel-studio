@@ -61,9 +61,9 @@ describe("the three options", () => {
     expect(modes.alleen_game.sfx).toBe(false);
     expect(modes.alleen_game.music).toBe(false);
   });
-  it("music: music plus the story as text", () => {
+  it("music: music and only the yellow header text, no captions or story text (Milan, 16-11-2026)", () => {
     expect(modes.muziek_geen_vo.music).toBe(true);
-    expect(modes.muziek_geen_vo.text_story).not.toBe(false);
+    expect(modes.muziek_geen_vo.text_story).toBe(false);
   });
   it("a long video shows the yellow text for the first minute and fades it", () => {
     const e = longTopEvents("SECRETS IN THE SNOW", 600_000, { width: 1920, height: 1080 }, resolveSettings(null));
