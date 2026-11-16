@@ -53,6 +53,12 @@ import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
 import type { EventStore } from "./eventTimeline.ts";
 import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
 import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
+import { gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
+import { hookFile, presetFile, resolveSettings } from "../lib/kivoxel/config.ts";
+import { freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
+import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptPrompt.ts";
+import type { PhraseLog } from "./phraseLog.ts";
+import { speakWithGate } from "./voiceGate.ts";
 
 /**
  * FFmpeg montage on this pc: previews go to `rendersDir`, work files to a temporary folder in `tmpDir`.
@@ -71,6 +77,10 @@ export type Montage = {
   headerCheck?: (thumb: string, assFile: string, size: { width: number; height: number }, cwd: string) => Promise<HeaderCheck>;
   /** KIVOXEL fase 1: the Event Timeline per recording (free signals + AI moments), cached on this pc. */
   events?: EventStore;
+  /** Length of a spoken line in ms (ffprobe), for the sync gate. */
+  duration?: (file: string) => Promise<number>;
+  /** Recently used phrases (rotation), on this pc. */
+  phrases?: PhraseLog;
 };
 
 /** YouTube upload (fase D3); null while YouTube is not set up in worker/.env.local. */
@@ -488,15 +498,56 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
     const plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
+    // KIVOXEL fase 1: "ai" = Gemini writes the anticipation lines, "free" = the template engine (no credits needed).
+    let engine: "test" | "ai" | "free" = "test";
+    let engineNote: string | null = null;
     if (video.data.is_test) draft = testScript(plan, moments);
     else {
-      if (!ai) throw new Error(NO_KEY);
-      await reserve(job, 1);
-      const feedback = await previousFeedback(job, video.data.id, version);
-      const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series)));
-      const parsed = parseScript(json, plan.targetMs);
-      if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
-      draft = parsed.draft;
+      const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
+      const wantsFree = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
+      const short = video.data.format !== "C";
+      // The Event Timeline of the recording (free; built once and kept on this pc).
+      let timeline: EventTimeline | null = null;
+      if (montage?.events && video.data.recording_id) {
+        const recRow = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).maybeSingle<{ fingerprint: string }>();
+        const local = recRow.data ? await store.get(recRow.data.fingerprint) : null;
+        if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs).catch(() => null);
+      }
+      const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
+      const free = () => {
+        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: video.data.language, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short });
+        const overlay = pick(hookFile.hooks[f.mainType][video.data.language], recent, seeded(`${video.data.id}:hook:${version}`));
+        void montage?.phrases?.add([...f.used, overlay]).catch(() => {});
+        return { topLine: overlay, hook: f.hook, lines: f.lines, hooks: [], loopLine: null, titles: [] } satisfies ScriptDraft;
+      };
+      if (wantsFree || !ai) {
+        draft = free();
+        engine = "free";
+        engineNote = wantsFree ? "Gratis modus: script uit de sjabloon-engine" : "Geen analysedienst: script uit de gratis sjabloon-engine";
+      } else {
+        try {
+          await reserve(job, 2);
+          const feedback = await previousFeedback(job, video.data.id, version);
+          // Packaging (hooks, titles, top line) as before; then the lines themselves against the timeline.
+          const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, video.data.language, feedback ?? undefined, series)));
+          const parsed = parseScript(json, plan.targetMs);
+          if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
+          draft = parsed.draft;
+          engine = "ai";
+          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: video.data.language, settings: kSettings, short, recent, note: feedback?.note });
+          const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
+          const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
+          if ("lines" in lines) {
+            draft = { ...draft, lines: lines.lines };
+            void montage?.phrases?.add(lines.lines.map((l) => l.text)).catch(() => {});
+          } else engineNote = `Anticipatie-regels van de AI onbruikbaar (${lines.error}); de oude regels blijven`;
+        } catch (e) {
+          // Credits gone, key refused or the service is down: carry on with the free engine (section 8).
+          draft = free();
+          engine = "free";
+          engineNote = `Analysedienst niet beschikbaar (${e instanceof Error ? e.message.slice(0, 120) : "onbekend"}); script uit de gratis sjabloon-engine`;
+        }
+      }
     }
     if (part && draft.titles) draft = { ...draft, titles: seriesTitles(draft.titles, part) };
     // A Short opens with the first hook by default: a greeting or a long first line goes to the back.
@@ -511,6 +562,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       lines: draft.lines,
       edit_plan: plan.segments,
       target_ms: Math.max(1, plan.targetMs),
+      // yt_scripts.source only knows test/ai (migration 009); the free engine is recorded in the job result.
       source: video.data.is_test ? "test" : "ai",
       model: video.data.is_test ? null : ai?.gemini.model,
       is_test: video.data.is_test,
@@ -528,7 +580,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const upd = await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).eq("status", "idea");
       if (upd.error) throw new Error(upd.error.message);
     }
-    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length };
+    return { version, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote };
   }
 
   /** Render: cuts the edit plan into a preview with subtitles (the narrator follows with Google TTS). The file stays on this pc. */
@@ -567,7 +619,18 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const main = flags.data?.[0]?.yt_moments ?? null;
     const cut = applyHook(s.data, chosen, main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null);
     const size = renderSize(video.data.format);
-    const spoken = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs);
+    let spoken = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs);
+    // KIVOXEL fase 1: a script written against the Event Timeline (its lines have a kind) goes through the sync gate.
+    const fase1 = (cut.lines as VoLine[]).some((l) => !!l.kind);
+    let timeline: EventTimeline | null = null;
+    if (montage.events && !video.data.is_test) {
+      timeline = await montage.events.timeline(rec.data.fingerprint, local.file, local.probe.durationMs, { signal: lv.signal }).catch(async (e) => {
+        if (e instanceof CancelledError) throw e;
+        await lv.event("error", `Event Timeline niet gelukt: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      });
+    }
+    let sync: { ok: boolean; flagged: boolean; summary: string; items: GateItem[] } | null = null;
     const voice: VoiceClip[] = [];
     const voiceName = settings.data?.voice_name ?? "en-US-Chirp3-HD-Fenrir";
     const fileName = renderFileName(video.data.id, s.data.version, job.id);
@@ -584,7 +647,38 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       else {
         await lv.phase("Voice-over maken");
         const needed = spoken.reduce((sum, l) => sum + l.text.length, 0);
-        try {
+        if (fase1 && montage.duration) {
+          // Line by line, with the real spoken length; lines that do not fit are shortened (max 3 attempts) or left out.
+          const presetSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
+          try {
+            const g = await speakWithGate({
+              lines: narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[],
+              segments: cut.segments,
+              timeline,
+              targetMs: cut.targetMs,
+              settings: presetSettings,
+              tts: montage.voice.tts,
+              voiceName,
+              baseRate: Number(settings.data?.speaking_rate ?? 1.1),
+              tmp,
+              reserve: (n) => montage.voice!.usage.reserve(n),
+              duration: montage.duration,
+              run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }),
+            });
+            voice.push(...g.clips);
+            spoken = g.spoken;
+            characters = g.characters;
+            sync = { ok: g.result.gate.ok && !g.result.flagged, flagged: g.result.flagged, summary: gateSummary(g.result.gate, g.result.attempts, g.result.dropped), items: g.result.gate.items };
+            await lv.event(sync.ok ? "note" : "error", `VO-sync: ${sync.summary}`);
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            note = e instanceof Error ? e.message : String(e);
+          }
+          if (characters) {
+            const cost = await db.from("yt_costs").insert({ studio_id: job.studio_id, job_id: job.id, category: "voiceover", service: "Google TTS Chirp 3 HD", amount_cents: 0, is_estimate: false, description: `${characters} tekens, binnen het gratis deel (per zin, met sync-controle)` });
+            if (cost.error && cost.error.code !== "23505") log(`Stemgebruik van stap ${job.id} niet vastgelegd: ${cost.error.message}`);
+          }
+        } else try {
           await montage.voice.usage.reserve(needed);
           characters = needed;
         } catch (e) {
@@ -674,6 +768,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             hasVoice: voice.length > 0,
             captionsInSafeZone: true,
           });
+          if (sync) items.push({ key: "vo_sync", label: "VO-sync (stem vóór de piek)", level: sync.ok ? "green" : "red", value: sync.ok ? "op tijd" : sync.flagged ? "nakijken" : "fout", note: sync.summary.slice(0, 400) });
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
           const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items } }).eq("job_id", job.id);
@@ -692,14 +787,6 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const tsize = video.data.format === "C" ? THUMB_SIZE.long : THUMB_SIZE.short;
         const texts = [...new Set([chosen?.overlay, ...hooks.map((h) => h.overlay), cut.topLine, cut.hook].filter((t): t is string => !!t))];
         // KIVOXEL fase 1: the frame comes from the recording itself (no burned-in captions), at the best event the video shows.
-        let timeline: EventTimeline | null = null;
-        if (montage.events && !video.data.is_test) {
-          timeline = await montage.events.timeline(rec.data.fingerprint, local.file, local.probe.durationMs, { signal: lv.signal }).catch(async (e) => {
-            if (e instanceof CancelledError) throw e;
-            await lv.event("error", `Event Timeline niet gelukt, thumbnails op het geplande moment: ${e instanceof Error ? e.message : String(e)}`);
-            return null;
-          });
-        }
         const recordingPath = join(store.recordingsDir, local.file);
         for (const [i, p] of thumbnailPlans(video.data.format, cut.segments, texts).entries()) {
           const file = thumbFileName(fileName, i);
@@ -741,7 +828,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });

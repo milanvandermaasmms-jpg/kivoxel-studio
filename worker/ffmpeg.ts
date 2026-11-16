@@ -287,3 +287,14 @@ export async function detectSignals(ffmpeg: string, file: string, durationMs: nu
   await runFfmpeg(ffmpeg, signalArgs(file), cwd, 60 * 60_000, { ...options, onStderr: (c) => { parser.feed(c); options.onStderr?.(c); } });
   return parser.finish();
 }
+
+/** Length of an audio file (a spoken script line) in ms, measured by ffprobe. */
+export async function audioDurationMs(ffprobe: string, file: string): Promise<number> {
+  const { stdout } = await run(ffprobe, ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file], { timeout: 30_000 });
+  const s = Number(stdout.trim());
+  if (!Number.isFinite(s) || s <= 0) throw new Error(`Lengte van ${file} niet te meten`);
+  return Math.round(s * 1000);
+}
+
+/** Makes a spoken line a little faster without changing the pitch (the sync gate allows at most 1.08x). */
+export const tempoArgs = (input: string, output: string, speed: number) => ["-hide_banner", "-loglevel", "error", "-y", "-i", input, "-filter:a", `atempo=${speed.toFixed(3)}`, "-ar", "48000", output];

@@ -1,0 +1,145 @@
+import { describe, expect, it } from "vitest";
+import type { Segment } from "../youtube/analysis";
+import { configProblems, resolveSettings } from "./config";
+import type { EventTimeline, GameEvent } from "./events";
+import { anticipationPrompt, parseAnticipation } from "./scriptPrompt";
+import { estimateMs, fill, freeScript, pick, runGate, seeded, sourceToOut, syncGate, templates, type VoLine } from "./voiceScript";
+
+const settings = resolveSettings("standaard");
+// The montage shows the recording from 100 s to 125 s; the event peaks at 118 s in the recording = 18 s in the video.
+const segs: Segment[] = [{ part: "build", src_start_ms: 100_000, src_end_ms: 125_000, out_start_ms: 0, speed: 1, effects: [], note: "" }];
+const ev = (peak: number, payoff = 80, type: GameEvent["type"] = "fail", description = "Dood: GAME OVER-scherm"): GameEvent => ({ id: `e${peak}`, kind: "death", type, t_start: peak - 5000, t_peak: peak, t_end: peak + 2000, intensity: 1, payoff, description, t_thumb: peak - 500, sources: [] });
+const timeline = (events: GameEvent[]): EventTimeline => ({ version: 1, durationMs: 200_000, generatedAt: "", engine: "free", events, dead: [], health: [] });
+
+describe("timing helpers", () => {
+  it("maps the recording to the montage, skipping a cold open that repeats the peak", () => {
+    const withCold: Segment[] = [{ part: "cold_open", src_start_ms: 118_000, src_end_ms: 120_000, out_start_ms: 0, speed: 1, effects: [], note: "" }, ...segs.map((s) => ({ ...s, out_start_ms: 2000 }))];
+    expect(sourceToOut(segs, 118_000)).toBe(18_000);
+    expect(sourceToOut(withCold, 118_000)).toBe(20_000);
+    expect(sourceToOut(segs, 10_000)).toBeNull();
+  });
+  it("estimates spoken length with pauses", () => {
+    expect(estimateMs("Wait… wait…")).toBeGreaterThan(estimateMs("Wait wait"));
+    expect(estimateMs("One two three four five six")).toBeGreaterThan(1800);
+  });
+  it("rotates phrases and is the same for the same seed", () => {
+    expect(pick(["a", "b"], ["a"], seeded("x"))).toBe("b");
+    expect(pick(["a", "b", "c"], [], seeded("v1"))).toBe(pick(["a", "b", "c"], [], seeded("v1")));
+  });
+  it("fills in the hearts per language", () => {
+    const e = ev(1, 50, "bijna_dood", "Nog maar 3,5 hartjes");
+    expect(fill("{hearts} hearts left", e, "en")).toBe("3.5 hearts left");
+    expect(fill("Nog {hearts} hartjes", e, "nl")).toBe("Nog 3,5 hartjes");
+  });
+  it("the templates have every event type in both languages", () => {
+    expect(configProblems()).toEqual([]);
+    for (const lang of ["en", "nl"] as const) for (const t of ["fail", "bijna_dood", "geluk", "bouw", "grap", "jumpscare"] as const) expect(templates.anticipation[lang][t].length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("free script engine (no AI)", () => {
+  const script = (seed: string, recent: string[] = []) => freeScript({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), language: "nl", settings, seed, recent, short: true });
+
+  it("hook first, anticipation before the peak, one reaction after it, loop at the end", () => {
+    const s = script("video-1");
+    expect(s.lines[0]).toMatchObject({ at_ms: 0, kind: "hook" });
+    const ant = s.lines.find((l) => l.kind === "anticipation")!;
+    expect(ant.event_src_ms).toBe(118_000);
+    expect(ant.at_ms + estimateMs(ant.text)).toBeLessThanOrEqual(18_000 - 300);
+    const reactions = s.lines.filter((l) => l.kind === "reaction");
+    expect(reactions).toHaveLength(1);
+    expect(reactions[0].at_ms).toBeGreaterThanOrEqual(18_250);
+    expect(s.lines.at(-1)!.kind).toBe("loop");
+    expect(s.mainType).toBe("fail");
+  });
+
+  it("never describes: no line in the past tense about the peak before it happens", () => {
+    for (const seed of ["a", "b", "c", "d"]) {
+      for (const l of script(seed).lines.filter((x) => x.kind === "anticipation")) expect(templates.anticipation.nl.fail.includes(l.text) || l.text.includes("hartjes")).toBe(true);
+    }
+  });
+
+  it("different videos get different words; recent phrases are avoided", () => {
+    const a = script("video-1");
+    const b = script("video-2", a.used);
+    expect(b.used.filter((u) => a.used.includes(u)).length).toBeLessThan(a.used.length);
+  });
+});
+
+describe("sync gate", () => {
+  const anticipation = (text: string, alts: string[] = []): VoLine => ({ at_ms: 15_000, text, kind: "anticipation", event_src_ms: 118_000, alts });
+
+  it("puts a line so it ends 0.3-1.5 s before the peak", () => {
+    const g = syncGate([anticipation("Oh nee.")], [900], segs, timeline([ev(118_000)]), 25_000, settings);
+    expect(g.ok).toBe(true);
+    const end = g.items[0].atMs + g.items[0].ms;
+    expect(end).toBeLessThanOrEqual(18_000 - 300);
+    expect(end).toBeGreaterThanOrEqual(18_000 - 1500);
+  });
+
+  it("speeds up at most 1.08x, otherwise the line is too long", () => {
+    const hook: VoLine = { at_ms: 0, text: "Hook", kind: "hook" };
+    // The hook takes until 13 s; the anticipation line needs 4.4 s but has 4.58 s until 17.7 s: fits only at 1.08x... not needed here.
+    const fits = syncGate([hook, anticipation("x")], [13_000, 4_900], segs, timeline([ev(118_000)]), 25_000, settings);
+    expect(fits.items[1].ok).toBe(true);
+    expect(fits.items[1].speed).toBeGreaterThan(1);
+    expect(fits.items[1].speed).toBeLessThanOrEqual(1.08);
+    const tooLong = syncGate([hook, anticipation("x")], [13_000, 6_000], segs, timeline([ev(118_000)]), 25_000, settings);
+    expect(tooLong.items[1].reason).toMatch(/te lang/);
+  });
+
+  it("keeps 0.5 s of silence around a big peak and puts the reaction after it", () => {
+    const talkOver: VoLine = { at_ms: 17_500, text: "praat door", kind: "bridge" };
+    expect(syncGate([talkOver], [1000], segs, timeline([ev(118_000)]), 25_000, settings).items[0].reason).toMatch(/stilte/);
+    const reaction: VoLine = { at_ms: 0, text: "NEEE!", kind: "reaction", event_src_ms: 118_000 };
+    expect(syncGate([reaction], [600], segs, timeline([ev(118_000)]), 25_000, settings).items[0]).toMatchObject({ ok: true, atMs: 18_250 });
+  });
+
+  it("the first word comes within 0.5 s", () => {
+    expect(syncGate([{ at_ms: 900, text: "laat", kind: "hook" }], [500], segs, null, 25_000, settings).items[0].reason).toMatch(/0,5 s/);
+  });
+
+  it("rewrites shorter (with real audio lengths) and drops what still does not fit, then flags", async () => {
+    const hook: VoLine = { at_ms: 0, text: "Hook", kind: "hook" };
+    const lengths: Record<string, number> = { Hook: 13_000, "heel lange zin": 6000, "korte zin": 2500, "nog een lange": 6000 };
+    const spoken: string[] = [];
+    const run = await runGate({
+      lines: [hook, anticipation("heel lange zin", ["korte zin"])],
+      segments: segs,
+      timeline: timeline([ev(118_000)]),
+      targetMs: 25_000,
+      settings,
+      speak: async (l) => (spoken.push(l.text), lengths[l.text]),
+    });
+    expect(run.gate.ok).toBe(true);
+    expect(run.lines[1].text).toBe("korte zin");
+    expect(run.attempts).toBe(2);
+    expect(spoken).toEqual(["Hook", "heel lange zin", "korte zin"]);
+    expect(run.flagged).toBe(false);
+
+    const stuck = await runGate({ lines: [hook, anticipation("nog een lange")], segments: segs, timeline: timeline([ev(118_000)]), targetMs: 25_000, settings, speak: async (l) => lengths[l.text] });
+    expect(stuck.flagged).toBe(true);
+    expect(stuck.dropped).toEqual(["nog een lange"]);
+    expect(stuck.lines.map((l) => l.text)).toEqual(["Hook"]);
+  });
+});
+
+describe("AI script (Gemini) with the same rules", () => {
+  it("gives the model the timeline and the anticipation rule", () => {
+    const { prompt, ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), language: "nl", settings, short: true });
+    expect(prompt).toContain("E1: peak at 18.0s");
+    expect(prompt).toMatch(/END 0\.3-1\.5 s BEFORE its peak/);
+    expect(prompt).toContain("Dutch");
+    expect(ids.get("E1")).toBe(118_000);
+  });
+  it("reads the answer, links lines to events and keeps only shorter alternatives", () => {
+    const { ids } = anticipationPrompt({ segments: segs, targetMs: 25_000, timeline: timeline([ev(118_000)]), language: "en", settings, short: true });
+    const r = parseAnticipation({ lines: [{ kind: "hook", text: "One heart. One!", style: "spannend" }, { event: "E1", kind: "anticipation", text: "Okay… one wrong step…", shorter: ["One wrong step…", "This is way longer than the line itself"], style: "spannend" }, { event: "E1", kind: "reaction", text: "NOOO!", style: "schreeuw" }] }, ids, segs, 25_000, timeline([ev(118_000)]));
+    expect("lines" in r).toBe(true);
+    if (!("lines" in r)) return;
+    expect(r.lines.map((l) => l.kind)).toEqual(["hook", "anticipation", "reaction"]);
+    expect(r.lines[1].event_src_ms).toBe(118_000);
+    expect(r.lines[1].alts).toEqual(["One wrong step…"]);
+    expect(parseAnticipation({ lines: [] }, ids, segs, 25_000, null)).toEqual({ error: "geen regels" });
+  });
+});
