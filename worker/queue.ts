@@ -59,7 +59,7 @@ import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/
 import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
 import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
-import { FREE_ENGINE_MODEL, fillSilences, freeScript, pick, seeded } from "../lib/kivoxel/voiceScript.ts";
+import { FREE_ENGINE_MODEL, fillSilences, freeScript, pick, seeded, templates } from "../lib/kivoxel/voiceScript.ts";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
 import type { GameEvent } from "../lib/kivoxel/events.ts";
 import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
@@ -74,7 +74,7 @@ import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory
 import { momentsFromTimeline } from "../lib/kivoxel/freeMoments.ts";
 import { loudnessCheck, targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
 import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel/captions.ts";
-import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
+import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { speakWithGate } from "./voiceGate.ts";
 
@@ -948,6 +948,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const captionStyle = rotate(CAPTION_STYLES, lastOf("caption:"), "caption");
       const interrupts = fase1 && !video.data.is_test ? planInterrupts({ durationMs: montageMs, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff })), short: isShort, style: zoomStyle, settings: kSettings, rnd: seeded(`${job.id}:fx`) }) : [];
       if (interrupts.length) void montage.phrases?.add([`zoom:${zoomStyle}`, `caption:${captionStyle}`]).catch(() => {});
+      // Section 7.3: freeze-frame + text right after a fail (the record scratch comes from the SFX layer).
+      const outFps = (local.probe.fps ?? 30) >= 50 ? 60 : 30;
+      const freezeRnd = seeded(`${job.id}:freeze`);
+      const freezes = fase1 && !video.data.is_test ? planFreezes({ peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, fail: e.kind === "death" || e.type === "fail" })), durationMs: montageMs, short: isShort, settings: kSettings, take: () => pick(templates.freeze_text, recentStyles, freezeRnd) }) : [];
+      if (freezes.length) {
+        storyOverlays = [...storyOverlays, ...freezes.map((f) => ({ startMs: f.atMs, endMs: f.atMs + f.ms, text: f.text, reaction: true }))];
+        void montage.phrases?.add(freezes.map((f) => f.text)).catch(() => {});
+      }
+      const fxFilter = [freezeFilter(freezes, outFps), interruptFilter(interrupts, size)].filter(Boolean).join(",");
       // KIVOXEL fase 1, sections 3 and 7.6: music (on the beat of the payoff) and SFX, per audio mode.
       if (fase1 && montage.media && !video.data.is_test) {
         const media = montage.media;
@@ -996,7 +1005,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         muteGame,
         ...(mixPlan ? { mix: { plan: mixPlan, settings: kSettings } } : {}),
         // Section 7.7: frame rate as the source (60 for PS5 60 fps, else 30) and a high bitrate for the new montages.
-        ...(fase1 ? { fps: (local.probe.fps ?? 30) >= 50 ? 60 : 30, highQuality: true, fx: interruptFilter(interrupts, size) || undefined } : {}),
+        ...(fase1 ? { fps: outFps, highQuality: true, fx: fxFilter || undefined, ...(isShort && kSettings.features.loop_ending ? { loopFadeMs: 400 } : {}) } : {}),
       });
       // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
       const hook = isShort && fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) } : undefined;
@@ -1123,7 +1132,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null } : null;
           // Chapters of a long video, ready for the description (section 7.7).
           const chapterLines = fase1 && !isShort ? chapters(cut.segments, timeline, plan.durationMs) : [];
-          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length } } : {}) } }).eq("job_id", job.id);
+          const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length, freezes: freezes.map((f) => f.text) } } : {}) } }).eq("job_id", job.id);
           if (saved.error && !liveMissing(saved.error)) await lv.event("error", `Kwaliteitscontrole niet opgeslagen: ${saved.error.message}`);
         } catch (e) {
           if (e instanceof CancelledError) throw e;

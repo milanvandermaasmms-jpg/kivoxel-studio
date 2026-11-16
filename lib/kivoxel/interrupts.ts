@@ -74,6 +74,36 @@ export function interruptFilter(list: Interrupt[], size: { width: number; height
   ].join(",");
 }
 
+/** Section 7.3: a freeze-frame with a short text right after a fail. The time runs on (game sound, voice, captions stay in place). */
+export type Freeze = { atMs: number; ms: number; text: string };
+export const FREEZE_MS = 700;
+
+/**
+ * At most one freeze per Short (on the biggest fail/death) and one per ~60 s in a long video; never in the first second
+ * (the hook) or the last 0.5 s. `take` picks the text (rotation lives with the caller).
+ */
+export function planFreezes(input: { peaks: { atMs: number; payoff: number; fail: boolean }[]; durationMs: number; short: boolean; settings: Settings; take: () => string }): Freeze[] {
+  if (!input.settings.features.pattern_interrupts || !input.settings.features.interrupts.includes("freeze_text")) return [];
+  const fits = input.peaks.filter((p) => p.fail && p.payoff >= 50 && p.atMs >= 1000 && p.atMs + 150 + FREEZE_MS <= input.durationMs - 500).sort((a, b) => b.payoff - a.payoff);
+  const out: Freeze[] = [];
+  for (const p of fits) {
+    if (input.short && out.length) break;
+    if (out.some((f) => Math.abs(f.atMs - p.atMs) < 60_000)) continue;
+    out.push({ atMs: p.atMs + 150, ms: FREEZE_MS, text: input.take() });
+  }
+  return out.sort((a, b) => a.atMs - b.atMs);
+}
+
+/**
+ * FFmpeg: hold the picture during each freeze. The frames inside the window get the time stamp of its end, so `fps`
+ * repeats the last frame before it (one chain, no second input; checked on 16-11-2026 with testsrc).
+ */
+export function freezeFilter(list: Freeze[], fps: number): string {
+  if (!list.length) return "";
+  const expr = list.reduceRight((rest, f) => `if(between(T,${s(f.atMs)},${s(f.atMs + f.ms)}),${s(f.atMs + f.ms)}/TB,${rest})`, "PTS");
+  return `setpts='${expr}',fps=${fps}`;
+}
+
 /** A small sound accent on every interrupt (not on shakes: the impact of the peak already covers those). */
 export function interruptSfx(list: Interrupt[]): { atMs: number; kind: "pop" | "whoosh" }[] {
   return list.filter((x) => x.kind !== "shake" && x.kind !== "slow_push").map((x) => ({ atMs: Math.max(0, x.atMs - (x.kind === "whip" ? 120 : 20)), kind: x.kind === "whip" ? "whoosh" : "pop" }));

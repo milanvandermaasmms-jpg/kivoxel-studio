@@ -114,6 +114,8 @@ export type RenderInput = {
   /** KIVOXEL fase 1: video effects on the joined picture before the captions (pattern interrupts), and high quality. */
   fx?: string;
   highQuality?: boolean;
+  /** KIVOXEL fase 1, section 7.5: fade the end into the first frame over this many ms (Shorts, seamless replay). */
+  loopFadeMs?: number;
 };
 
 /** A rectangle as fractions of the picture, 0 to 1. */
@@ -211,7 +213,14 @@ export function renderArgs(input: RenderInput): RenderPlan {
   });
   filters.push(`${pieces.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${pieces.length}:v=1:a=1[vc][ac]`);
   // Effects first, captions after: the text stays still while the picture punches and shakes.
-  filters.push(`[vc]${input.fx ? `${input.fx},` : ""}subtitles=${input.assFile}[vout]`);
+  const loop = input.loopFadeMs && durationMs > input.loopFadeMs * 4 ? input.loopFadeMs : 0;
+  if (loop) {
+    // Section 7.5: the last moments fade into the very first frame, so a replay continues without a jump.
+    const fadeStart = sec(durationMs - loop);
+    filters.push(`[vc]${input.fx ? `${input.fx},` : ""}split=2[vm][vf]`);
+    filters.push(`[vf]trim=end_frame=1,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${sec(durationMs)},format=yuva420p,fade=t=in:st=${fadeStart}:d=${sec(loop)}:alpha=1[vfirst]`);
+    filters.push(`[vm][vfirst]overlay=shortest=1:eof_action=pass,format=yuv420p,subtitles=${input.assFile}[vout]`);
+  } else filters.push(`[vc]${input.fx ? `${input.fx},` : ""}subtitles=${input.assFile}[vout]`);
   if (input.mix) {
     const plan = input.muteGame ? { ...input.mix.plan, spec: { ...input.mix.plan.spec, game_db: -120 } } : input.mix.plan;
     filters.push(

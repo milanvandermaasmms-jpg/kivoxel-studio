@@ -32,6 +32,8 @@ type Templates = {
   /** Long video: right after the cold open (the best moment first), back to the start. */
   cold_open_bridge: string[];
   loop_end: string[];
+  /** Section 7.3: short text on a freeze-frame right after a fail (ENGLISH, explosive, rotates). */
+  freeze_text: string[];
 };
 export const templates = templatesJson as unknown as Templates;
 

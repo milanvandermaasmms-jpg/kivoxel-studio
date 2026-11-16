@@ -35,5 +35,6 @@
   "bridge": ["But it gets WORSE!", "And then THIS happened!", "Okay. Next disaster!", "It's NOT over yet!"],
   "build": ["Keep watching. KEEP WATCHING.", "This is getting SKETCHY…", "I don't like this. At ALL.", "Oh, this is BAD…", "Something is about to happen…", "Careful… CAREFUL…", "He's pushing his luck!", "Any second now…"],
   "cold_open_bridge": ["But how did we even GET here?", "Okay. Rewind. How did THIS happen?", "Let's go back. To where it ALL started…"],
-  "loop_end": ["And that's EXACTLY how it started…", "Wait. We've been here BEFORE…", "One wrong step…"]
+  "loop_end": ["And that's EXACTLY how it started…", "Wait. We've been here BEFORE…", "One wrong step…"],
+  "freeze_text": ["OOF!", "RIP!", "BRUH!", "NOPE!", "WELP!", "YIKES!", "NOOO!", "OUCH!", "GG…", "WHAT?!"]
 }

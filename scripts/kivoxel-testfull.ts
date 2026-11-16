@@ -14,7 +14,7 @@ import { captionEvents, captionStyleLine, timedFromSpoken } from "../lib/kivoxel
 import { AUDIO_MODES, hookFile, resolveSettings, type AudioMode } from "../lib/kivoxel/config.ts";
 import type { EventTimeline } from "../lib/kivoxel/events.ts";
 import { chooseHook, hookChecks, hookEvents, hookStyle } from "../lib/kivoxel/hookText.ts";
-import { interruptFilter, interruptSfx, longestQuiet, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
+import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { loudnessCheck, targetFrom } from "../lib/kivoxel/loudness.ts";
 import { beatStart, pickTrack, planSfx } from "../lib/kivoxel/media.ts";
@@ -22,7 +22,7 @@ import { modeCheck, type MixPlan } from "../lib/kivoxel/mix.ts";
 import { lengthChecks, planShortBatch } from "../lib/kivoxel/shortPlan.ts";
 import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
 import { thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
-import { eventsInMontage, freeScript, gateSummary, seeded, type VoLine } from "../lib/kivoxel/voiceScript.ts";
+import { eventsInMontage, freeScript, gateSummary, pick, seeded, templates, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import type { Segment } from "../lib/youtube/analysis.ts";
 import { buildAss, renderArgs, type VoiceClip } from "../lib/youtube/render.ts";
 import { thumbAss, THUMB_SIZE } from "../lib/youtube/thumbnails.ts";
@@ -121,6 +121,9 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   const captionStyle = (["pop", "bounce", "highlight"] as const)[Math.floor(seeded(`${name}c`)() * 3)];
   await styleLog.add([`zoom:${zoomStyle}`]);
   const interrupts = planInterrupts({ durationMs: targetMs, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff })), short, style: zoomStyle, settings, rnd: seeded(`${name}fx`) });
+  const fps = (rec.probe.fps ?? 30) >= 50 ? 60 : 30;
+  const freezes = planFreezes({ peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, fail: e.kind === "death" || e.type === "fail" })), durationMs: targetMs, short, settings, take: () => pick(templates.freeze_text, [], seeded(`${name}fz`)) });
+  story.push(...freezes.map((f) => ({ startMs: f.atMs, endMs: f.atMs + f.ms, text: f.text, reaction: true })));
   const rnd = seeded(`${name}mix`);
   const track = spec.music ? pickTrack(musicLib.tracks, main?.type ?? "fail", short ? 5 : 3, [], rnd, 6, true) : null;
   const sfx = planSfx({ segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: sfxLib.items, recent: [], rnd, withVoice: spec.voice, durationMs: targetMs });
@@ -133,7 +136,7 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   const words = spoken.length ? { style: captionStyleLine(size, settings), events: captionEvents(timedFromSpoken(spoken, targetMs), captionStyle, size, settings, targetMs) } : undefined;
   await writeFile(join(out, ass), buildAss({ size, topLine: hook, lines: spoken, durationMs: targetMs, hook: short && hook ? { style: hookStyle(size, settings), events: hookEvents(hook, targetMs, main?.peak_out ?? null, size, settings) } : undefined, words, story: story.length ? storyAss(story, size, targetMs) : undefined }), "utf8");
   const file = join(out, `${name}.mp4`);
-  const r = renderArgs({ recording: join(dataDir, "recordings", rec.file), recordingMs: rec.probe.durationMs, hasAudio: !!rec.probe.audioCodec, segments, size, assFile: ass, voice: clips, gameVolume: 0.25, output: file, mix: { plan, settings }, fx: interruptFilter(interrupts, size) || undefined, highQuality: true, fps: (rec.probe.fps ?? 30) >= 50 ? 60 : 30 });
+  const r = renderArgs({ recording: join(dataDir, "recordings", rec.file), recordingMs: rec.probe.durationMs, hasAudio: !!rec.probe.audioCodec, segments, size, assFile: ass, voice: clips, gameVolume: 0.25, output: file, mix: { plan, settings }, fx: [freezeFilter(freezes, fps), interruptFilter(interrupts, size)].filter(Boolean).join(",") || undefined, highQuality: true, fps, ...(short && settings.features.loop_ending ? { loopFadeMs: 400 } : {}) });
   const t0 = Date.now();
   await runFfmpeg(ffmpeg, r.args, out, 30 * 60_000);
   const loud = join(out, `${name}.loud.mp4`);
@@ -159,7 +162,7 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   }
   const ch = short ? [] : chapters(segments, timeline, targetMs);
   report.push(
-    `${name}.mp4 — ${label ? `${label} · ` : ""}${(targetMs / 1000).toFixed(1)} s, ${size.width}×${size.height}, ${r.args.join(" ").includes("fps=60") ? "60" : "30"} fps, render ${renderS} s`,
+    `${name}.mp4 — ${label ? `${label} · ` : ""}${(targetMs / 1000).toFixed(1)} s, ${size.width}×${size.height}, ${r.args.join(" ").includes("fps=60") ? "60" : "30"} fps, render ${renderS} s${freezes.length ? `, freeze: ${freezes.map((f) => `${f.text} @${(f.atMs / 1000).toFixed(1)}s`).join(" ")}` : ""}, loop-einde: ${short && settings.features.loop_ending ? "ja" : "nee"}`,
     ...(hook ? [`   hook "${hook}"`] : []),
     `   stem: ${sync}`,
     `   captions: ${captionStyle}${words ? `, ${words.events.length} woord-momenten` : " (tekst in beeld)"}; interrupts: ${zoomStyle}, ${interrupts.length}× (${[...new Set(interrupts.map((i) => i.kind))].join(", ")})`,

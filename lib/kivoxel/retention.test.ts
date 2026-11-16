@@ -4,7 +4,7 @@ import { renderArgs } from "../youtube/render";
 import { captionEvents, captionLayout, chunks, timedFromSpoken, wordTimes } from "./captions";
 import { resolveSettings } from "./config";
 import type { EventTimeline, GameEvent } from "./events";
-import { interruptFilter, interruptSfx, longestQuiet, planInterrupts } from "./interrupts";
+import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts } from "./interrupts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "./longPlan";
 import { planShort } from "./shortPlan";
 import { freeScript, seeded, sourceToOut } from "./voiceScript";
@@ -123,5 +123,35 @@ describe("slow motion, teaser and long video", () => {
     const s = freeScript({ segments: segs, targetMs: 110_000, timeline: tl([ev("a", 150_000)]), settings, seed: "long", short: false });
     const bridge = s.lines.find((l) => l.at_ms >= 10_000 && l.at_ms < 11_000)!;
     expect(bridge.text).toMatch(/GET here|THIS happen|ALL started/);
+  });
+});
+
+describe("freeze-frame + text (section 7.3)", () => {
+  const settings = resolveSettings(null);
+  const take = () => "OOF!";
+  it("freezes once in a Short, right after the biggest fail, never on a lucky moment", () => {
+    const f = planFreezes({ peaks: [{ atMs: 5000, payoff: 60, fail: true }, { atMs: 9000, payoff: 90, fail: true }, { atMs: 12_000, payoff: 99, fail: false }], durationMs: 20_000, short: true, settings, take });
+    expect(f).toEqual([{ atMs: 9150, ms: 700, text: "OOF!" }]);
+  });
+  it("not in the hook second or the last half second, and only when the preset has it", () => {
+    expect(planFreezes({ peaks: [{ atMs: 500, payoff: 90, fail: true }, { atMs: 19_000, payoff: 90, fail: true }], durationMs: 20_000, short: true, settings, take })).toEqual([]);
+    const off = { ...settings, features: { ...settings.features, interrupts: ["zoom_punch"] } };
+    expect(planFreezes({ peaks: [{ atMs: 9000, payoff: 90, fail: true }], durationMs: 20_000, short: true, settings: off, take })).toEqual([]);
+  });
+  it("holds one frame without changing the length", () => {
+    expect(freezeFilter([{ atMs: 9150, ms: 700, text: "OOF!" }], 60)).toBe("setpts='if(between(T,9.150,9.850),9.850/TB,PTS)',fps=60");
+    expect(freezeFilter([], 60)).toBe("");
+  });
+});
+
+describe("loop ending (section 7.5)", () => {
+  const base = { recording: "r.mp4", recordingMs: 60_000, hasAudio: true, segments: [{ src_start_ms: 1000, src_end_ms: 13_000, speed: 1, out_start_ms: 0, part: "main", note: "", effects: [] } as unknown as Segment], size: { width: 1080, height: 1920 }, assFile: "s.ass", voice: [], gameVolume: 0.3, output: "o.mp4" };
+  it("fades the last 0.4 s into the first frame, captions on top", () => {
+    const g = renderArgs({ ...base, loopFadeMs: 400 }).args.join(" ");
+    expect(g).toContain("fade=t=in:st=11.600:d=0.400:alpha=1");
+    expect(g).toMatch(/overlay=shortest=1:eof_action=pass,format=yuv420p,subtitles=s\.ass\[vout\]/);
+  });
+  it("leaves the end alone without the option", () => {
+    expect(renderArgs(base).args.join(" ")).not.toContain("tpad");
   });
 });
