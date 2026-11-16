@@ -90,7 +90,13 @@ async function loops() {
     const key = cacheKey([video.model, prompt, "8s", "1080p", frame.data, frame.data]);
     let data = await cache.get(key, "mp4");
     if (!data) {
-      await ledger.guard(video.estimateCents(8, "1080p"));
+      try {
+        await ledger.guard(video.estimateCents(8, "1080p"));
+      } catch (e) {
+        // Milan's € 6 ceiling: stop making new loops; the montage uses the Christmas still of this view instead.
+        log(`loop-${v}: niet gemaakt (${e instanceof Error ? e.message.slice(0, 80) : "budget"}); de montage gebruikt het kerst-stilbeeld`);
+        break;
+      }
       log(`loop-${v}: maken (8 s, 1080p)...`);
       const made = await video.generate({ first: frame, last: frame, prompt, durationS: 8, resolution: "1080p" });
       data = made.data;
@@ -100,9 +106,15 @@ async function loops() {
     const silent = join(loopsDir, `loop-${v}.ruw.mp4`);
     await runTool(ffmpeg, silentArgs(cache.path(key, "mp4"), silent));
     const out = join(loopsDir, `loop-${v}.mp4`);
-    await runTool(ffmpeg, seamlessLoopArgs(silent, out, 8, 1));
+    // Free seam repair first: 1 s cross-fade, then 2 s (as in fase 2).
+    let safety = null as ReturnType<typeof judgeClip> | null;
+    for (const fade of [1, 2]) {
+      await runTool(ffmpeg, seamlessLoopArgs(silent, out, 8, fade));
+      safety = judgeClip(await measureClip(ffmpeg, ffprobe, out, true), "loop");
+      if (safety.ok) break;
+    }
     await rm(silent, { force: true });
-    const safety = judgeClip(await measureClip(ffmpeg, ffprobe, out, true), "loop");
+    if (!safety) continue;
     log(`loop-${v}: ${safety.ok ? "veilig ✅" : `⚠️ ${safety.problems.join("; ")}`}`);
   }
 }

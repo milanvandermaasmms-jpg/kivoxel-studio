@@ -104,6 +104,8 @@ export type Montage = {
   localVoice?: LocalTts;
   /** The cloned voice (Chatterbox, reference recording on this pc); used first when presets.json voice.clone.use is on. */
   cloneVoice?: LocalTts;
+  /** Whisper on a voice clip (word times), so the captions follow the voice exactly. */
+  align?: (file: string, cwd: string) => Promise<{ text: string; startMs: number; endMs: number }[] | null>;
   /** KIVOXEL fase 1: exact loudness in two passes (picture copied); false when FFmpeg gave no measurement. */
   normalize?: (input: string, output: string, cwd: string, target: LoudnessTarget, options?: RunOptions) => Promise<boolean>;
   /** KIVOXEL fase 1: the local music and SFX libraries, and which tracks/SFX were used lately (rotation). */
@@ -902,7 +904,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const preferLocal = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
         const lines = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[];
         const gateWith = (tts: Parameters<typeof speakWithGate>[0]["tts"], reserve: (n: number) => Promise<unknown>) =>
-          speakWithGate({ lines, segments: cut.segments, timeline, targetMs: cut.targetMs, settings: kSettings, tts, voiceName, baseRate: Number(settings.data?.speaking_rate ?? 1.1), tmp, reserve, duration: montage.duration!, run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }) });
+          speakWithGate({ align: montage.align, verify: tts === montage.cloneVoice, lines, segments: cut.segments, timeline, targetMs: cut.targetMs, settings: kSettings, tts, voiceName, baseRate: Number(settings.data?.speaking_rate ?? 1.1), tmp, reserve, duration: montage.duration!, run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }) });
         let g: Awaited<ReturnType<typeof speakWithGate>> | null = null;
         let localWhy: string | null = preferLocal ? "gratis modus" : !montage.voice ? "geen Google-sleutel" : null;
         // The cloned voice first (payload.voice "kloon"/"google" overrides the preset for comparing).

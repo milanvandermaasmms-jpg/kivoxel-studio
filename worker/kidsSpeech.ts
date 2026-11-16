@@ -49,23 +49,53 @@ export function reactionsFrom(chunks: Chunk[], offsetMs: number, loudness: numbe
   return out;
 }
 
-let asrPromise: Promise<Asr | null> | null = null;
-/** One Whisper model per worker; null when transformers.js or the model cannot be loaded (then: no reactions, no error). */
-function loadAsr(cacheDir: string): Promise<Asr | null> {
-  asrPromise ??= (async () => {
+type Pipe = (audio: Float32Array, options: Record<string, unknown>) => Promise<unknown>;
+let pipePromise: Promise<Pipe | null> | null = null;
+/** One Whisper model per worker, shared by the kids' reactions and the narrator alignment; null when it cannot load. */
+function loadPipe(cacheDir: string): Promise<Pipe | null> {
+  pipePromise ??= (async () => {
     try {
       const t = await import("@huggingface/transformers");
       t.env.cacheDir = cacheDir;
-      const pipe = await t.pipeline("automatic-speech-recognition", WHISPER_MODEL, { dtype: "q8" });
-      // The kids speak Dutch while playing; the words only mark the moment (nothing of it goes into a video).
-      return async (audio: Float32Array) => (await pipe(audio, { return_timestamps: true, chunk_length_s: 30, task: "transcribe", language: "dutch" })) as { chunks?: Chunk[]; text?: string };
+      return (await t.pipeline("automatic-speech-recognition", WHISPER_MODEL, { dtype: "q8" })) as unknown as Pipe;
     } catch {
-      asrPromise = null;
+      pipePromise = null;
       return null;
     }
   })();
-  return asrPromise;
+  return pipePromise;
 }
+async function loadAsr(cacheDir: string): Promise<Asr | null> {
+  const pipe = await loadPipe(cacheDir);
+  // The kids speak Dutch while playing; the words only mark the moment (nothing of it goes into a video).
+  return pipe ? async (audio) => (await pipe(audio, { return_timestamps: true, chunk_length_s: 30, task: "transcribe", language: "dutch" })) as { chunks?: Chunk[]; text?: string } : null;
+}
+
+export type SpokenWord = { text: string; startMs: number; endMs: number };
+/**
+ * Narrator alignment: the words a voice clip really says, with their times (Whisper, English, word timestamps).
+ * The captions follow these times, so the text on screen never runs ahead of or behind the voice. Null without Whisper.
+ */
+export function createAligner(ffmpeg: string, dataDir: string) {
+  const cacheDir = join(dataDir, "kivoxel-speech", "cache");
+  return async (file: string, cwd: string): Promise<SpokenWord[] | null> => {
+    const pipe = await loadPipe(cacheDir);
+    if (!pipe) return null;
+    const raw = join(cwd, `align-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.f32`);
+    try {
+      await runFfmpeg(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", file, "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", raw], cwd, 60_000);
+      const buf = await readFile(raw);
+      const audio = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 4));
+      const r = (await pipe(audio, { return_timestamps: "word", task: "transcribe", language: "english" })) as { chunks?: Chunk[] };
+      return (r.chunks ?? []).map((c) => ({ text: c.text.trim(), startMs: Math.round(c.timestamp[0] * 1000), endMs: Math.round((c.timestamp[1] ?? c.timestamp[0] + 0.3) * 1000) })).filter((w) => w.text);
+    } catch {
+      return null;
+    } finally {
+      await rm(raw, { force: true });
+    }
+  };
+}
+export type Aligner = ReturnType<typeof createAligner>;
 
 export function createSpeechStore(ffmpeg: string, dataDir: string) {
   const dir = join(dataDir, "speech");

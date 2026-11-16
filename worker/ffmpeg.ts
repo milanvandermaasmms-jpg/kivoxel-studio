@@ -320,3 +320,13 @@ export async function normalizeLoudness(ffmpeg: string, input: string, output: s
   }
   return true;
 }
+
+/**
+ * "Trek het strak" (Milan, 16-11-2026): silence at the start and end of a spoken line goes, and every pause inside it
+ * longer than 0.35 s is shortened to 0.18 s. A cloned voice sometimes paused for seconds in the middle of a line.
+ */
+export const tightenArgs = (input: string, output: string) => [
+  "-hide_banner", "-loglevel", "error", "-y", "-i", input,
+  "-af", "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.02,areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.06,areverse,silenceremove=stop_periods=-1:stop_duration=0.35:stop_threshold=-45dB:stop_silence=0.18",
+  "-ar", "48000", output,
+];

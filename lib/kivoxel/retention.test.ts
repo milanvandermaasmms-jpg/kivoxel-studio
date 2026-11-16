@@ -155,3 +155,24 @@ describe("loop ending (section 7.5)", () => {
     expect(renderArgs(base).args.join(" ")).not.toContain("tpad");
   });
 });
+
+describe("captions follow the real voice (16-11-2026)", () => {
+  it("same word count: every caption word gets its spoken time", () => {
+    const w = wordTimes({ startMs: 0, endMs: 3000, text: "Wait wait WAIT!", heard: [{ text: "Wait,", startMs: 4000, endMs: 4500 }, { text: "wait,", startMs: 4600, endMs: 5100 }, { text: "wait!", startMs: 5200, endMs: 5700 }] });
+    expect(w.map((x) => x.startMs)).toEqual([4000, 4600, 5200]);
+  });
+  it("other word count: spread only over where the voice really speaks", () => {
+    const w = wordTimes({ startMs: 0, endMs: 9000, text: "Look at those mobs hiding", heard: [{ text: "Look", startMs: 3100, endMs: 3300 }, { text: "at those", startMs: 3300, endMs: 3700 }, { text: "mobs hiding.", startMs: 3700, endMs: 4400 }] });
+    expect(w[0].startMs).toBe(3100);
+    expect(w[w.length - 1].endMs).toBeLessThanOrEqual(4400);
+  });
+  it("checks whether the voice said the line", async () => {
+    const { heardMatch } = await import("./captions");
+    expect(heardMatch("Wait wait wait, something's coming", [{ text: "Wait," }, { text: "wait," }, { text: "wait," }, { text: "something's" }, { text: "coming" }])).toBe(1);
+    expect(heardMatch("Look at those mobs hiding inside", [{ text: "Look" }])).toBeLessThan(0.6);
+  });
+  it("tightens every spoken line (no long pauses inside)", async () => {
+    const { tightenArgs } = await import("../../worker/ffmpeg");
+    expect(tightenArgs("a.wav", "b.wav").join(" ")).toContain("stop_duration=0.35");
+  });
+});

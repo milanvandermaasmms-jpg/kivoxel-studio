@@ -34,7 +34,8 @@ import { createMediaLibrary } from "../worker/mediaLibrary.ts";
 import { createPhraseLog } from "../worker/phraseLog.ts";
 import { createTts, createUsageCounter } from "../worker/tts.ts";
 import { speakWithGate } from "../worker/voiceGate.ts";
-import { bestLocalTts } from "../worker/localTts.ts";
+import { bestLocalTts, chatterboxTts, findClone } from "../worker/localTts.ts";
+import { createAligner } from "../worker/kidsSpeech.ts";
 
 const envFile = join(import.meta.dirname, "..", "worker", ".env.local");
 if (existsSync(envFile)) for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
@@ -69,9 +70,12 @@ const events = createEventStore(ffmpeg, dataDir, createSpeechStore(ffmpeg, dataD
 const media = createMediaLibrary(dataDir, resolve("assets", "kivoxel", "sfx"), console.log);
 const musicLib = await media.music();
 const sfxLib = await media.sfx();
-const local = noKeys ? await bestLocalTts(dataDir, settings.voice.local_order, settings.voice.kokoro_voice) : null;
+// --kloon: the cloned voice (Chatterbox), as the worker uses it for Shorts; captions aligned with Whisper.
+const cloneCfg = args.includes("--kloon") ? findClone(dataDir, join(import.meta.dirname, "..", "worker", "chatterbox_server.py")) : null;
+const local = cloneCfg ? chatterboxTts(cloneCfg, settings.voice.clone.boost) : noKeys ? await bestLocalTts(dataDir, settings.voice.local_order, settings.voice.kokoro_voice) : null;
+const align = createAligner(ffmpeg, dataDir);
 const tts = local ?? createTts(process.env.GOOGLE_TTS_API_KEY!);
-const out = resolve("testrenders", noKeys ? "zonder-sleutels" : "full");
+const out = resolve("testrenders", cloneCfg ? "kloon" : noKeys ? "zonder-sleutels" : "full");
 await mkdir(out, { recursive: true });
 if (local) report.push(`ZONDER API-SLEUTELS: stem ${local.name}, script uit de gratis engine, analyse uit de gratis Event Timeline`, "");
 const usage = createUsageCounter(join(dataDir, "tts-usage.json"));
@@ -98,7 +102,7 @@ async function make(name: string, rec: Rec & { probe: NonNullable<Rec["probe"]> 
   let story: StoryText[] = [];
   let sync = "geen stem in deze modus";
   if (spec.voice) {
-    const g = await speakWithGate({ lines: script.lines, segments, timeline, targetMs, settings, tts, voiceName: "en-US-Chirp3-HD-Fenrir", baseRate: 1.1, tmp: out, reserve: async (c) => (local ? undefined : usage.reserve(c)), duration: (f) => audioDurationMs(ffprobe, f), run: (a, cwd, t) => runFfmpeg(ffmpeg, a, cwd, t) });
+    const g = await speakWithGate({ align, verify: !!cloneCfg, lines: script.lines, segments, timeline, targetMs, settings, tts, voiceName: "en-US-Chirp3-HD-Fenrir", baseRate: 1.1, tmp: out, reserve: async (c) => (local ? undefined : usage.reserve(c)), duration: (f) => audioDurationMs(ffprobe, f), run: (a, cwd, t) => runFfmpeg(ffmpeg, a, cwd, t) });
     // Each video gets its own copies of the voice files (the gate reuses vo0, vo1, … in this shared folder).
     clips = [];
     for (const [i, c] of g.clips.entries()) {
@@ -207,3 +211,4 @@ if (what === "shorts") {
 }
 await writeFile(join(out, `rapport-${what}.txt`), report.join("\n"), "utf8");
 console.log(report.join("\n"));
+process.exit(0); // the voice-clone process would keep Node alive
