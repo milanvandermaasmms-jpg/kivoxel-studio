@@ -1192,6 +1192,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         thumbs = [];
         await lv.event("error", `Thumbnails mislukt: ${e instanceof Error ? e.message : String(e)}`);
       }
+      // Section 9: a montage with a red check does not go to the review yet: it is made once more by itself (new seeds
+      // for zooms, captions, music and SFX). Still red after that: to the review, where the red checks block approval
+      // until Milan ticks that he saw them.
+      const qcRetry = Number(job.payload?.qc_retry ?? 0);
+      if (fase1 && !video.data.is_test && (qcSummary?.red ?? 0) > 0 && qcRetry < 1) {
+        await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${scriptId}:qc:${job.id}`, payload: { ...job.payload, qc_retry: qcRetry + 1 } });
+        await lv.event("note", `Kwaliteitscontrole niet gehaald (${qcSummary!.red} rood): de montage wordt automatisch nog één keer gemaakt`);
+        return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, qcRetry: true, audioMode: kSettings.audio_mode };
+      }
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
