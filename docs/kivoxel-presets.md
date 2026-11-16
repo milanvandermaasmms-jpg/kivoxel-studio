@@ -69,3 +69,26 @@ Welke eerst komt, staat in `presets.json` bij `voice.local_order`; de Kokoro-ste
 
 ## Geluidseffecten (SFX)
 De standaard-SFX (whoosh, impact, record scratch, pop, riser) zijn door ons zelf gemaakt met `scripts/kivoxel-make-media.ts` en staan in de repo (`assets/kivoxel/sfx`). Whoosh komt op elke knip, impact op grote pieken, scratch bij een dood; varianten rouleren. Eigen SFX: zet ze in `FamilieMK-YouTube\kivoxel-media\sfx\` met een `library.json` (`{ "sfx": [{ "file": "boom.wav", "kind": "impact" }] }`; kind is whoosh, impact, scratch, pop of riser).
+
+## Stemkloon (de stem van je zoon)
+- De verteller van Shorts is standaard een **stemkloon** (Chatterbox, gratis, MIT-licentie, alleen op deze pc). Hij spreekt Engels met de klank van de referentie-opname in `FamilieMK-YouTube\kivoxel-tts\voice-ref\kind.wav`. Die opname staat **nooit** in Git of in Supabase.
+- Andere opname gebruiken: vervang `kind.wav` door 8-15 seconden heldere spraak, zonder muziek, en herstart de werker.
+- In `presets.json` bij `voice.clone`: `use` (aan/uit), `shorts_only` (lange video's houden Google, want de kloon is traag zonder NVIDIA-kaart: ongeveer 35 s per zin) en `boost` (hoger = uitbundiger).
+- Lukt de kloon niet, dan neemt Google het over, en daarna de lokale stem (Kokoro puck).
+- **YouTube-regel:** een nagemaakte stem van een echt persoon moet je melden. Bij een video met de stemkloon blokkeert de Poortwachter het publiceren tot **AI-melding = Ja** staat.
+
+## Reacties van de kinderen (Whisper)
+De werker luistert met Whisper (lokaal, gratis) rond de sterkste momenten. Een korte, harde kreet wordt een moment in de Event Timeline, en daar praat de verteller niet overheen, zodat de echte reactie hoorbaar blijft. De woorden blijven op de pc (`FamilieMK-YouTube\speech`) en komen nooit in beeld. **Tip:** zet op de PS5 bij opnemen "microfoongeluid opnemen" aan; in de huidige opnames is alleen gamegeluid te horen.
+
+## Freeze-frame en loop-einde
+- Na de grootste fail in een Short staat het beeld 0,7 s stil met een korte tekst ("OOF!", "RIP!", …). Die teksten staan in `script_templates.json` bij `freeze_text`, rouleren en zijn alleen Engels.
+- Het einde van elke Short vloeit in 0,4 s over in het eerste frame, zodat een herhaling naadloos doorloopt. Uitzetten kan met `features.loop_ending`.
+
+## Leren van wat je goedkeurt
+Scripts die je goedkeurt, zijn voorbeelden. Hun algemene zinnen (zonder mob, item, getal of naam van één video) komen in de pools van de gratis engine, met dubbel gewicht.
+
+## Kwaliteitscontrole
+Een montage met een rode check gaat niet meteen naar Te keuren: de werker maakt hem eerst automatisch nog één keer. Is hij dan nog rood, dan komt hij wel in de review, maar kun je pas goedkeuren als je aanvinkt dat je de rode checks hebt gezien.
+
+## Alles opnieuw door de montage
+Bij **Klaar voor YouTube** staat de knop **🔁 Opnieuw door de nieuwe montage**. Elke klaarstaande video van een gamekanaal krijgt dan een nieuw script met de nieuwe engine, en de werker monteert hem meteen. Daarna staat hij weer bij Te keuren. Dreamnest doet hier niet aan mee.
