@@ -3,6 +3,8 @@
 export type SectionTarget = { id: string; lufs: number };
 export const TARGETS = { story: -20, falling_asleep: -22, sleep: -24 } as const;
 export const TRUE_PEAK_MAX = -3;
+/** Dreamnest kerst (Milan, 16-11-2026: "de muziek moet veel zachter"): every part 3 LU quieter than TARGETS. */
+export const KERST_OFFSET = -3;
 
 export type AudioMeasure = { integrated: number; truePeak: number; silences: { start: number; dur: number }[]; shortTerm: number[] };
 

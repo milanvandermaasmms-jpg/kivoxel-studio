@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { constants, homedir, setPriority, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { judgeAudio, parseEbur128, parseSilences, TARGETS } from "../../lib/dreamnest/audioqc.ts";
+import { judgeAudio, KERST_OFFSET, parseEbur128, parseSilences, TARGETS } from "../../lib/dreamnest/audioqc.ts";
 import { calmEndFrame } from "../../lib/dreamnest/motion.ts";
 import { buildEpisodeTimeline, buildKerstTimeline, dimFilter, episodeLength, PARTS, planPieces, type AssetV2 as Asset, type Piece } from "../../lib/dreamnest/timeline.ts";
 import { LOOP_S, type Region, type Weather } from "../../lib/dreamnest/overlay.ts";
@@ -49,7 +49,8 @@ const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
 const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
 const log = (m: string) => console.log(`[${new Date().toLocaleTimeString("nl-NL")}] ${m}`);
 // Always limited (tv) range: one full-range piece (from a JPEG keyframe) made the light jump after joining.
-const ENC = ["-c:v", "libx264", "-preset", "faster", "-crf", "18", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", "24", "-g", "48", "-profile:v", "high", "-an"];
+// crf 16 / medium: less compression shimmer in the soft gradients and the snow (16-11-2026).
+const ENC = ["-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", "24", "-g", "48", "-profile:v", "high", "-an"];
 const FPS = 24;
 /** Each frame against the next, matched by frame number (never by timestamp, which proved unreliable). */
 const STEPS = `setpts=N/${24}/TB,split[x][y];[y]trim=start_frame=1,setpts=N/${24}/TB[b];[x][b]ssim=stats_file=-:shortest=1`;
@@ -161,16 +162,19 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
       await ff(["-y", "-v", "error", "-loop", "1", "-framerate", String(FPS), "-i", c.file, "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,scale=out_range=tv,format=yuv420p", "-frames:v", String(n), ...ENC, tmp]);
       log(`${c.id}: stil beeld (${STILL_LEN} s), leven komt van de levende laag`);
     } else {
-      // Loops: at their own speed (the seam was already made seamless in fase 2).
-      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm}[v]`, "-map", "[v]", ...ENC, tmp]);
-      log(`${c.id}: lus op eigen snelheid`);
+      // Loops at their own speed. AI video "boils": fine details flicker every frame (Milan, 16-11-2026: "het beeld trilt").
+      // A soft temporal blend over 5 frames (1-2-3-2-1) takes 71% of that flicker away and keeps 83% of the real motion
+      // (measured on loop-b02). Done on three copies of the loop and the middle one is kept, so the seam stays seamless.
+      const loopFrames = Math.round(probeDur(c.file) * FPS);
+      await ff(["-y", "-v", "error", "-stream_loop", "2", "-i", c.file, "-filter_complex", `[0:v]${norm},tmix=frames=5:weights='1 2 3 2 1',trim=start_frame=${loopFrames}:end_frame=${2 * loopFrames},setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
+      log(`${c.id}: lus op eigen snelheid, flikkeren gedempt`);
     }
     // Same average brightness for every clip, so a cross-fade between two scenes never jumps in light;
     // getting darker is left to the dim curve alone.
     const luma = parseLuma(await ff(["-i", tmp, "-vf", "scale=320:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"]));
     const mean = luma.reduce((s, x) => s + x, 0) / Math.max(1, luma.length);
     const k = Math.max(0.8, Math.min(1.25, (LUMA_TARGET - 16) / Math.max(1, mean - 16)));
-    await ff(["-y", "-v", "error", "-i", tmp, "-vf", `deflicker=size=48:mode=am,lutyuv=y='clip((val-16)*${k.toFixed(4)}+16,16,235)'`, ...ENC, dst]);
+    await ff(["-y", "-v", "error", "-i", tmp, "-vf", `lutyuv=y='clip((val-16)*${k.toFixed(4)}+16,16,235)'`, ...ENC, dst]);
     await rm(tmp, { force: true });
     log(`${c.id}: helderheid ${mean.toFixed(0)} → ${(16 + (mean - 16) * k).toFixed(0)}`);
     await writeFile(`${dst}.ok`, "");
@@ -252,9 +256,9 @@ async function qc(file: string, totalS: number) {
   const video = judgeVideo(probe, minutesQc, totalS, parseBlack(blackText));
   log("Controle: geluid per deel...");
   const parts = [
-    { id: "story", from: 0, to: PARTS.storyEnd, target: TARGETS.story },
-    { id: "falling_asleep", from: PARTS.storyEnd, to: PARTS.asleepEnd, target: TARGETS.falling_asleep },
-    { id: "sleep", from: PARTS.asleepEnd, to: totalS - 120, target: TARGETS.sleep },
+    { id: "story", from: 0, to: PARTS.storyEnd, target: TARGETS.story + (kerst ? KERST_OFFSET : 0) },
+    { id: "falling_asleep", from: PARTS.storyEnd, to: PARTS.asleepEnd, target: TARGETS.falling_asleep + (kerst ? KERST_OFFSET : 0) },
+    { id: "sleep", from: PARTS.asleepEnd, to: totalS - 120, target: TARGETS.sleep + (kerst ? KERST_OFFSET : 0) },
   ];
   const audio = [];
   for (const p of parts) {
@@ -278,6 +282,21 @@ function qcPage(r: Awaited<ReturnType<typeof qc>>) {
 }
 
 // ---------- Preview only (fase 6) ----------
+/**
+ * The preview parts flow into each other with a 1.5 s cross-fade (picture and sound) instead of a dip to black
+ * (Milan, 16-11-2026: "de overgang is zwart"); only the very start fades in and the very end fades out.
+ */
+function previewJoin(n: number, lens: number[]): string {
+  const X = 1.5;
+  let v = "[0:v]", a = "[0:a]", t = lens[0];
+  const f: string[] = [];
+  for (let i = 1; i < n; i++) {
+    f.push(`${v}[${i}:v]xfade=transition=fade:duration=${X}:offset=${(t - X).toFixed(3)}[v${i}]`, `${a}[${i}:a]acrossfade=d=${X}:c1=tri:c2=tri[a${i}]`);
+    v = `[v${i}]`; a = `[a${i}]`; t += lens[i] - X;
+  }
+  f.push(`${v}fade=t=in:d=1,fade=t=out:st=${(t - 1.5).toFixed(3)}:d=1.5[v]`, `${a}afade=t=in:d=1,afade=t=out:st=${(t - 1.5).toFixed(3)}:d=1.5[a]`);
+  return f.join(";");
+}
 const overlays = new Map<string, string>();
 const PREVIEW_CUTS = (totalS: number) => [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]];
 async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, totalS: number, audio: string) {
@@ -293,13 +312,13 @@ async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, to
     // Every piece decoded and joined by the concat filter, then cut by frame number (a copy-join of the pieces gave
     // frames with doubled timestamps: the preview started in the wrong place and blinked).
     const startFrame = Math.round((from - start) * FPS), endFrame = Math.round((from - start + len) * FPS);
-    await ff(["-y", "-v", "error", ...files.flatMap((f) => ["-i", f]), "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `${files.map((_, i) => `[${i}:v]`).join("")}concat=n=${files.length}:v=1:a=0,setpts=N/${FPS}/TB,trim=start_frame=${startFrame}:end_frame=${endFrame},setpts=N/${FPS}/TB,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${len - 1}:d=1[v];[${files.length}:a]afade=t=in:d=1,afade=t=out:st=${len - 1}:d=1[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
+    await ff(["-y", "-v", "error", ...files.flatMap((f) => ["-i", f]), "-ss", String(from), "-t", String(len), "-i", audio, "-filter_complex", `${files.map((_, i) => `[${i}:v]`).join("")}concat=n=${files.length}:v=1:a=0,setpts=N/${FPS}/TB,trim=start_frame=${startFrame}:end_frame=${endFrame},setpts=N/${FPS}/TB,scale=1280:-2[v];[${files.length}:a]anull[a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", part]);
     parts.push(part);
   }
   const list = join(out, "preview-all.txt");
   await writeFile(list, parts.map((f) => `file '${f.replace(/\\/g, "/")}'`).join("\n"));
   // One encode over the four parts (the concat filter keeps the clock exact; a copy-join broke the timestamps).
-  await ff(["-y", "-v", "error", ...parts.flatMap((f) => ["-i", f]), "-filter_complex", `${parts.map((_, i) => `[${i}:v][${i}:a]`).join("")}concat=n=${parts.length}:v=1:a=1[v][a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
+  await ff(["-y", "-v", "error", ...parts.flatMap((f) => ["-i", f]), "-filter_complex", previewJoin(parts.length, PREVIEW_CUTS(totalS).map(([, l]) => l)), "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "20", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
   log(`Preview (alleen de benodigde stukken): ${join(out, "preview.mp4")}`);
 }
 
@@ -366,9 +385,9 @@ const cutFiles: string[] = [];
 for (const [i, [s, l]] of cuts.entries()) {
   const f = join(out, `preview-cut-${i}.mp4`);
   // Length on the output side with a fixed frame count (an input-side -t gave 215 s of picture for 90 s of sound).
-  await ff(["-y", "-v", "error", "-ss", String(s), "-i", final, "-t", String(l), "-frames:v", String(l * FPS), "-vf", `setpts=N/${FPS}/TB,scale=1280:-2,fade=t=in:d=1,fade=t=out:st=${l - 1}:d=1`, "-af", `asetpts=PTS-STARTPTS,afade=t=in:d=1,afade=t=out:st=${l - 1}:d=1`, "-c:v", "libx264", "-crf", "24", "-r", "24", "-c:a", "aac", "-b:a", "160k", f]);
+  await ff(["-y", "-v", "error", "-ss", String(s), "-i", final, "-t", String(l), "-frames:v", String(l * FPS), "-vf", `setpts=N/${FPS}/TB,scale=1280:-2`, "-af", "asetpts=PTS-STARTPTS", "-c:v", "libx264", "-crf", "24", "-r", "24", "-c:a", "aac", "-b:a", "160k", f]);
   cutFiles.push(f);
 }
-await ff(["-y", "-v", "error", ...cutFiles.flatMap((f) => ["-i", f]), "-filter_complex", `${cutFiles.map((_, i) => `[${i}:v][${i}:a]`).join("")}concat=n=${cutFiles.length}:v=1:a=1[v][a]`, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "24", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
+await ff(["-y", "-v", "error", ...cutFiles.flatMap((f) => ["-i", f]), "-filter_complex", previewJoin(cutFiles.length, cuts.map(([, l]) => l)), "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "24", "-r", "24", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", join(out, "preview.mp4")]);
 for (const f of cutFiles) await rm(f, { force: true });
 log(`Preview: ${join(out, "preview.mp4")}`);

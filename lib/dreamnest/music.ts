@@ -170,14 +170,14 @@ export type Style = "plain" | "arpeggio" | "answer" | "low";
  * flowing broken chords; answer = a second voice answers each bar just below; low = melody an octave lower on the
  * felt piano with only the pad. thin (0-1) removes notes for the falling-asleep and sleep parts. Times in seconds.
  */
-export function arrange(m: Melody, bpm: number, opts: { transpose?: number; thin?: number; seed?: number; lead?: Lead; style?: Style; second?: Lead } = {}): { events: NoteEvent[]; lengthS: number } {
+export function arrange(m: Melody, bpm: number, opts: { transpose?: number; thin?: number; seed?: number; lead?: Lead; style?: Style; second?: Lead; /** Semitones above the written melody (default 12). Dreamnest kerst: 0, warmer and not shrill. */ octave?: number } = {}): { events: NoteEvent[]; lengthS: number } {
   const beat = 60 / bpm;
   const tr = opts.transpose ?? 0;
   const thin = opts.thin ?? 0;
   const style = opts.style ?? "plain";
   const r = rng(opts.seed ?? 7);
   const events: NoteEvent[] = [];
-  const octave = style === "low" ? 0 : 12;
+  const octave = style === "low" ? 0 : (opts.octave ?? 12);
   const lead: Lead = style === "low" ? "felt" : (opts.lead ?? "musicbox");
   let t = 0;
   for (const [midi, beats] of m.notes) {

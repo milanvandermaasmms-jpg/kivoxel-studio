@@ -4,7 +4,7 @@
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { TARGETS, TRUE_PEAK_MAX } from "../../../lib/dreamnest/audioqc.ts";
+import { KERST_OFFSET, TARGETS, TRUE_PEAK_MAX } from "../../../lib/dreamnest/audioqc.ts";
 import { KERST_MELODIES, rng, type NoteEvent } from "../../../lib/dreamnest/music.ts";
 import { planCues, renderCues, type CueOptions } from "../../../lib/dreamnest/setlist.ts";
 import { brownNoise, fade, fireplace, mix, rain, renderEvents, SR, stereo, wav, type Stereo } from "./synth.ts";
@@ -55,7 +55,7 @@ function room(seconds: number, amb: number, s: number, kerst = false): Stereo {
 }
 
 /** Kerst: the carol first, soft leads only (no music box, which Milan found tiring), a bit more space between songs. */
-export const KERST_CUES: CueOptions = { themes: KERST_MELODIES, themesOnly: true, leads: { story: ["celesta", "felt", "harp"], falling_asleep: ["felt", "celesta"], sleep: ["felt", "harp"] }, second: ["bells", "celesta"], storyGapS: 5 };
+export const KERST_CUES: CueOptions = { themes: KERST_MELODIES, themesOnly: true, leads: { story: ["felt", "harp"], falling_asleep: ["felt", "harp"], sleep: ["felt", "harp"] }, second: ["harp", "bells"], storyGapS: 6, octave: 0 };
 
 /** Kerst outro: only the soft pad chords, no loose high notes. */
 function padOnly(seconds: number, s: number): Song {
@@ -102,7 +102,7 @@ export async function renderScorePiece(ffmpeg: string, dir: string, irFile: stri
     amb = 0.6;
   }
   // Kerst: the music sits a little further back behind the fire (Milan: "de muziek is vervelend").
-  if (kerst) musicGain *= 0.8;
+  if (kerst) musicGain *= 0.5;
   const out = mix(room(len, amb, p.seed + 30, kerst), renderEvents(music.events, len, p.seed), musicGain);
   if (p.part === "outro") {
     // Music and room sounds fade out over the outro; a very soft brown noise stays, so it never goes silent.
@@ -116,8 +116,8 @@ export async function renderScorePiece(ffmpeg: string, dir: string, irFile: stri
   fade(out, 0.5, p.part === "outro" ? 8 : 0.5);
   const raw = join(dir, `${p.id}.raw.wav`);
   await writeFile(raw, wav(out));
-  const target = p.part === "outro" ? TARGETS.sleep : TARGETS[p.part];
-  const chain = `[0:a][1:a]afir=dry=7:wet=3[rv];[rv]lowpass=f=${kerst ? 5000 : 7000},highpass=f=40`;
+  const target = (p.part === "outro" ? TARGETS.sleep : TARGETS[p.part]) + (kerst ? KERST_OFFSET : 0);
+  const chain = `[0:a][1:a]afir=dry=7:wet=3[rv];[rv]lowpass=f=${kerst ? 2600 : 7000},highpass=f=40`;
   // The outro is measured on its first 30 s (before the fade), so the fixed gain keeps the fade instead of undoing it.
   const measure = p.part === "outro" ? ",atrim=0:30" : "";
   const m1 = await run(ffmpeg, ["-hide_banner", "-i", raw, "-i", irFile, "-filter_complex", `${chain}${measure},loudnorm=I=${target}:TP=${TRUE_PEAK_MAX - 0.5}:LRA=5:print_format=json`, "-f", "null", "-"]);

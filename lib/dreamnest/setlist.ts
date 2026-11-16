@@ -5,7 +5,7 @@
 import { arrange, composeSong, MELODIES, rng, type Lead, type Melody, type NoteEvent, type Style } from "./music.ts";
 
 export type Part = "story" | "falling_asleep" | "sleep";
-export type Cue = { melody: Melody; style: Style; lead: Lead; second: Lead; bpm: number; transpose: number; thin: number; gapS: number };
+export type Cue = { melody: Melody; style: Style; lead: Lead; second: Lead; bpm: number; transpose: number; thin: number; gapS: number; octave?: number };
 
 const LEADS: Record<Part, Lead[]> = { story: ["musicbox", "celesta", "harp", "felt"], falling_asleep: ["celesta", "felt", "harp"], sleep: ["felt", "harp", "celesta"] };
 const STYLES: Record<Part, Style[]> = { story: ["plain", "answer", "arpeggio"], falling_asleep: ["answer", "arpeggio", "low"], sleep: ["low", "plain", "arpeggio"] };
@@ -17,7 +17,7 @@ const KEYS = [0, 5, 2, -5, -2];
  * range, so no composed song comes back anywhere in the episode.
  */
 /** Options (Dreamnest kerst): other known themes, and softer leads (no music box). */
-export type CueOptions = { themes?: Melody[]; leads?: Partial<Record<Part, Lead[]>>; storyGapS?: number; /** Only the themes (cycled with other key, instrument and style), no composed songs: Dreamnest kerst. */ themesOnly?: boolean; /** The answering instrument (e.g. soft Christmas bells). */ second?: Lead[] };
+export type CueOptions = { themes?: Melody[]; leads?: Partial<Record<Part, Lead[]>>; storyGapS?: number; /** Only the themes (cycled with other key, instrument and style), no composed songs: Dreamnest kerst. */ themesOnly?: boolean; /** Semitones above the written melody (arrange default 12). */ octave?: number; /** The answering instrument (e.g. soft Christmas bells). */ second?: Lead[] };
 
 export function planCues(part: Part, lengthS: number, seed: number, o: CueOptions = {}): Cue[] {
   const r = rng(seed * 31 + part.length);
@@ -41,7 +41,7 @@ export function planCues(part: Part, lengthS: number, seed: number, o: CueOption
     const second = secondPool.filter((l) => l !== lead)[Math.floor(r() * Math.max(1, secondPool.filter((l) => l !== lead).length))] ?? secondPool[0];
     const transpose = KEYS[k % KEYS.length];
     const gapS = part === "story" ? (o.storyGapS ?? 3) : part === "falling_asleep" ? 6 : 14 + Math.round(r() * 14);
-    cues.push({ melody, style, lead, second, bpm, transpose, thin, gapS });
+    cues.push({ melody, style, lead, second, bpm, transpose, thin, gapS, ...(o.octave !== undefined ? { octave: o.octave } : {}) });
     t += (melodyLength(melody) * 60) / bpm + gapS;
   }
   return cues;
@@ -57,7 +57,7 @@ export function renderCues(cues: Cue[], lengthS: number, seed: number): { events
   const events: NoteEvent[] = [];
   let t = 0;
   cues.forEach((c, k) => {
-    const song = arrange(c.melody, c.bpm, { transpose: c.transpose, thin: c.thin, lead: c.lead, second: c.second, style: c.style, seed: seed + k });
+    const song = arrange(c.melody, c.bpm, { transpose: c.transpose, thin: c.thin, lead: c.lead, second: c.second, style: c.style, seed: seed + k, ...(c.octave !== undefined ? { octave: c.octave } : {}) });
     for (const e of song.events) events.push({ ...e, t: e.t + t });
     const pads = song.events.filter((e) => e.instrument === "pad");
     const lastStart = Math.max(...pads.map((e) => e.t));
