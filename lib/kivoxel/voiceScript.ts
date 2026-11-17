@@ -201,7 +201,7 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   }
   lines.sort((a, b) => a.at_ms - b.at_ms);
 
-  return { hook, lines: fillSilences(lines, take, rnd), mainType, used };
+  return { hook, lines: fillSilences(lines, take, rnd, input.targetMs), mainType, used };
 }
 
 /** The tension fillers: interjections and build-up lines (never a description of what is on screen). */
@@ -211,23 +211,40 @@ export const fillerOptions = () => [...persona.expressions.interjection.map((x) 
  * Keep the tension up: no stretch of more than ~6 s without a word before the next line (an explosive narrator does
  * not go quiet for 14 s). Used for the free engine and for the AI script. `take` picks a phrase (with rotation).
  */
-export function fillSilences(lines: VoLine[], take: (options: string[]) => string, rnd: () => number): VoLine[] {
+export function fillSilences(lines: VoLine[], take: (options: string[]) => string, rnd: () => number, /** Video length: the stretch after the last line counts too. */ targetMs?: number): VoLine[] {
   const MAX_GAP = 6000;
+  const STEP = 1500 + 1800 + 2500; // a filler with its pause, as placed before 17-11-2026
   const sorted = [...lines].sort((a, b) => a.at_ms - b.at_ms);
-  const filled: VoLine[] = [];
   const interjections = persona.expressions.interjection.map((x) => `${x[0].toUpperCase()}${x.slice(1)}${/[!?.…—]$/.test(x) ? "" : "…"}`);
+  // Every filler at most once per video (Milan 17-11-2026, "gekke tekst!": a long video said "I don't like this. At ALL."
+  // seven times). Once they are used up the game sound carries the gap.
+  const said = new Set(sorted.map((l) => l.text));
+  const unused = (options: string[]) => options.filter((o) => !said.has(o));
+  // Where a filler could go (every quiet stretch, also the end), then spread the few unique ones over the whole video
+  // instead of spending them all in the first minute and a half.
+  const slots: number[] = [];
   for (const [i, l] of sorted.entries()) {
-    filled.push(l);
     const next = sorted[i + 1];
     let cursor = l.at_ms + estimateMs(l.text) + 1500;
-    const until = next ? next.at_ms - 800 : -Infinity;
+    const until = next ? next.at_ms - 800 : targetMs !== undefined ? targetMs - 1500 : -Infinity;
     while (until - cursor > MAX_GAP - 2000) {
-      const text = take(rnd() < 0.35 ? interjections : templates.build);
-      filled.push({ at_ms: Math.round(cursor + 1500), text, kind: "bridge", style: "spannend" });
-      cursor += 1500 + estimateMs(text) + 2500;
+      slots.push(Math.round(cursor + 1500));
+      cursor += STEP;
     }
   }
-  return filled;
+  const budget = unused([...interjections, ...templates.build]).length;
+  const chosen = slots.length <= budget ? slots : Array.from({ length: budget }, (_, k) => slots[Math.floor(((k + 0.5) * slots.length) / budget)]);
+  const added: VoLine[] = [];
+  for (const at of chosen) {
+    const fresh = unused(rnd() < 0.35 ? interjections : templates.build);
+    const options = fresh.length ? fresh : unused([...interjections, ...templates.build]);
+    if (!options.length) break;
+    const text = take(options);
+    if (said.has(text)) break;
+    said.add(text);
+    added.push({ at_ms: at, text, kind: "bridge", style: "spannend" });
+  }
+  return [...sorted, ...added].sort((a, b) => a.at_ms - b.at_ms);
 }
 
 export type GateItem = { index: number; text: string; ok: boolean; reason: string | null; atMs: number; ms: number; speed: number };

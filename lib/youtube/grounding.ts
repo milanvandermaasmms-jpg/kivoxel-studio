@@ -2,7 +2,7 @@
 // recording (full quality, from the montage plan) go to Gemini, which only reports what is visible: light, health bar,
 // mobs, actions, events. The script must lean on that evidence; a second pass removes or rewrites every line without
 // support. Plus a speaking-time target, so long videos are not 80% silent. Pure functions, tested.
-import type { Format, ScriptLine, Segment } from "./analysis.ts";
+import { readsHud, type Format, type ScriptLine, type Segment } from "./analysis.ts";
 
 export type FramePick = { index: number; srcMs: number; outMs: number; segment: number };
 export type Light = "day" | "night" | "cave_dark" | "cave_lit" | "underwater" | "nether" | "unknown";
@@ -227,9 +227,10 @@ export function applyVerification(lines: ScriptLine[], raw: unknown): Verified {
   const out: ScriptLine[] = [];
   lines.forEach((l, i) => {
     const v = verdicts.get(i);
-    if (!v || v.supported) return void out.push(l);
+    // A line that reads numbers off the HUD (coordinates, clock) never stays, also not as a rewrite (Milan 15-11-2026).
+    if (!v || v.supported) return void (readsHud(l.text) ? dropped++ : out.push(l));
     if (v.issue) issues.push(`${mmss(l.at_ms)}: ${v.issue}`);
-    if (v.rewrite) {
+    if (v.rewrite && !readsHud(v.rewrite)) {
       rewritten++;
       out.push({ ...l, text: v.rewrite });
     } else dropped++;
@@ -346,7 +347,7 @@ export function mergeAdded(lines: ScriptLine[], raw: unknown, gaps: [number, num
   const added = Array.isArray((raw as { lines?: unknown })?.lines) ? ((raw as { lines: unknown[] }).lines as Record<string, unknown>[]) : [];
   const ok = added
     .map((l) => ({ at_ms: lineAt(l.at_ms), text: String(l.text ?? "").replace(/[<>]/g, "").trim().slice(0, 300) }))
-    .filter((l) => Number.isFinite(l.at_ms) && l.at_ms >= 0 && l.at_ms < durationMs && l.text && gaps.some(([a, b]) => l.at_ms >= a && l.at_ms < b));
+    .filter((l) => Number.isFinite(l.at_ms) && l.at_ms >= 0 && l.at_ms < durationMs && l.text && !readsHud(l.text) && gaps.some(([a, b]) => l.at_ms >= a && l.at_ms < b));
   return [...lines, ...ok].sort((a, b) => a.at_ms - b.at_ms);
 }
 

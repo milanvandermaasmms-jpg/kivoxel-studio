@@ -304,10 +304,10 @@ export async function createManualVideos(studioId: string, recordingId: string, 
  * `remontage` (Event Timeline, anticipation, sync gate); the worker approves that version itself and starts the
  * montage, because Milan asked for exactly this. The new montage goes to his review again; publishing stays his click.
  */
-export async function remontage(studioId: string, items: { videoId: string; nextVersion: number }[]): Promise<number> {
+export async function remontage(studioId: string, items: { videoId: string; nextVersion: number; /** Why Milan sent it back: the script writer changes what it asks. */ note?: string | null }[]): Promise<number> {
   let queued = 0;
   for (const i of items) {
-    const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: i.videoId, step: "script", idempotency_key: `script:${i.videoId}:v${i.nextVersion}`, payload: { version: i.nextVersion, remontage: true } });
+    const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: i.videoId, step: "script", idempotency_key: `script:${i.videoId}:v${i.nextVersion}`, payload: { version: i.nextVersion, remontage: true, ...(i.note?.trim() ? { note: i.note.trim().slice(0, 500) } : {}) } });
     if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
     if (!error) queued++;
   }

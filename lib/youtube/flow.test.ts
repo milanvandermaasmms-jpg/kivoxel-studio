@@ -75,3 +75,26 @@ describe("privacyOf", () => {
     expect(privacyOf(pub({ status: "published", visibility: "public" }))).toBe("public");
   });
 });
+
+describe("sent back after the preview (Milan 17-11-2026: they looked stuck on 'Wacht op montage')", () => {
+  it("shows Milan's reason and waits for his choice instead of a montage", () => {
+    const done = job({ status: "done" });
+    expect(placeOf(video({ review_note: "tekst klopt niet" }), [script({ version: 2 })], null, [done])).toMatchObject({ flow: "production", reason: "Afgekeurd na de preview: tekst klopt niet", rejected: true });
+    const item = buildFlow([video({ review_note: "gekke tekst!" })], [script({ version: 1, status: "rejected" }), script({ id: "s3", version: 3 })], [], () => "t", [done])[0];
+    expect(item).toMatchObject({ rejected: true, nextVersion: 4 });
+  });
+  it("is busy again once the new version runs", () => {
+    expect(placeOf(video({ review_note: "x", status: "rendering" }), [script()], null, [job({ status: "running" })])).toMatchObject({ flow: "production", sub: "montage" });
+    expect(placeOf(video(), [script()], null, [])).not.toHaveProperty("rejected", true);
+  });
+  it("shows the new script being written right after 'Opnieuw maken', no second button", () => {
+    const place = placeOf(video({ review_note: "tekst klopt niet" }), [script({ version: 2 })], null, [job({ status: "done" }), job({ id: "j2", step: "script", status: "queued", created_at: "2026-11-17T17:50:00Z" })]);
+    expect(place).toMatchObject({ flow: "production", sub: "script", job: { id: "j2" } });
+    expect(place.rejected).toBeFalsy();
+  });
+  it("a cancelled montage with a newer script on its way is in production, not failed", () => {
+    const jobs = [job({ status: "cancelled", created_at: "2026-11-17T17:00:00Z" }), job({ id: "j2", step: "script", status: "queued", created_at: "2026-11-17T17:20:00Z" })];
+    expect(placeOf(video(), [script()], null, jobs)).toMatchObject({ flow: "production", sub: "script" });
+    expect(placeOf(video(), [script()], null, [jobs[0]]).flow).toBe("failed");
+  });
+});

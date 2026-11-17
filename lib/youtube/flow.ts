@@ -40,7 +40,7 @@ const MAIN_STEPS = ["intake", "analyse", "script", "render", "upload", "publish"
 const open = (j: { status: string }) => j.status === "queued" || j.status === "running";
 const newest = <T extends { created_at: string }>(xs: T[]) => [...xs].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
 
-export type Place = { flow: Flow; sub: Sub | null; reviewKind: "concept" | "final" | null; reason: string | null; job: FlowJob | null };
+export type Place = { flow: Flow; sub: Sub | null; reviewKind: "concept" | "final" | null; reason: string | null; job: FlowJob | null; /** Sent back by Milan after the preview; waits for his choice. */ rejected?: boolean };
 
 /** Where one video belongs, from its status, scripts, publication and jobs. The single source of truth. */
 export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPublication | null, jobs: FlowJob[]): Place {
@@ -69,8 +69,14 @@ export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPubli
     if (scriptJob?.status === "failed") return { ...base, flow: "failed", sub: "script", reason: `Script mislukt${scriptJob.error ? `: ${scriptJob.error}` : ""}`, job: scriptJob };
     return { ...base, flow: "production", sub: "script", job: scriptJob && open(scriptJob) ? scriptJob : null };
   }
+  // A new script after the last montage (e.g. "Opnieuw maken" after a cancelled or rejected montage): that is what happens now.
+  if (scriptJob && open(scriptJob) && (!renderJob || scriptJob.created_at > renderJob.created_at)) return { ...base, flow: "production", sub: "script", job: scriptJob };
   if (renderJob?.status === "failed" || renderJob?.status === "cancelled") return { ...base, flow: "failed", sub: "montage", reason: `Montage ${renderJob.status === "cancelled" ? "geannuleerd" : "mislukt"}${renderJob.error ? `: ${renderJob.error}` : ""}`, job: renderJob };
   const busy = renderJob && open(renderJob) ? renderJob : null;
+  // A new script is being written (e.g. "Opnieuw maken" after a rejection): show that, not the old rejection.
+  if (!busy && scriptJob && open(scriptJob)) return { ...base, flow: "production", sub: "script", job: scriptJob };
+  // Milan sent the montage back after the preview: nothing runs until he chooses (make it again, or archive). Not "waiting".
+  if (!busy && video.status === "scripted" && video.review_note) return { ...base, flow: "production", sub: "script", reason: `Afgekeurd na de preview: ${video.review_note}`, rejected: true };
   const voice = !!busy?.phase && /voice|stem/i.test(busy.phase);
   return { ...base, flow: "production", sub: voice ? "voiceover" : "montage", job: busy };
 }
@@ -112,6 +118,10 @@ export type FlowItem = {
   isTest: boolean;
   createdAt: string;
   error: string | null;
+  /** Sent back by Milan after the preview (reason holds his note): make it again or archive. */
+  rejected: boolean;
+  /** Next free script version (for "make it again"). */
+  nextVersion: number;
 };
 
 /** The worker's main lane in order: running first, then the oldest queued step. */
@@ -148,6 +158,8 @@ export function buildFlow(videos: FlowVideo[], scripts: BoardScript[], publicati
         youtubeId: p?.youtube_video_id ?? v.youtube_video_id ?? null,
         isTest: v.is_test,
         createdAt: v.created_at,
+        rejected: !!place.rejected,
+        nextVersion: Math.max(0, ...scripts.filter((s) => s.video_id === v.id).map((s) => s.version)) + 1,
         error: place.flow === "ready" ? place.reason : null,
       };
     })

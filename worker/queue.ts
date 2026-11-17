@@ -695,7 +695,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note, evidence: facts || undefined, story: storyText || undefined });
           const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
           const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
-          if ("lines" in lines) {
+          // Almost nothing left after the checks (17-11-2026: one line for a 6-minute video, the rest read screen text):
+          // the free engine writes the lines instead of fillers alone carrying the video.
+          const tooFew = "lines" in lines && lines.lines.length < Math.min(6, Math.max(2, Math.floor(plan.targetMs / 45_000)));
+          if ("lines" in lines && !tooFew) {
             // The AI may leave long silences: fill them with tension lines, like the free engine does.
             const fillRnd = seeded(`${video.data.id}:fill:${version}`);
             const usedNow: string[] = [];
@@ -704,14 +707,14 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
               usedNow.push(t);
               return t;
             };
-            const filled = fillSilences(lines.lines, take, fillRnd);
+            const filled = fillSilences(lines.lines, take, fillRnd, plan.targetMs);
             draft = { ...draft, lines: filled };
             void montage?.phrases?.add(filled.map((l) => l.text)).catch(() => {});
           } else {
             // Lines without events cannot pass the sync gate: the free engine writes them instead (same timeline).
             const f = free();
             draft = { ...draft, lines: f.lines };
-            engineNote = `Anticipatie-regels van de AI onbruikbaar (${lines.error}); zinnen uit de gratis sjabloon-engine`;
+            engineNote = `Anticipatie-regels van de AI onbruikbaar (${"error" in lines ? lines.error : `maar ${lines.lines.length} bruikbare regels`}); zinnen uit de gratis sjabloon-engine`;
           }
         } catch (e) {
           if (e instanceof CancelledError) throw e;

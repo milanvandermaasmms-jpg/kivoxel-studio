@@ -419,7 +419,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
 
           {tab === "production" && (
             <>
-              {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} />)}
+              {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
               <Fold title="Live meekijken" intro="Preview, stappen en logboek van wat de werker nu doet.">
                 <LiveCenter studioId={studio.id} analysis={analysis.state?.ready ? analysis.state : null} workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
               </Fold>

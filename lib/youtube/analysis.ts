@@ -548,11 +548,36 @@ const FORMAT_RULES: Record<Format, string> = {
  * The narrator's voice (14-11-2026, Milan): the viewers are kids, so the voice-over is an excited gaming buddy, not a
  * calm documentary voice. The excitement is about what really happens on screen; nothing is invented.
  */
+/**
+ * Milan 15-11-2026 ("hij benoemt de tijd en gekke coördinaten!"): the narrator never reads numbers off the screen's HUD.
+ * The prompt says so, and readsHud() drops a line that still does it.
+ */
+export const HUD_RULE =
+  "Never read numbers off the screen or its HUD: no coordinates or position (x, y, z), no clock time or time of day, no day counter, no FPS, no seed, no settings. Talk about what happens, not about the numbers in the corner. Never read on-screen text aloud either: no chat, death messages, recipe or advancement pop-ups, titles or signs, and no quoted text.";
+
 export const NARRATOR_VOICE = [
   "Audience: kids who love Minecraft (about 8-12 years old). Narrate like their most excited gaming buddy: high energy, warm and friendly, real reactions to what happens.",
   "Use short punchy sentences, simple words and exclamation marks where the action is; talk to the viewer (\"Look at that!\", \"Watch out!\", \"No way!\"), and let the energy rise toward every payoff.",
   "Vary the rhythm: a quick burst in the action, one short quieter line before a big moment, then the reaction. Never flat, never sarcastic, never mean, no swearing, nothing gory; no fake hype about things that are not on screen.",
+  HUD_RULE,
 ];
+
+const HUD_TEXT = [
+  /\bco-?ordinates?\b/i,
+  /\b(position|seed|fps|frames per second|game ?time|ticks?)\b/i,
+  /\b[xyz]\s*[:=]?\s*-?\d{2,}/i,
+  /-?\d+(\.\d+)?\s*[,/]\s*-?\d+(\.\d+)?\s*[,/]\s*-?\d+/,
+  /\b\d{1,2}:\d{2}\b/,
+  /\b\d{1,2}\s*(o'?clock|a\.?m\.?|p\.?m\.?)(?=\W|$)/i,
+  /\b(it'?s|the time is)\s+(now\s+)?\d/i,
+  /\bday\s*(counter|#)?\s*\d{2,}\b/i,
+  // On-screen text read aloud (Milan 17-11-2026 review): quotes and the usual Minecraft pop-ups.
+  /["“”]/,
+  /\b(recipes? unlocked|crafting table!|respawn point|fell from a high place|can only sleep|advancement made|joined the game|left the game|was slain by|was blown up by)\b/i,
+];
+
+/** True when a narration line reads numbers off the HUD (coordinates, clock, day counter): such a line is dropped. */
+export const readsHud = (text: string): boolean => HUD_TEXT.some((r) => r.test(text));
 
 /** Shorts live or die in the first seconds: what the first line, the overlay and the first second must do. */
 export const SHORT_OPENING = [
@@ -626,7 +651,7 @@ export function parseScript(raw: unknown, targetMs: number): { draft: ScriptDraf
     const item = l && typeof l === "object" ? (l as Record<string, unknown>) : null;
     const at = item ? int(item.at_ms) : null;
     const t = item ? text(item.text, 400) : null;
-    if (at !== null && t && at >= 0 && at <= targetMs) lines.push({ at_ms: at, text: t });
+    if (at !== null && t && at >= 0 && at <= targetMs && !readsHud(t)) lines.push({ at_ms: at, text: t });
   }
   if (!lines.length) return { error: "geen bruikbare scriptregels" };
   lines.sort((a, b) => a.at_ms - b.at_ms);

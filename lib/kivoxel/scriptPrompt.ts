@@ -3,7 +3,7 @@
 // second paid call.
 import { looksDutch, persona, type EventType, type Language, type Settings } from "./config.ts";
 import type { EventTimeline, GameEvent } from "./events.ts";
-import type { Segment } from "../youtube/analysis.ts";
+import { HUD_RULE, readsHud, type Segment } from "../youtube/analysis.ts";
 import { estimateMs, eventsInMontage, type LineKind, type TtsStyle, type VoLine } from "./voiceScript.ts";
 
 /**
@@ -19,7 +19,8 @@ export function englishDescription(e: GameEvent): string {
   if (e.kind === "audio_peak") return "a sudden loud sound (an explosion, a hit or a mob)";
   if (e.kind === "kid_reaction") return "the kids react loudly";
   // AI moments come from the analysis, which writes in English.
-  return looksDutch(e.description) ? "something exciting happens" : e.description;
+  // Quoted on-screen text (death messages, pop-ups) invites the model to read it aloud: leave it out.
+  return looksDutch(e.description) ? "something exciting happens" : e.description.replace(/["“][^"”]*["”]/g, "an on-screen message");
 }
 
 /** Things the narrator must never say (they push viewers away or make them lower the sound). */
@@ -54,6 +55,7 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
     `The first line is the hook: spoken within the first 0.5 s, at most 7 words, no greeting, no "in this video". Make it explosive, not calm.`,
     "Never leave more than 6 seconds without a line before the next moment: keep the tension up with short build-up lines.",
     "Never tell viewers to turn their sound down, look away, skip or leave; never mention speakers, volume or the video itself.",
+    HUD_RULE,
     "",
     `Voice: ${p.feel.age}; energy: ${p.feel.energy}; humor: ${p.feel.humor}. Kid-friendly, never mean.`,
     ...p.style_rules.map((r) => `- ${r}`),
@@ -81,13 +83,15 @@ export function parseAnticipation(json: unknown, ids: Map<string, number>, segme
   for (const r of raw as Record<string, unknown>[]) {
     let text = typeof r.text === "string" ? r.text.trim().replace(/\s+/g, " ").slice(0, 200) : "";
     // Lines that send viewers away or make them lower the sound cost retention: take a clean shorter version, or drop it.
-    if (BAD.test(text)) text = Array.isArray(r.shorter) ? ((r.shorter as unknown[]).find((a): a is string => typeof a === "string" && !!a.trim() && !BAD.test(a)) ?? "").trim() : "";
+    // Same for a line that reads numbers off the HUD (Milan 15-11-2026: "hij benoemt de tijd en gekke coördinaten!").
+    const wrong = (t: string) => BAD.test(t) || readsHud(t);
+    if (wrong(text)) text = Array.isArray(r.shorter) ? ((r.shorter as unknown[]).find((a): a is string => typeof a === "string" && !!a.trim() && !wrong(a)) ?? "").trim() : "";
     if (!text) continue;
     const kind = KINDS.includes(r.kind as LineKind) ? (r.kind as LineKind) : "bridge";
     const style = STYLES.includes(r.style as TtsStyle) ? (r.style as TtsStyle) : "normaal";
     const src = typeof r.event === "string" ? ids.get(r.event) : undefined;
     const ev = src !== undefined ? events.find((e) => e.t_peak === src) : undefined;
-    const alts = Array.isArray(r.shorter) ? (r.shorter as unknown[]).filter((a): a is string => typeof a === "string" && a.trim().length > 0 && a.length < text.length).map((a) => a.trim()).slice(0, 3) : [];
+    const alts = Array.isArray(r.shorter) ? (r.shorter as unknown[]).filter((a): a is string => typeof a === "string" && a.trim().length > 0 && a.length < text.length && !wrong(a)).map((a) => a.trim()).slice(0, 3) : [];
     let at = cursor;
     if (kind === "hook") at = 0;
     else if (ev && kind === "anticipation") at = Math.max(0, ev.peak_out - 600 - estimateMs(text));

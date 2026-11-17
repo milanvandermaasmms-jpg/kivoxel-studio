@@ -208,6 +208,26 @@ describe("AI script safety", () => {
     const filled = fillSilences(r.lines, (o) => pick(o, [], rnd), rnd);
     expect(filled.length).toBeGreaterThan(r.lines.length);
   });
+  it("never repeats a filler in a long video; the game sound carries the rest (Milan 17-11-2026: 'gekke tekst!')", async () => {
+    const { fillSilences, pick, seeded: sd } = await import("./voiceScript");
+    const rnd = sd("long");
+    const filled = fillSilences([{ at_ms: 0, text: "GO!", kind: "hook", style: "schreeuw" }, { at_ms: 500_000, text: "THAT WAS INSANE!", kind: "reaction", style: "schreeuw" }], (o) => pick(o, [], rnd), rnd);
+    const texts = filled.map((l) => l.text);
+    expect(new Set(texts).size).toBe(texts.length);
+    expect(filled.length).toBeGreaterThan(5);
+    // Spread over the whole video, not all in the first minute and a half.
+    const bridges = filled.filter((l) => l.kind === "bridge").map((l) => l.at_ms);
+    expect(Math.max(...bridges)).toBeGreaterThan(400_000);
+    expect(Math.min(...bridges)).toBeLessThan(60_000);
+  });
+  it("also fills the stretch after the last line when it knows the video length", async () => {
+    const { fillSilences, pick, seeded: sd } = await import("./voiceScript");
+    const rnd = sd("tail");
+    const filled = fillSilences([{ at_ms: 0, text: "GO!", kind: "hook", style: "schreeuw" }], (o) => pick(o, [], rnd), rnd, 300_000);
+    expect(filled.length).toBeGreaterThan(5);
+    expect(filled.every((l) => l.at_ms < 300_000)).toBe(true);
+    expect(fillSilences([{ at_ms: 0, text: "GO!", kind: "hook", style: "schreeuw" }], (o) => pick(o, [], rnd), rnd)).toHaveLength(1);
+  });
 });
 
 describe("the AI only gets English", () => {
