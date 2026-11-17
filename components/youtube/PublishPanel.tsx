@@ -248,7 +248,7 @@ function YesNo({ name, value, onChange, yes, no }: { name: string; value: boolea
  */
 const extrasOf = (p: DbPublication): Extras => ({ captions_enabled: p.captions_enabled ?? true, thumbnail_ms: p.thumbnail_ms ?? null });
 
-export function PublishPanel({ studioId, videoId, kind, language, hook, renderId, renderLabel, renderFile = null, renderMs = null, workerOnline = false, onWatch }: { studioId: string; videoId: string; kind: "short" | "long"; language: "en" | "nl"; hook: Hook | null; renderId: string | null; renderLabel: string | null; renderFile?: string | null; renderMs?: number | null; workerOnline?: boolean; onWatch?: () => void }) {
+export function PublishPanel({ studioId, videoId, kind, language, hook, renderId, renderLabel, renderFile = null, renderMs = null, workerOnline = false, selfUpload = false, onWatch }: { studioId: string; videoId: string; kind: "short" | "long"; language: "en" | "nl"; hook: Hook | null; renderId: string | null; renderLabel: string | null; renderFile?: string | null; renderMs?: number | null; workerOnline?: boolean; /** Opened with "Zelf uploaden": that block opens at once and comes into view. */ selfUpload?: boolean; onWatch?: () => void }) {
   const [row, setRow] = useState<DbPublication | null | "migration" | undefined>(undefined);
   const [draft, setDraft] = useState<PublicationDraft>(EMPTY_DRAFT(language));
   const [busy, setBusy] = useState(false);
@@ -387,6 +387,15 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   // A test video is known from its script before there is a draft: it only ever goes to YouTube as private.
   const isTest = current ? !!current.is_test : !!gateCtx && isTestVideo(gateCtx);
   const onYouTube = !!current?.youtube_video_id;
+  // Zelf uploaden (18-11-2026): the chosen title is stored quietly, so the worker can recognise the hand upload by it.
+  async function rememberDraft() {
+    if (locked || onYouTube || !draft.title.trim() || draftProblems(draft).length) return;
+    try {
+      setRow(await savePublication(studioId, videoId, renderId, draft, current ? current.id : null, extrasReady ? extras : undefined));
+    } catch {
+      /* not essential: the link field still works */
+    }
+  }
   const base = uploadProblems({ ...draft, publish_at: null });
   const scheduleOk = draft.visibility === "private" && !!draft.publish_at && before.length === 0;
   const publishOk = draft.visibility !== "private" && !draft.publish_at;
@@ -608,7 +617,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
             <ThumbnailPicker file={renderFile} durationMs={renderMs} valueMs={extras.thumbnail_ms} onChange={(ms) => setExtras({ ...extras, thumbnail_ms: ms })} workerOnline={workerOnline} />
           </div>
         )}
-        {!onYouTube && <SelfUpload videoId={videoId} renderFile={renderFile} thumbs={thumbs} title={draft.title} description={draft.description} tags={draft.tags} workerOnline={workerOnline} />}
+        {!onYouTube && <SelfUpload startOpen={selfUpload} onRemember={rememberDraft} videoId={videoId} renderFile={renderFile} thumbs={thumbs} title={draft.title} description={draft.description} tags={draft.tags} workerOnline={workerOnline} />}
         <p className="flex flex-wrap items-center gap-1.5 text-slate-500">
           {!extrasReady && <>Ondertitels en thumbnail: met migratie 040 · </>}Playlist <StatusBadge status="later" />
         </p>

@@ -19,6 +19,7 @@ import { createUploader } from "./youtubeUpload.ts";
 import { createStats } from "./youtubeStats.ts";
 import { createStatsSync } from "./statsSync.ts";
 import { createManualLink } from "./manualLinkRoute.ts";
+import { createAutoLink } from "./autoLink.ts";
 import { createClient } from "@supabase/supabase-js";
 import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
@@ -195,6 +196,8 @@ const publisher: Publisher | null = youtube.configured && montage ? { uploader: 
 const statsSync = youtube.configured && supabaseUrl && serviceKey ? createStatsSync({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), stats: createStats({ yt: youtube }), log }) : null;
 // Zelf geüpload (17-11-2026): link a video Milan uploaded by hand to its video in the Studio (1 quota unit).
 const manualLink = youtube.configured && supabaseUrl && serviceKey ? createManualLink({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), youtubeFor: youtubeLink.youtubeFor, log }) : null;
+// 18-11-2026: the same, automatically: a hand upload with the same title as a waiting video is found within 10 minutes.
+const autoLink = manualLink ? createAutoLink({ db: createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } }), youtubeFor: youtubeLink.youtubeFor, link: manualLink, log }) : null;
 // Fase 3.1: reference videos in the niche through the linked YouTube account (only quota, no money).
 const research = youtube.configured ? createResearch({ yt: youtube }) : null;
 const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, workerName, store, log, ai, montage, undefined, publisher, research) : null;
@@ -276,6 +279,7 @@ server.listen(port, "127.0.0.1", () => {
     if (m) log(`YouTube: ${m}`);
     // Statistics only once the link works; the schedule itself checks every 5 minutes what is due.
     void youtube.status().then((s) => s.connected && statsSync?.start());
+    autoLink?.start();
   });
   queue?.start();
   if (ivar) {

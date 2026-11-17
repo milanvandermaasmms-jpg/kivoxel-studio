@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ExternalLink, Rocket } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, Rocket } from "lucide-react";
 import { useState } from "react";
 import { FlowBadge, PrivacyBadge } from "@/components/youtube/FlowBadges";
 import { PublishPanel } from "@/components/youtube/PublishPanel";
@@ -18,11 +18,25 @@ const when = (iso: string) => new Date(iso).toLocaleString("nl-NL", { timeZone: 
  * and the big "Naar YouTube sturen" button. The details (the publication form) open only after a click.
  * Cards keep their place: the order is the creation time of the video, never its status.
  */
+type OpenMode = "send" | "self";
+
 export function VideoQueue({ state, flows, channel, workerOnline, studioId, empty, onOpenProduction, startOpen = false, onArchive, byProject = false }: { state: Ready; flows: Flow[]; channel: string | null; workerOnline: boolean; studioId: string; empty: string; onOpenProduction: () => void; startOpen?: boolean; onArchive?: (videoId: string) => void; byProject?: boolean }) {
-  const [open, setOpen] = useState<string | null>(startOpen ? (state.items[0]?.videoId ?? null) : null);
+  const [open, setOpen] = useState<{ id: string; mode: OpenMode } | null>(startOpen && state.items[0] ? { id: state.items[0].videoId, mode: "send" } : null);
   const items = state.items.filter((i) => flows.includes(i.flow) && (!channel || i.channelId === channel));
   if (items.length === 0) return <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">{empty}</p>;
-  const card = (item: FlowItem) => <VideoCard key={item.videoId} onArchive={onArchive} item={item} state={state} open={open === item.videoId} onToggle={() => setOpen(open === item.videoId ? null : item.videoId)} workerOnline={workerOnline} studioId={studioId} onOpenProduction={onOpenProduction} />;
+  const card = (item: FlowItem) => (
+    <VideoCard
+      key={item.videoId}
+      onArchive={onArchive}
+      item={item}
+      state={state}
+      open={open?.id === item.videoId ? open.mode : null}
+      onOpen={(mode) => setOpen(open?.id === item.videoId && open.mode === mode ? null : { id: item.videoId, mode })}
+      workerOnline={workerOnline}
+      studioId={studioId}
+      onOpenProduction={onOpenProduction}
+    />
+  );
   if (!byProject) return <ul className="space-y-3">{items.map(card)}</ul>;
   // Per project (one recording): the parts of a long story in order, then the Shorts of the same gameplay.
   const groups = groupByProject(items, state.board.input.videos as { id: string; recording_id: string | null; plan_key?: string | null }[], state.board.input.recordings);
@@ -43,7 +57,8 @@ export function VideoQueue({ state, flows, channel, workerOnline, studioId, empt
   );
 }
 
-function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpenProduction, onArchive }: { onArchive?: (videoId: string) => void; item: FlowItem; state: Ready; open: boolean; onToggle: () => void; workerOnline: boolean; studioId: string; onOpenProduction: () => void }) {
+function VideoCard({ item, state, open, onOpen, workerOnline, studioId, onOpenProduction, onArchive }: { onArchive?: (videoId: string) => void; item: FlowItem; state: Ready; open: OpenMode | null; onOpen: (mode: OpenMode) => void; workerOnline: boolean; studioId: string; onOpenProduction: () => void }) {
+  const onToggle = () => onOpen("send");
   const board = state.board;
   const channel = board.channels.find((c) => c.id === item.channelId);
   const video = board.input.videos.find((v) => v.id === item.videoId) as (typeof board.input.videos)[number] & { language?: "en" | "nl" };
@@ -79,11 +94,17 @@ function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpen
           {item.error && <p className="text-xs text-red-700 [overflow-wrap:anywhere]">Laatste fout: {item.error}</p>}
           <div className="flex flex-wrap items-center gap-2">
             {item.flow === "ready" ? (
-              <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#7c3aed] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#6d28d9]">
-                <Rocket className="h-4 w-4" aria-hidden /> {open ? "Sluiten" : "Naar YouTube sturen"}
-              </button>
+              <>
+                <button type="button" onClick={onToggle} aria-expanded={open === "send"} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#7c3aed] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#6d28d9]">
+                  <Rocket className="h-4 w-4" aria-hidden /> {open === "send" ? "Sluiten" : "Naar YouTube sturen"}
+                </button>
+                {/* 18-11-2026: as visible as sending; uploading by hand does not count for the API quota. */}
+                <button type="button" onClick={() => onOpen("self")} aria-expanded={open === "self"} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#155e75]">
+                  <Download className="h-4 w-4" aria-hidden /> {open === "self" ? "Sluiten" : "Zelf uploaden"}
+                </button>
+              </>
             ) : (
-              <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={panelId} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
+              <button type="button" onClick={onToggle} aria-expanded={!!open} aria-controls={panelId} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">
                 {item.flow === "uploading" ? "Voortgang" : "Zichtbaarheid en details"} <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
               </button>
             )}
@@ -112,6 +133,7 @@ function VideoCard({ item, state, open, onToggle, workerOnline, studioId, onOpen
             renderFile={render?.file_name ?? null}
             renderMs={render?.duration_ms ?? null}
             workerOnline={workerOnline}
+            selfUpload={open === "self"}
             onWatch={onOpenProduction}
             renderLabel={render ? `${new Date(render.created_at).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Amsterdam" })}, ${formatTimecode(render.duration_ms)}, ${render.width}×${render.height}` : null}
           />

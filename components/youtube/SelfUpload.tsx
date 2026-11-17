@@ -1,7 +1,7 @@
 "use client";
 // Zelf uploaden (17-11-2026): the montage, a thumbnail and the texts to put a video on YouTube by hand in YouTube Studio,
 // for days when the YouTube API quota is used up. Uploading by hand does not count for the API quota.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { downloadName } from "@/lib/youtube/downloadName";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { linkManualUpload } from "@/lib/youtube/workerClient";
@@ -43,10 +43,14 @@ async function saveFromWorker(file: string, name: string): Promise<boolean> {
 
 const WHEN = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export function SelfUpload({ videoId, renderFile, thumbs, title, description, tags, workerOnline, onLinked }: { videoId: string; renderFile: string | null; thumbs: { file: string; label: string }[]; title: string; description: string; tags: string[]; workerOnline: boolean; onLinked?: () => void }) {
+export function SelfUpload({ videoId, renderFile, thumbs, title, description, tags, workerOnline, onLinked, startOpen = false, onRemember }: { videoId: string; renderFile: string | null; thumbs: { file: string; label: string }[]; title: string; description: string; tags: string[]; workerOnline: boolean; onLinked?: () => void; /** Opened with the "Zelf uploaden" button on the card. */ startOpen?: boolean; /** Stores the chosen title, so the worker can recognise the upload by it. */ onRemember?: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [link, setLink] = useState("");
+  const box = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (startOpen) box.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [startOpen]);
   if (!renderFile) return null;
 
   async function connect() {
@@ -67,6 +71,7 @@ export function SelfUpload({ videoId, renderFile, thumbs, title, description, ta
   async function save(file: string, name: string, what: string) {
     setBusy(file);
     setNote(null);
+    void onRemember?.();
     try {
       if (await saveFromWorker(file, name)) setNote(`${what} opgeslagen als "${name}".`);
     } catch (e) {
@@ -76,6 +81,7 @@ export function SelfUpload({ videoId, renderFile, thumbs, title, description, ta
     }
   }
   async function copy(text: string, what: string) {
+    if (what === "Titel") void onRemember?.();
     try {
       await navigator.clipboard.writeText(text);
       setNote(`${what} gekopieerd.`);
@@ -86,10 +92,14 @@ export function SelfUpload({ videoId, renderFile, thumbs, title, description, ta
 
   const button = "rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50 disabled:opacity-50";
   return (
-    <details className="rounded-md bg-slate-50 p-2">
-      <summary className="cursor-pointer font-medium">Zelf uploaden in YouTube Studio</summary>
+    <details ref={box} open={startOpen || undefined} className="scroll-mt-4 rounded-md border border-cyan-200 bg-cyan-50/60 p-2">
+      <summary className="cursor-pointer font-medium">⬇ Zelf uploaden in YouTube Studio</summary>
       <div className="mt-2 space-y-2">
-        <p className="text-slate-500">Voor als het YouTube-quotum van vandaag op is: handmatig uploaden telt daar niet voor mee. Download de video en een thumbnail, kopieer de teksten en upload ze zelf op studio.youtube.com.</p>
+        <ol className="list-decimal space-y-0.5 pl-5 text-slate-600">
+          <li>Kies hierboven de titel en download de video en een thumbnail.</li>
+          <li>Upload hem op studio.youtube.com met <b>precies die titel</b> (hashtags erachter mag).</li>
+          <li>Klaar: de Studio vindt hem binnen 10 minuten vanzelf en zet hem bij Ingepland of Live.</li>
+        </ol>
         {!workerOnline && <p className="text-amber-700">Start de werker om te kunnen downloaden.</p>}
         <div className="flex flex-wrap gap-2">
           <button type="button" className={button} disabled={!workerOnline || !!busy} onClick={() => void save(renderFile, downloadName(title, "mp4"), "Video")}>
@@ -108,16 +118,16 @@ export function SelfUpload({ videoId, renderFile, thumbs, title, description, ta
         </div>
         {note && <p className="text-slate-600" role="status">{note}</p>}
         <p className="text-slate-500">Let op: zet bij het uploaden zelf &quot;Gemaakt voor kinderen&quot;, de zichtbaarheid en, als er een gekloonde stem in zit, de AI-melding goed.</p>
-        <div className="space-y-1 rounded-md border border-slate-200 p-2">
-          <p className="font-medium">Geüpload? Koppel hem hier</p>
-          <p className="text-slate-500">Plak de YouTube-link van de video. De Studio zet hem dan bij Ingepland of Live, en verstuurt hem nooit nog een keer.</p>
-          <div className="flex flex-wrap gap-2">
+        <details className="rounded-md border border-slate-200 p-2">
+          <summary className="cursor-pointer text-slate-600">Lukt het niet automatisch? Plak de link</summary>
+          <p className="mt-1 text-slate-500">Bijvoorbeeld als je een andere titel hebt gebruikt. De Studio zet hem dan bij Ingepland of Live, en verstuurt hem nooit nog een keer.</p>
+          <div className="mt-1 flex flex-wrap gap-2">
             <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://youtube.com/shorts/…" className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1" aria-label="YouTube-link" />
             <button type="button" className={button} disabled={!workerOnline || !link.trim() || !!busy} onClick={() => void connect()}>
               {busy === "link" ? "Bezig…" : "Koppelen"}
             </button>
           </div>
-        </div>
+        </details>
       </div>
     </details>
   );
