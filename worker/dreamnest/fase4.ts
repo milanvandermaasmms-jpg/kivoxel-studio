@@ -7,9 +7,9 @@
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants, homedir, setPriority, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { judgeAudio, KERST_OFFSET, parseEbur128, parseSilences, TARGETS } from "../../lib/dreamnest/audioqc.ts";
 import { calmEndFrame } from "../../lib/dreamnest/motion.ts";
 import { buildEpisodeTimeline, buildKerstTimeline, dimFilter, episodeLength, PARTS, planPieces, type AssetV2 as Asset, type Piece } from "../../lib/dreamnest/timeline.ts";
@@ -44,7 +44,7 @@ const kerstLoops = join(base, "fase2", "kerst");
 const keyDir = join(base, "keyframes", kerst ? "huiskamer-kerst" : "huiskamer-01");
 // Fase 6 (crisp motion, new music): its own folder, so the earlier version stays as it was.
 const out = join(base, "fase4", renderFolder(minutes, kerst ? "kerst" : "gewoon"));
-const assetsDir = join(out, "assets-v3"), piecesDir = join(out, "pieces"), audioDir = join(out, "audio");
+const assetsDir = join(out, kerst ? "assets-v5" : "assets-v3"),piecesDir = join(out, "pieces"), audioDir = join(out, "audio");
 const ffmpeg = findTool("ffmpeg", env.FFMPEG_PATH);
 const ffprobe = findTool("ffprobe", env.FFPROBE_PATH);
 const log = (m: string) => console.log(`[${new Date().toLocaleTimeString("nl-NL")}] ${m}`);
@@ -102,7 +102,16 @@ const waitForKivoxel = () => waitKivoxelFirst(log);
 /** Kerst: length of the breathing still (one full breath, loops seamlessly). */
 const BREATH_S = 120;
 /** Kerst: only the views the sleep part uses get a still (saves render time). */
-const KERST_STILLS = ["b03-pip-arrives", "b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
+/**
+ * Kerst story clips checked frame by frame (Milan 17-11-2026: "de deur bij de binnenkomst doet raar"; "haal alle fouten
+ * eruit, desnoods minder beweging"). Rejected: b02 (a door grows out of the wall as the owl comes in) and b08 (Lumi
+ * jumps up and the camera jumps to a close-up). Last good frame of the others, before the AI cuts or dissolves away.
+ */
+// Motor standard of 17-11-2026 (docs/dreamnest-motor-regels.md): no walking, one calm motion per shot. The walk-in
+// clips b03 and b05 break that (several characters walking, AI morphing), so all story clips stay out.
+const KERST_STORY_REJECTED = ["story-b02-lumi-rocking-chair", "story-b03-pip-arrives", "story-b05-mo-by-fire", "story-b08-blanket-together"];
+const KERST_STORY_END: Record<string, number> = { "story-b03-pip-arrives": 98, "story-b05-mo-by-fire": 98 };
+const KERST_STILLS = ["b05-mo-by-fire", "b06-window-momo", "b08-blanket-together", "b09-lumi-falls-asleep", "b10-sleep-loop-base"];
 const CLIPS = readdirClips();
 const SET = JSON.parse(readFileSync(join(resolve(import.meta.dirname, "../.."), "content", "dreamnest", "sets", "huiskamer.json"), "utf8")) as { weather?: Weather; regions?: Record<string, Region> };
 if (kerst) {
@@ -128,7 +137,7 @@ function smoothZoom(amount: number, n: number, cx: number, cy: number) {
 function readdirClips() {
   if (kerst) {
     // Kerst: the Christmas loops and stills only (no AI story moments: they jumped from moving to frozen).
-    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^(loop|story)-b\d\d-.*\.mp4$/.test(f) && !f.includes(".ruw.")).map((f) => ({ id: f.replace(/\.mp4$/, ""), kind: (f.startsWith("story-") ? "story" : "loop") as "story" | "loop", file: join(kerstLoops, f) }));
+    const clips: { id: string; kind: "story" | "loop" | "still"; file: string }[] = readdirSync(kerstLoops).filter((f) => /^(loop|story)-b\d\d-.*\.mp4$/.test(f) && !f.includes(".ruw.") && !KERST_STORY_REJECTED.includes(f.replace(/\.mp4$/, ""))).map((f) => ({ id: f.replace(/\.mp4$/, ""), kind: (f.startsWith("story-") ? "story" : "loop") as "story" | "loop", file: join(kerstLoops, f) }));
     // Without the moving loops the story part would be skipped entirely (bug of 16-11-2026): stop instead.
     if (!clips.length) throw new Error(`Geen kerstlussen gevonden in ${kerstLoops}`);
     clips.push({ id: "story-b01-welcome-exterior", kind: "story", file: join(keyDir, "b01-welcome-exterior.png") });
@@ -140,6 +149,24 @@ function readdirClips() {
   // Fase 6: a still of every keyframe after the welcome, for scenes without a loop and for the calm sleep views.
   for (const f of readdirSync(join(base, "keyframes", "huiskamer-01")).filter((x) => /^b(0[2-9]|10)-.*\.png$/.test(x))) clips.push({ id: `still-${f.replace(/\.png$/, "")}`, kind: "still", file: join(base, "keyframes", "huiskamer-01", f) });
   return clips;
+}
+
+/**
+ * Motor rule 2 (Milan 17-11-2026): the camera stands still. AI loops drift and zoom slowly, and at the loop seam the
+ * zoom turns around abruptly (a little bump every 8 s). worker/dreamnest/lock_camera.py aligns every frame to the
+ * first (zoom + shift, with the local torch of the voice environment) and hides the edges with one fixed zoom.
+ */
+async function lockCamera(id: string, file: string) {
+  const python = join(dirname(base), "kivoxel-tts", "chatterbox-venv", "Scripts", "python.exe");
+  if (!existsSync(python)) {
+    log(`${id}: camera niet vastgezet (Python-omgeving ontbreekt)`);
+    return;
+  }
+  const locked = `${file}.lock.mp4`;
+  const outText = execFileSync(python, ["-I", join(import.meta.dirname, "lock_camera.py"), file, locked, ffmpeg, String(FPS)], { maxBuffer: 1 << 20 }).toString().trim();
+  await rm(file, { force: true });
+  await rename(locked, file);
+  log(`${id}: camera vastgezet ${outText.split("\n").pop()}`);
 }
 
 async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file: string }): Promise<Asset> {
@@ -162,8 +189,9 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
       // The AI sometimes jumps to another camera position halfway (a hard cut): only the part before the first cut is used.
       const steps = parseAllSsim(await ff(["-i", c.file, "-filter_complex", `[0:v]${norm},scale=480:-2,${STEPS}`, "-f", "null", "-"]));
       const cut = steps.findIndex((v) => v < 0.6);
-      const endFrame = cut >= 0 ? Math.max(FPS * 2, cut - 1) : steps.length + 1;
-      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end_frame=${endFrame},tmix=frames=3:weights='1 2 1',setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
+      // The AI also dissolves into another shot (no hard cut, so not found above): checked frame by frame on 17-11-2026.
+      const endFrame = Math.min(cut >= 0 ? Math.max(FPS * 2, cut - 1) : steps.length + 1, KERST_STORY_END[c.id] ?? Infinity);
+      await ff(["-y", "-v", "error", "-i", c.file, "-filter_complex", `[0:v]${norm},trim=end_frame=${endFrame},${ADAPTIVE_CALM},setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
       log(`${c.id}: verhaalclip ${cut >= 0 ? `tot de knip (${(endFrame / FPS).toFixed(1)} s)` : "heel"}, flikkeren gedempt`);
     } else if (c.kind === "story") {
       // The own-scene part: until the picture looks more like the next scene than like its own start, never past a cut.
@@ -196,8 +224,9 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
       // A soft temporal blend over 5 frames (1-2-3-2-1) takes 71% of that flicker away and keeps 83% of the real motion
       // (measured on loop-b02). Done on three copies of the loop and the middle one is kept, so the seam stays seamless.
       const loopFrames = Math.round(probeDur(c.file) * FPS);
-      await ff(["-y", "-v", "error", "-stream_loop", "2", "-i", c.file, "-filter_complex", `[0:v]${norm},tmix=frames=5:weights='1 2 3 2 1',trim=start_frame=${loopFrames}:end_frame=${2 * loopFrames},setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
+      await ff(["-y", "-v", "error", "-stream_loop", "2", "-i", c.file, "-filter_complex", `[0:v]${norm},${kerst ? ADAPTIVE_CALM : "tmix=frames=5:weights='1 2 3 2 1'"},trim=start_frame=${loopFrames}:end_frame=${2 * loopFrames},setpts=N/${FPS}/TB[v]`, "-map", "[v]", ...ENC, tmp]);
       log(`${c.id}: lus op eigen snelheid, flikkeren gedempt`);
+      if (kerst) await lockCamera(c.id, tmp);
     }
     // Same average brightness for every clip, so a cross-fade between two scenes never jumps in light;
     // getting darker is left to the dim curve alone.
@@ -212,14 +241,46 @@ async function prepAsset(c: { id: string; kind: "story" | "loop" | "still"; file
   return { id: c.id, kind: c.kind, lengthS: probeDur(dst) };
 }
 
+/**
+ * Motion-adaptive anti-flicker (Milan 17-11-2026: "de bewegingen van Lumi zijn vaag"). A 5-frame blend takes the AI
+ * "boiling" away, but on a walking or rocking character it left a blur. Here the blend is only used where the picture
+ * hardly changes; wherever something really moves (difference with the blend above 18 levels, widened and softened)
+ * the original sharp frame stays. Measured: loop flicker 0.91 -> 0.46, no ghosting on the walking fox.
+ */
+const ADAPTIVE_CALM =
+  "format=yuv444p,split=3[r1][r2][r3];[r2]tmix=frames=5:weights='1 2 3 2 1',split[t1][t2];" +
+  "[r3][t1]blend=all_mode=difference,extractplanes=y,lut=c0='clip((val-18)*12,0,255)',dilation,dilation,gblur=sigma=5,mergeplanes=0x000000:yuv444p[mk];" +
+  "[t2][r1][mk]maskedmerge,format=yuv420p";
+
+/** Kerst: start of the slow sleep camera (after the cross-fade into falling asleep); set once the timeline is known. */
+let camStartS = Infinity;
+/**
+ * Kerst sleep camera (Milan 17-11-2026: "het beeld met de uil staat nog steeds stil"; the AI loop only moves the snow).
+ * A very slow, eased drift on the episode clock, so it runs on seamlessly across pieces and cross-fades: zoom 0 -> 6%
+ * and back every 80 s, a small side and up/down drift inside that zoom margin. Sub-pixel (perspective, cubic).
+ * Starts at zero zoom with zero speed, so the start is invisible.
+ */
+function sleepCamera(globalS: number): string {
+  const g0 = Math.round(globalS * FPS);
+  const tg = `max(0,(in+${g0})/${FPS}-${camStartS.toFixed(3)})`;
+  const z = `(1+0.03*(1-cos(2*PI*${tg}/80)))`;
+  const cx = `(0.5+0.35*(1-1/${z})*sin(2*PI*${tg}/130))`, cy = `(0.5+0.25*(1-1/${z})*sin(2*PI*${tg}/170))`;
+  const x0 = `W*${cx}-W/2/${z}`, x1 = `W*${cx}+W/2/${z}`, y0 = `H*${cy}-H/2/${z}`, y1 = `H*${cy}+H/2/${z}`;
+  return `format=yuv444p,perspective=x0='${x0}':y0='${y0}':x1='${x1}':y1='${y0}':x2='${x0}':y2='${y1}':x3='${x1}':y3='${y1}':interpolation=cubic:eval=frame,setsar=1,scale=out_range=tv,format=yuv420p`;
+}
+
 // ---------- 2. Render the pieces ----------
 const frames = (p: Piece) => Math.round((p.globalS + p.lengthS) * FPS) - Math.round(p.globalS * FPS);
 async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number) {
   // The file name carries a fingerprint of everything that makes the piece, so a changed timeline never reuses an old piece.
-  const dst = join(piecesDir, `${p.id}-${createHash("sha1").update(JSON.stringify({ p, totalS, v: 3 })).digest("hex").slice(0, 10)}.mp4`);
+  const dst = join(piecesDir, `${p.id}-${createHash("sha1").update(JSON.stringify({ p, totalS, v: kerst ? 5 : 3, cam: camStartS })).digest("hex").slice(0, 10)}.mp4`);
   if (existsSync(`${dst}.ok`)) return dst;
   await waitForKivoxel();
-  const dim = dimFilter(p.globalS, p.lengthS, totalS);
+  // Kerst (Milan 17-11-2026, "zwarte overgang op het eind"): the end gets only a little darker, never near black.
+  // After falling asleep the slow sleep camera runs (pieces ending before it start are left as they are).
+  // Motor rule 2 (17-11-2026): the camera stands still, so the sleep camera stays off (DN_SLEEP_CAMERA=1 only for tests).
+  const cam = kerst && process.env.DN_SLEEP_CAMERA === "1" && p.globalS + p.lengthS > camStartS ? `,${sleepCamera(p.globalS)}` : "";
+  const dim = dimFilter(p.globalS, p.lengthS, totalS, kerst ? 0.45 : 0.9) + cam;
   const off = (id: string, s: number) => (s % assets.get(id)!.lengthS).toFixed(3);
   // Fase 6: the living layer (20 s seamless loop) of the view over every loop and still, timed on the episode clock,
   // so it runs on without a seam across pieces and cross-fades.
@@ -232,12 +293,12 @@ async function renderPiece(p: Piece, assets: Map<string, Asset>, totalS: number)
   };
   if (p.kind === "body") {
     const l = layer(p.asset, "a", 1);
-    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.asset}.mp4`), ...l.args, "-filter_complex", `[0:v]trim=start=${off(p.asset, p.fromS)},setpts=PTS-STARTPTS[a0];${l.chain};[a]${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
+    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.asset}.mp4`), ...l.args, "-filter_complex", `[0:v]trim=start=${off(p.asset, p.fromS)},setpts=PTS-STARTPTS[a0];${l.chain};[a]${dim},scale=out_range=tv,format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
   } else {
     // Our own slow cross-fade; both sides brightness-matched by the same dim curve (no "plop" in the light).
     const la = layer(p.from.asset, "a", 2);
     const lb = layer(p.to.asset, "b", 2 + la.args.length / 4);
-    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.from.asset}.mp4`), "-stream_loop", "-1", "-i", join(assetsDir, `${p.to.asset}.mp4`), ...la.args, ...lb.args, "-filter_complex", `[0:v]trim=start=${off(p.from.asset, p.from.fromS)},setpts=PTS-STARTPTS[a0];[1:v]trim=start=${off(p.to.asset, p.to.fromS)},setpts=PTS-STARTPTS[b0];${la.chain};${lb.chain};[a][b]xfade=transition=fade:duration=${p.lengthS.toFixed(3)}:offset=0,${dim},format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
+    await ff(["-y", "-v", "error", "-stream_loop", "-1", "-i", join(assetsDir, `${p.from.asset}.mp4`), "-stream_loop", "-1", "-i", join(assetsDir, `${p.to.asset}.mp4`), ...la.args, ...lb.args, "-filter_complex", `[0:v]trim=start=${off(p.from.asset, p.from.fromS)},setpts=PTS-STARTPTS[a0];[1:v]trim=start=${off(p.to.asset, p.to.fromS)},setpts=PTS-STARTPTS[b0];${la.chain};${lb.chain};[a][b]xfade=transition=fade:duration=${p.lengthS.toFixed(3)}:offset=0,${dim},scale=out_range=tv,format=yuv420p[v]`, "-map", "[v]", "-frames:v", String(frames(p)), ...ENC, dst]);
   }
   const range = execFileSync(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_range", "-of", "csv=p=0", dst]).toString().trim();
   if (range !== "tv") throw new Error(`Stuk ${p.id} heeft kleurbereik ${range}, moet tv zijn`);
@@ -325,12 +386,15 @@ function previewJoin(n: number, lens: number[]): string {
     f.push(`${v}[${i}:v]xfade=transition=fade:duration=${X}:offset=${(t - X).toFixed(3)}[v${i}]`, `${a}[${i}:a]acrossfade=d=${X}:c1=tri:c2=tri[a${i}]`);
     v = `[v${i}]`; a = `[a${i}]`; t += lens[i] - X;
   }
-  f.push(`${v}fade=t=in:d=1,fade=t=out:st=${(t - 1.5).toFixed(3)}:d=1.5[v]`, `${a}afade=t=in:d=1,afade=t=out:st=${(t - 1.5).toFixed(3)}:d=1.5[a]`);
+  // No fade to black at the end (Milan 17-11-2026): the picture stays, only the sound fades.
+  f.push(`${v}fade=t=in:d=1[v]`,`${a}afade=t=in:d=1,afade=t=out:st=${(t - 1.5).toFixed(3)}:d=1.5[a]`);
   return f.join(";");
 }
 const overlays = new Map<string, string>();
 // Kerst: the preview shows exactly the moments that matter (welcome, Pip comes in, Mo comes in, together, falling asleep, sleep, end).
-const PREVIEW_CUTS = (totalS: number) => (kerst ? [[0, 40], [100, 18], [180, 18], [258, 18], [340, 26], [PARTS.asleepEnd + 600, 20], [totalS - 20, 20]] : [[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]]);
+/** Kerst: preview moments taken from the timeline itself (every friend walking in, falling asleep); set in main. */
+let kerstMoments: number[][] = [];
+const PREVIEW_CUTS = (totalS: number) => (kerst ? [[0, 40], ...kerstMoments, [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]] :[[0, 90], [PARTS.storyEnd - 15, 30], [PARTS.asleepEnd + 600, 30], [totalS - 30, 30]]);
 async function renderPreviewOnly(pieces: Piece[], assets: Map<string, Asset>, totalS: number, audio: string) {
   const parts: string[] = [];
   for (const [k, [from, len]] of PREVIEW_CUTS(totalS).entries()) {
@@ -377,6 +441,13 @@ if (!qcOnly) {
     overlays.set(view, f);
   }
   const segs = (kerst ? buildKerstTimeline : buildEpisodeTimeline)([...assets.values()], minutes, seed);
+  const firstAsleep = segs.find((s) => s.part === "falling_asleep");
+  if (kerst && firstAsleep) camStartS = firstAsleep.startS + firstAsleep.xfadeS;
+  if (kerst) {
+    // Every shot change in the story (each 1 s cross-fade with a little before and after).
+    kerstMoments = segs.filter((s) => s.part === "story" && s.startS - 4 >= 40).map((s) => [Math.round(s.startS - 4), 14]);
+    if (firstAsleep) kerstMoments.push([Math.round(firstAsleep.startS - 6), 30]);
+  }
   const pieces = planPieces(segs);
   await writeFile(join(out, "timeline.json"), JSON.stringify({ minutes, seed, length_s: episodeLength(segs), segments: segs, pieces }, null, 1));
   log(`Tijdlijn: ${segs.length} delen, ${pieces.length} renderstukken.`);

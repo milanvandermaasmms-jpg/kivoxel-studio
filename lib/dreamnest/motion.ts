@@ -11,11 +11,32 @@ export type Clip = {
   prompt: string;
 };
 
-/** Every Dreamnest clip: slow lullaby tempo, almost still camera, nothing sudden. */
+/**
+ * Dreamnest motor standard (Milan 17-11-2026, docs/dreamnest-motor-regels.md): fewer motions that are perfect beat many
+ * that are bad. In doubt about a motion: leave it out.
+ */
+export const MOTOR_RULES = {
+  /** 1. Exactly one action per shot. */
+  actionsPerShot: 1,
+  /** 2. The camera stands still: no zoom, pan or drift (AI drift is taken out by worker/dreamnest/lock_camera.py). */
+  cameraStill: true,
+  /** 3. At most 5 s per generated shot; length comes from loops, never from extra actions. */
+  maxShotS: 5,
+  /** 6. At most two characters move at once; a third only breathes. */
+  maxMovingCharacters: 2,
+  /** No walking or entering on screen (AI morphs walking characters). */
+  walking: false,
+  /** Montage: 1 s cross-fades between shots, no hard cuts. */
+  crossfadeS: 1,
+} as const;
+
+/** Every Dreamnest clip: slow lullaby tempo, locked camera, one action, nothing sudden (MOTOR_RULES). */
 export const MOTION_DNA =
-  "Very slow, gentle, soothing motion at lullaby tempo. The camera is almost still (at most a very slow drift). No cuts, no flashes, " +
-  "no sudden or fast movement, no flickering lights, no camera shake, constant soft lighting. Characters move softly and breathe slowly. " +
-  "Keep every character exactly as in the images. No text. Quiet: no dialogue, no music.";
+  "Exactly one slow, gentle action in this shot at lullaby tempo, eased in and out; nothing else moves except breathing and a soft glow or twinkle. " +
+  "The camera is locked off on a tripod: no zoom, no pan, no drift, no camera shake. No cuts, no flashes, no sudden or fast movement, " +
+  "no walking, no flickering lights, constant soft lighting. At most two characters move; any other character only breathes. " +
+  "The background stays still. Keep every character exactly on model as in the images (same proportions, colours and faces). " +
+  "No text. Quiet: no dialogue, no music.";
 
 /** First/last-frame mode of Gemini Omni allows 3-10 s (docs 13-11-2026). */
 export const FRAME_MODE_MAX_S = 10;

@@ -26,6 +26,9 @@ Next.js 16 (App Router), React 19, TypeScript, Tailwind 4, Vitest, Supabase (eig
 - De werker nooit herstarten of stoppen zonder te vragen, en niet terwijl FFmpeg of een analyse loopt.
 - `regioacties-dashboard`, poort 3000 en poort 3100 (familie-dashboard) niet aanraken.
 
+## Dreamnest
+- Vaste motorregels (besluit Milan, 17-11-2026): `docs/dreamnest-motor-regels.md`. Eén beweging per shot, camera stil, niet lopen, overvloeiers van 1 s, en bij twijfel laat je een beweging weg.
+
 ## KIVOXEL montage (fase 1)
 - Uitleg van presets, hooks, muziek, SFX, stemkloon, Whisper en de controles: `docs/kivoxel-presets.md`.
 - Stemkloon (Chatterbox) en Whisper draaien lokaal; de referentie-opname staat alleen in `FamilieMK-YouTube/kivoxel-tts/voice-ref`. Bij een gekloonde stem is de AI-melding bij YouTube verplicht (Poortwachter).

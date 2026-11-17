@@ -50,12 +50,14 @@ export const KERST_STORIES: { id: string; first: string; last: string; motion: s
 
 /** Views that also get a moving Christmas loop (each ± 83 cent). */
 export const KERST_LOOPS: Record<string, string> = {
+  // Milan 17-11-2026 ("in de intro hangen de grote sneeuwvlokken stil"): the welcome gets real falling snow (≤ € 2 approved with b10).
+  "b01-welcome-exterior": "Every snowflake in the sky falls down slowly and softly, all the time, none of them hang still; the smiling moon glows calmly, the warm window and the fairy lights on the tree glow steadily, the stockings sway very slightly.",
   "b02-lumi-rocking-chair": "Lumi rocks very slowly back and forth in the rocking chair, breathing calmly, hugging Twinkle; the fire flickers gently, snow falls softly outside, the Christmas lights glow steadily.",
   "b05-mo-by-fire": "Mo sleeps curled up in a round ball, his body rising and falling slowly with each breath; the fire flickers softly beside the Christmas stockings, the tree lights glow steadily.",
   "b06-window-momo": "Big soft snowflakes drift down slowly outside the round window, the moon Momo glows calmly, the warm fairy lights around the window glow steadily.",
   "b08-blanket-together": "Everyone breathes slowly together under the blanket, eyes closed; the fire flickers gently, snow falls softly outside, the Christmas lights glow steadily.",
   "b09-lumi-falls-asleep": "Lumi breathes slowly in her sleep hugging Twinkle, Twinkle glows softly; snow falls gently outside, the tree lights glow steadily.",
-  "b10-sleep-loop-base": "The quiet room at night: the fire glows low, snow drifts down slowly outside the window, the Christmas tree lights glow softly and steadily.",
+  "b10-sleep-loop-base": "Everyone keeps lying down asleep with eyes closed: the owl, Lumi and Mo breathe slowly and softly, the candle flame flickers very gently, the fire glows low, snow drifts down slowly outside the window, the Christmas tree lights glow softly and steadily.",
 };
 
 const EDIT =

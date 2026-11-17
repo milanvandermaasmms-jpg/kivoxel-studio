@@ -62,12 +62,23 @@ describe("Dreamnest kerst: only Christmas music", () => {
 });
 
 describe("Dreamnest kerst: reference quality (Milan, 16-11-2026)", () => {
-  it("sleep part: only stills (no shimmering AI loops), long scenes, slow cross-fades", () => {
+  it("sleep part: moving pictures, long scenes, slow cross-fades (Milan 17-11: 'het beeld met de uil staat stil')", () => {
     const segs = buildKerstTimeline(assets, 60, 11);
     const sleep = segs.filter((s) => s.part === "sleep");
-    expect(sleep.every((s) => s.asset.startsWith("still-"))).toBe(true);
+    expect(sleep.every((s) => s.asset.startsWith("loop-"))).toBe(true);
     expect(sleep.slice(0, -1).every((s) => s.lengthS >= 600)).toBe(true);
     expect(sleep.every((s) => s.xfadeS >= 4)).toBe(true);
+  });
+  it("once asleep they never sit up again, and the end stays on everyone asleep (Milan 17-11-2026)", () => {
+    const segs = buildKerstTimeline(assets, 60, 11);
+    const after = segs.filter((s) => s.part === "falling_asleep" || s.part === "sleep" || s.part === "outro");
+    expect(after.some((s) => /b0[2-8]-(?!window)/.test(s.asset))).toBe(false);
+    expect(segs.at(-1)!.asset).toBe("loop-b10-sleep-loop-base");
+    expect(Math.round(episodeLength(segs))).toBe(3600);
+  });
+  it("the welcome uses the moving snow loop when it exists", () => {
+    const segs = buildKerstTimeline([...assets, { id: "loop-b01-welcome-exterior", kind: "loop", lengthS: 8 }], 60, 11);
+    expect(segs[0].asset).toBe("loop-b01-welcome-exterior");
   });
 });
 
@@ -90,6 +101,6 @@ describe("Dreamnest kerst D0: friends come in on screen, transitions on the bar"
       expect(Math.abs(start / KERST_BAR_S - Math.round(start / KERST_BAR_S))).toBeLessThan(1e-6);
     }
     expect(Math.round(episodeLength(segs))).toBe(3600);
-    expect(KERST_X.story).toBe(2);
+    expect(KERST_X.story).toBe(1);
   });
 });

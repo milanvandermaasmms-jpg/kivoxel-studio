@@ -91,16 +91,16 @@ export function planPieces(segs: Segment[], maxPieceS = 120): Piece[] {
  * Dimming (megaprompt §4): full light in the story, then slowly warmer and darker; near black in the outro.
  * Returns 0 (no dimming) .. 1 (near black) for a moment in the episode.
  */
-export function dimAt(tS: number, totalS: number): number {
+export function dimAt(tS: number, totalS: number, outroDim = 0.9): number {
   if (tS <= PARTS.storyEnd) return 0;
   const sleepDim = 0.45;
   if (tS <= totalS - 120) return Math.min(sleepDim, ((tS - PARTS.storyEnd) / (totalS - 120 - PARTS.storyEnd)) * sleepDim + (tS < PARTS.asleepEnd ? 0 : 0));
-  return sleepDim + ((tS - (totalS - 120)) / 120) * (0.9 - sleepDim);
+  return sleepDim + ((tS - (totalS - 120)) / 120) * (outroDim - sleepDim);
 }
 
 /** FFmpeg expression for the dim curve inside one piece (t is the piece's own time, offset is its global start). */
-export function dimFilter(globalS: number, lengthS: number, totalS: number): string {
-  const a = dimAt(globalS, totalS), b = dimAt(globalS + lengthS, totalS);
+export function dimFilter(globalS: number, lengthS: number, totalS: number, outroDim = 0.9): string {
+  const a = dimAt(globalS, totalS, outroDim), b = dimAt(globalS + lengthS, totalS, outroDim);
   const d = (x: number) => x.toFixed(5);
   // Linear inside a piece (pieces are short, the curve is smooth). Darker = lower brightness and gamma, a bit warmer.
   const dim = `(${d(a)}+(${d(b - a)})*t/${lengthS.toFixed(3)})`;
@@ -181,7 +181,8 @@ export function buildEpisodeTimeline(assets: AssetV2[], totalMin: number, seed =
 // later), and the sleep part alternates a calm loop and a still with its living layer, never the same view twice.
 
 /** Cross-fades (superprompt §6): soft_crossfade 2 s in the story, dip_to_night 4 s into sleep. */
-export const KERST_X = { welcome: 4, story: 2, later: 4, sleep: 4 };
+// Motor standard 17-11-2026: 1 s cross-fades between the shots; the long sleep scenes keep a slow 4 s cross-fade.
+export const KERST_X = { welcome: 1, story: 1, later: 1, sleep: 4 };
 /** The music is the clock (superprompt §7): story tempo in 3/4, so a bar is 3 beats. */
 export const KERST_STORY_BPM = 66;
 export const KERST_BAR_S = (3 * 60) / KERST_STORY_BPM;
@@ -198,7 +199,8 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
   const onBar = (x: number) => Math.round(x / bar) * bar;
   // Welcome: its cross-fade into the room starts on a bar line.
   const welcomeLen = onBar(PARTS.welcomeEnd) + KERST_X.welcome;
-  push("story-b01-welcome-exterior", welcomeLen, "welcome", KERST_X.welcome);
+  // Milan 17-11-2026: the welcome is a real moving loop (falling snow) when it exists; otherwise the still with a dolly.
+  push(has("loop-b01-welcome-exterior") ? "loop-b01-welcome-exterior" : "story-b01-welcome-exterior", welcomeLen, "welcome", KERST_X.welcome);
   // D0 (Milan, 16-11-2026): the friends come in on screen and Lumi moves. Holds (loops) between story clips that go
   // from one scene to the next; every cross-fade starts on a bar line of the music.
   const plan: { asset: string; clip: boolean }[] = [
@@ -221,7 +223,9 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
   const holdEach = (PARTS.storyEnd - t - clips * (clipLen - KERST_X.story)) / Math.max(1, holds) + KERST_X.story;
   story.forEach((p, i) => {
     // Into a story clip from the same view: 1 s (same picture, so the walk-in stays visible longer).
-    const x = i === story.length - 1 ? KERST_X.later : story[i + 1]?.clip && !p.clip ? 1 : KERST_X.story;
+    const next = story[i + 1];
+    const sameView = next && next.asset.replace(/^(story|loop|still)-/, "") === p.asset.replace(/^(story|loop|still)-/, "");
+    const x = i === story.length - 1 ? KERST_X.later : next?.clip && !p.clip && sameView ? 1 : KERST_X.story;
     // Length so that the next cross-fade starts on a bar line.
     // A clip: as many whole bars as fit in it plus its cross-fade (on the bar); a clip cut short plays whole.
     const avail = lenOf(p.asset) || clipLen;
@@ -229,12 +233,15 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
     const len = p.clip ? (bars >= 1 ? bars * bar + x : Math.max(x + 1, avail)) : Math.max(x + 1, onBar(t + holdEach - x) - t + x);
     push(p.asset, len, "story", x);
   });
-  const asleep = ["loop-b09-lumi-falls-asleep", "still-b08-blanket-together", "loop-b10-sleep-loop-base"].filter((a) => has(a) && a !== segs[segs.length - 1].asset);
+  // Milan 17-11-2026: once they lie down asleep they never sit up again ("van liggend slapen weer naar zitten"), and
+  // the sleep pictures move ("het beeld met de uil staat stil"). So after falling asleep only lying views: Lumi asleep
+  // (b09), the quiet room with everyone asleep (b10) and the window (b06), as moving loops when they exist.
+  const pickView = (v: string) => (has(`loop-${v}`) ? `loop-${v}` : `still-${v}`);
+  const asleep = [pickView("b09-lumi-falls-asleep"), pickView("b10-sleep-loop-base")].filter((a) => has(a) && a !== segs[segs.length - 1].asset);
   const asleepEach = (PARTS.asleepEnd - t) / Math.max(1, asleep.length) + KERST_X.later;
   for (const a of asleep) push(a, asleepEach, "falling_asleep", KERST_X.later);
-  const stills = ["still-b10-sleep-loop-base", "still-b06-window-momo", "still-b08-blanket-together", "still-b05-mo-by-fire", "still-b09-lumi-falls-asleep"].filter(has);
-  // Sleep (reference Milan 16-11-2026, "Deep Sleep Piano"): one calm picture for 10-15 minutes, no AI loops (they
-  // shimmer), very slow 12 s cross-fades between views.
+  const stills = ["b10-sleep-loop-base", "b06-window-momo", "b09-lumi-falls-asleep"].map(pickView).filter(has);
+  // Sleep (reference Milan 16-11-2026, "Deep Sleep Piano"): one calm picture for 10-15 minutes, slow cross-fades.
   let s = seed >>> 0 || 1;
   const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
   const end = totalMin * 60;
@@ -247,7 +254,9 @@ export function buildKerstTimeline(assets: AssetV2[], totalMin: number, seed = 1
     push(pick, Math.min(600 + rand() * 300, end - outroS - t + KERST_X.sleep), "sleep", KERST_X.sleep);
     last = pick;
   }
-  const outro = ["still-b10-sleep-loop-base", "still-b08-blanket-together"].find((c) => has(c) && view(c) !== view(last)) ?? last;
-  push(outro, end - t, "outro", KERST_X.sleep);
+  // The end stays on everyone lying asleep (b10), never a sitting picture. Already on b10: it simply runs on.
+  const outro = pickView("b10-sleep-loop-base");
+  if (view(last) === view(outro) || !has(outro)) segs[segs.length - 1].lengthS += end - t - segs[segs.length - 1].xfadeS;
+  else push(outro, end - t, "outro", KERST_X.sleep);
   return segs;
 }
