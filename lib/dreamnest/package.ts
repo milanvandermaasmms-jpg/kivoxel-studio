@@ -59,10 +59,15 @@ const lengthWord = (min: number) => (min >= 120 ? `${min / 60} Hours` : min === 
 export const PLAYLIST = "DreamNest | Magical Sleep Worlds";
 
 /** Title (≤ 100), description with chapters and honest notes, and tags (≤ 500 characters together). */
-export function episodeText(o: { title: string; minutes: number; chapters: Chapter[] }): EpisodeText {
-  const title = clip(`${o.title} 🌙 ${lengthWord(o.minutes)} Baby Sleep Music | Lullabies for Babies`, 100);
+export function episodeText(o: { title: string; minutes: number; chapters: Chapter[]; /** Christmas version (season "kerst"): tree, snow, Christmas lullabies. */ kerst?: boolean }): EpisodeText {
+  const title = clip(`${o.title} 🌙 ${lengthWord(o.minutes)} ${o.kerst ? "Christmas " : ""}Baby Sleep Music | Lullabies for Babies`, 100);
+  const music = o.kerst
+    ? "🎵 Music: Silent Night, We Wish You a Merry Christmas and Brahms' Lullaby (public domain), plus Lumi's own original theme, all played and mixed by DreamNest."
+    : "🎵 Music: Twinkle Twinkle Little Star and Brahms' Lullaby (public domain), plus our own original lullabies, all played and mixed by DreamNest.";
   const description = [
-    `${o.title}: a calm bedtime story with Lumi van Dreamnest, then ${lengthWord(o.minutes).toLowerCase()} of soft lullabies by a crackling fireplace. The picture slowly gets darker and the music gets quieter, so your little one can drift off to sleep.`,
+    o.kerst
+      ? `${o.title}: a calm Christmas bedtime story with Lumi van Dreamnest, then ${lengthWord(o.minutes).toLowerCase()} of soft Christmas lullabies by a crackling fireplace, with the tree lights glowing and snow falling outside. The picture slowly gets darker and the music gets quieter, so your little one can drift off to sleep.`
+      : `${o.title}: a calm bedtime story with Lumi van Dreamnest, then ${lengthWord(o.minutes).toLowerCase()} of soft lullabies by a crackling fireplace. The picture slowly gets darker and the music gets quieter, so your little one can drift off to sleep.`,
     "",
     "🌙 Inside",
     ...o.chapters.map((c) => `${stamp(c.atS)} ${c.title}`),
@@ -72,14 +77,14 @@ export function episodeText(o: { title: string; minutes: number; chapters: Chapt
     "• Gentle volume that stays low and even",
     "• Slow cross-fades and a slowly dimming picture",
     "",
-    "🎵 Music: Twinkle Twinkle Little Star and Brahms' Lullaby (public domain), plus our own original lullabies, all played and mixed by DreamNest.",
+    music,
     "✨ The visuals are made with the help of AI tools and edited by DreamNest.",
     "",
     `More sleepy worlds with Lumi: see the playlist "${PLAYLIST}" on our channel.`,
     "",
-    "#babysleepmusic #lullabies #sleepmusic",
+    o.kerst ? "#babysleepmusic #christmaslullabies #sleepmusic" : "#babysleepmusic #lullabies #sleepmusic",
   ].join("\n");
-  const tags = fitTags(["baby sleep music", "lullabies for babies", "lullaby", "sleep music for babies", "bedtime music", "baby lullaby", "fireplace sleep music", "relaxing music for kids", "twinkle twinkle little star", "brahms lullaby", "calm music", "sleepy music", "dreamnest", "lumi"]);
+  const tags = fitTags([...(o.kerst ? ["christmas baby sleep music", "christmas lullabies", "silent night lullaby", "christmas sleep music"] : []), "baby sleep music", "lullabies for babies", "lullaby", "sleep music for babies", "bedtime music", "baby lullaby", "fireplace sleep music", "relaxing music for kids", "twinkle twinkle little star", "brahms lullaby", "calm music", "sleepy music", "dreamnest", "lumi"]);
   return { title, description, tags };
 }
 

@@ -13,7 +13,7 @@ import { chaptersFrom, dnShortAss, dnThumbAss, episodeText, planShorts, shortTex
 import type { Segment } from "../../lib/dreamnest/timeline.ts";
 import { findTool } from "../ffmpeg.ts";
 import { lockFolder, waitForKivoxel as waitKivoxelFirst } from "./kivoxelFirst.ts";
-import { renderFolder } from "../../lib/dreamnest/steps.ts";
+import { renderFolder, SEASON } from "../../lib/dreamnest/steps.ts";
 import { createGeminiImage, IMAGE_CENTS } from "../providers/image/gemini.ts";
 import { cacheKey, createCache, createLedger } from "./ledger.ts";
 
@@ -65,14 +65,20 @@ await mkdir(join(out, "shorts"), { recursive: true });
 
 // ---------- 1. Texts and chapters ----------
 const chapters = chaptersFrom(timeline.segments);
-const text = episodeText({ title, minutes, chapters });
+const kerst = SEASON === "kerst";
+const text = episodeText({ title, minutes, chapters, kerst });
 log(`Titel: ${text.title}`);
 log(`${chapters.length} hoofdstukken, ${text.tags.length} tags`);
 
 // ---------- 2. Thumbnails: AI background (no text) + our own text layer ----------
 const lumi = JSON.parse(readFileSync(join(root, "content", "dreamnest", "characters", "lumi.json"), "utf8")) as Character & { prompt_dna: string };
 const refs = await Promise.all(["ref-thumbnail.jpg", "ref-turnaround.jpg"].map(async (f) => ({ mime: "image/jpeg", data: await readFile(join(root, "content", "dreamnest", "characters", "lumi", f)) })));
-const SCENES = [
+// Kerst (Milan 17-11-2026: "Kerst, € 0,33"): the Christmas living room of the video, so the thumbnail matches it.
+const SCENES = kerst ? [
+  "behind her a cozy Christmas living room with a softly glowing fireplace, little stockings on the mantel and a decorated Christmas tree with warm fairy lights",
+  "behind her a big round window with gently falling snow and a soft moon glow, a small Christmas wreath and warm fairy lights around the window",
+  "around her soft glowing clouds, tiny twinkling stars and gently falling snowflakes, a small glowing Christmas star above her, as if she floats in a dreamy Christmas night sky",
+] : [
   "behind her a cozy cottage living room with a softly glowing fireplace, warm orange firelight on her fur",
   "behind her a big round window with gently falling snow and a soft moon glow, cool blue light with a warm candle glow",
   "around her soft glowing clouds and tiny twinkling stars, as if she floats in a dreamy night sky",

@@ -105,3 +105,15 @@ describe("our own text layers", () => {
     expect(s).toMatch(/0:00:30.00,Top/);
   });
 });
+
+describe("Christmas packaging (Milan 17-11-2026: \"Lumi's Cozy Christmas Night\")", () => {
+  it("names the Christmas songs honestly and stays within YouTube's limits", () => {
+    const t = episodeText({ title: "Lumi's Cozy Christmas Night", minutes: 60, chapters: [{ atS: 0, title: "Welcome" }], kerst: true });
+    expect(t.title).toMatch(/Christmas Baby Sleep Music/);
+    expect(t.title.length).toBeLessThanOrEqual(100);
+    expect(t.description).toMatch(/Silent Night/);
+    expect(t.description).not.toMatch(/Twinkle/);
+    expect(t.tags[0]).toBe("christmas baby sleep music");
+    expect(t.tags.join(",").length).toBeLessThanOrEqual(500);
+  });
+});

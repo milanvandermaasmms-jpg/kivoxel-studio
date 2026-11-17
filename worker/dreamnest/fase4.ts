@@ -38,6 +38,7 @@ const qcOnly = process.argv.includes("--qc-only");
 const previewOnly = process.argv.includes("--preview-only");
 // Dreamnest kerst (16-11-2026): the Christmas living room (content/dreamnest/season.json, or --kerst / --gewoon).
 const kerst = process.argv.includes("--kerst") || (SEASON === "kerst" && !process.argv.includes("--gewoon"));
+const STORY_CALM_KERST = 0.97;
 const base = join(env.WORKER_DATA_DIR || join(homedir(), "FamilieMK-YouTube"), "dreamnest");
 const clipsDir = join(base, "fase2", "1080p");
 const kerstLoops = join(base, "fase2", "kerst");
@@ -344,7 +345,8 @@ async function qc(file: string, totalS: number) {
   const luma = parseLuma(await ff(["-i", file, "-an", "-vf", "scale=320:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-,blackdetect=d=2:pic_th=0.98", "-f", "null", "-"]).then((t) => (blackText = t, t)));
   const steps = parseAllSsim(await ff(["-i", file, "-an", "-filter_complex", `[0:v]scale=320:-2,${STEPS}`, "-f", "null", "-"]));
   // Gentle movement belongs in the story (p10 >= 98%); the sleep part must be calmer (>= 99%).
-  const minutesQc = perMinute(luma, steps, FPS, (m) => (m * 60 < PARTS.storyEnd ? 0.98 : 0.99));
+  // Kerst story: falling snow and Lumi rocking belong there (Milan 17-11-2026: "Grens 97% voor kerst"; minute 0 was 97.2%).
+  const minutesQc = perMinute(luma, steps, FPS, (m) => (m * 60 < PARTS.storyEnd ? (kerst ? STORY_CALM_KERST : 0.98) : 0.99));
   const video = judgeVideo(probe, minutesQc, totalS, parseBlack(blackText));
   log("Controle: geluid per deel...");
   const parts = [
