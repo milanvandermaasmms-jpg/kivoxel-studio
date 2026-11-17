@@ -46,6 +46,7 @@ import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
 import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
+import { isQuotaError, QUOTA_BACK } from "./manualLink.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
@@ -1369,7 +1370,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await setPub({ status: "uploading", error: null });
       await lv.phase(`Uploaden naar YouTube (${visibilityWord(pub)})`, 0);
       const started = Date.now();
-      const result = await publisher.uploader.upload({
+      const result = await publisher.uploader
+        .upload({
         key: pub.id,
         file: join(publisher.rendersDir, render.data.file_name),
         meta: { title: pub.title, description: pub.description, tags: pub.tags, category_id: pub.category_id, language: pub.language, made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at },
@@ -1380,7 +1382,18 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           void lv.progress({ progress: total ? sent / total : null, metrics: { sent_bytes: sent, total_bytes: total, bytes_per_s: bps, eta_ms: bps ? Math.round(((total - sent) / bps) * 1000) : null } });
         },
         onEvent: (m) => lv.event("log", m),
-      });
+      })
+        .catch((e: unknown) => {
+          // Quota guard (17-11-2026): the day's YouTube quota is used up. Retrying only fails again, so the video goes
+          // straight back to "Klaar voor YouTube" with a clear note instead of ending as Mislukt after five tries.
+          if (e instanceof Error && isQuotaError(e.message)) return null;
+          throw e;
+        });
+      if (!result) {
+        await setPub({ status: "draft", error: QUOTA_BACK });
+        await lv.event("note", QUOTA_BACK);
+        return { deferred: "quota" };
+      }
       videoId = result.videoId;
       bytes = result.bytes;
       adopted = result.adopted;
@@ -1654,6 +1667,30 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
   }
 
+  /**
+   * 17-11-2026: YouTube makes a scheduled video public at its moment by itself; the Studio did not notice that, so the
+   * video stayed under Ingepland. Once the moment has passed, publication and video move to Live (no YouTube call needed).
+   */
+  async function settleDueSchedules(now = Date.now()) {
+    const at = new Date(now).toISOString();
+    const due = await db.from("yt_publications").select("id, video_id, publish_at").eq("status", "scheduled").lte("publish_at", at).returns<{ id: string; video_id: string; publish_at: string }[]>();
+    if (due.error) return log(`Ingeplande video's niet nagekeken: ${due.error.message}`);
+    for (const p of due.data ?? []) {
+      const pub = await db.from("yt_publications").update({ status: "published", visibility: "public", publish_at: null, error: null }).eq("id", p.id).eq("status", "scheduled");
+      if (pub.error) {
+        log(`Publicatie ${p.id} niet op live gezet: ${pub.error.message}`);
+        continue;
+      }
+      const video = await db.from("yt_videos").update({ status: "published", privacy_status: "public", published_at: p.publish_at, scheduled_at: null }).eq("id", p.video_id).in("status", ["scheduled", "published"]);
+      if (video.error) log(`Video ${p.video_id} niet op live gezet: ${video.error.message}`);
+    }
+    // A video planned without a publication row of its own (older data): the same, from its own planned moment.
+    const videos = await db.from("yt_videos").update({ status: "published", privacy_status: "public" }).eq("status", "scheduled").not("youtube_video_id", "is", null).lte("scheduled_at", at).select("id");
+    if (videos.error) log(`Ingeplande video's niet nagekeken: ${videos.error.message}`);
+    const n = (due.data?.length ?? 0) + (videos.data?.length ?? 0);
+    if (n) log(`${n} ingeplande video('s) staan nu live`);
+  }
+
   /** Once a week per active channel: queue a reference step (only while YouTube is linked on this pc). */
   async function scheduleReference() {
     if (!research) return;
@@ -1777,12 +1814,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       void scheduleReference().catch(() => undefined);
       setInterval(() => void scheduleReference().catch(() => undefined), 6 * 60 * 60_000);
       setInterval(() => void failStuck().catch(() => undefined), 60 * 60_000);
+      // 17-11-2026: a scheduled video moves to Live once its moment has passed (checked at start and every 5 minutes).
+      void settleDueSchedules().catch(() => undefined);
+      setInterval(() => void settleDueSchedules().catch(() => undefined), 5 * 60_000);
     },
     recover,
     tick,
     tickFast,
     scheduleReference,
     failStuck,
+    settleDueSchedules,
     stop() {
       if (timer) clearInterval(timer);
     },

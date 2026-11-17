@@ -53,7 +53,8 @@ export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPubli
   if (video.status === "failed") return { ...base, flow: "failed", reason: "De video is mislukt." };
 
   const stage = videoStage(video, scripts);
-  if (stage === "scheduled") return { ...base, flow: "ready", reason: pub?.status === "failed" ? pub.error : null };
+  // A failed upload, or one the quota guard sent back (draft with a note), shows why on its card.
+  if (stage === "scheduled") return { ...base, flow: "ready", reason: pub?.status === "failed" || pub?.status === "draft" ? (pub.error ?? null) : null };
   if (stage === "keur2") return { ...base, flow: "review", reviewKind: "final" };
   if (stage === "keur1") return { ...base, flow: "review", reviewKind: "concept" };
 

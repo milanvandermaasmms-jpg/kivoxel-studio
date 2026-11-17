@@ -65,14 +65,16 @@ describe("a long recording told in parts", () => {
     const done = calls.find((c) => c.op === "update" && c.table === "yt_jobs" && (c.values as { status?: string }).status)!;
     expect(done.values).toMatchObject({ status: "done", result: { source: "replan" } });
     const parts = calls.filter((c) => c.op === "upsert" && c.table === "yt_videos").map((c) => (c.values as { plan_key: string }).plan_key).filter((k) => k.includes(":C:part:"));
-    expect(parts.length).toBe(5);
-    expect(parts[0]).toMatch(/^rec:C:part:1\/5:0-\d+$/);
-    expect(parts.at(-1)!.startsWith("rec:C:part:5/5:") && parts.at(-1)!.endsWith(`-${DURATION}`)).toBe(true);
+    // At most two long videos per upload (Milan, 17-11-2026).
+    expect(parts.length).toBe(2);
+    expect(parts[0]).toMatch(/^rec:C:part:1\/2:0-\d+$/);
+    expect(parts.at(-1)!.startsWith("rec:C:part:2/2:") && parts.at(-1)!.endsWith(`-${DURATION}`)).toBe(true);
     // Every moment is linked to exactly one part.
     const partLinks = calls.filter((c) => c.op === "upsert" && c.table === "yt_video_moments" && String((c.values as { video_id: string }[])[0]?.video_id).includes(":C:part:"));
     expect(partLinks.flatMap((c) => (c.values as { moment_id: string }[]).map((l) => l.moment_id)).sort()).toEqual(MOMENTS.map((m) => m.id).sort());
     const scripts = calls.filter((c) => c.op === "insert" && c.table === "yt_jobs" && (c.values as { step: string }).step === "script");
-    expect(scripts.length).toBe(parts.length + 6);
+    // No maximum on Shorts: every one of the 16 separate moments gets its own Short.
+    expect(scripts.length).toBe(parts.length + MOMENTS.length);
     // The stored moments are not touched.
     expect(calls.some((c) => c.table === "yt_moments" && c.op !== "select")).toBe(false);
   });

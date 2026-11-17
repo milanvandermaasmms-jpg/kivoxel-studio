@@ -59,6 +59,8 @@ export type YouTubeRoutes = {
   disconnect: (channelRowId: string) => Promise<void>;
   /** Fase E: fetch the statistics now (the dashboard's "Nu verversen"). */
   refresh?: () => Promise<string | null>;
+  /** Zelf geüpload (17-11-2026): link a video uploaded by hand in YouTube Studio to its video in the Studio. */
+  link?: (videoId: string, url: string) => Promise<unknown>;
 };
 
 const escapeHtml = (t: string) => t.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -171,6 +173,15 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
           return send(200, await youtube.status(isUuid(ch) ? ch : undefined));
         }
         if (req.method === "POST" && parts[1] === "refresh" && youtube.refresh) return send(200, { message: await youtube.refresh() });
+        if (req.method === "POST" && parts[1] === "link" && youtube.link) {
+          const body = (await readJson(req)) as { videoId?: unknown; url?: unknown };
+          if (!isUuid(body.videoId) || typeof body.url !== "string" || body.url.length > 300) throw new StoreError(400, "Video of link ontbreekt");
+          try {
+            return send(200, await youtube.link(body.videoId, body.url));
+          } catch (e) {
+            return send(400, { error: e instanceof Error ? e.message : String(e) });
+          }
+        }
         if (req.method === "POST" && (parts[1] === "connect" || parts[1] === "disconnect")) {
           const body = (await readJson(req)) as { channelId?: unknown };
           if (!isUuid(body.channelId)) throw new StoreError(400, "Onbekend kanaal");

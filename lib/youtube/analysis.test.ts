@@ -76,11 +76,11 @@ describe("parseAnalysis", () => {
 
 describe("planVideos", () => {
   const key = (m: Moment) => String(m.startMs);
-  it("makes at most 6 Shorts per recording, the best moments first", () => {
-    const many = Array.from({ length: 9 }, (_, i) => ok({ start_ms: i * 100_000, end_ms: i * 100_000 + 20_000, peak_ms: i * 100_000 + 10_000, score: 50 + i }, 1_000_000));
-    const shorts = planVideos(many, 1_000_000, key).filter((p) => p.format !== "C");
-    expect(shorts).toHaveLength(6);
-    expect(Math.min(...shorts.map((p) => p.moments[0].score))).toBe(53);
+  it("makes a Short of every usable moment, without a maximum, the best moments first", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ok({ start_ms: i * 100_000, end_ms: i * 100_000 + 20_000, peak_ms: i * 100_000 + 10_000, score: 50 + i }, 3_100_000));
+    const shorts = planVideos(many, 3_100_000, key).filter((p) => p.format !== "C");
+    expect(shorts).toHaveLength(30);
+    expect(shorts[0].moments[0].score).toBe(79);
   });
   it("makes one Short per usable moment and skips unusable ones", () => {
     const plans = planVideos([ok(), ok({ kind: "rare_find", start_ms: 100_000, end_ms: 125_000, peak_ms: 110_000 }), ok({ start_ms: 300_000, end_ms: 301_000, peak_ms: 300_500, has_payoff: false })], 600_000, key);

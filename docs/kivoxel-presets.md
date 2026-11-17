@@ -8,6 +8,7 @@ Alles wat "smaak" is staat in gewone bestanden. Pas ze aan in een teksteditor (K
 | `config/kivoxel/hooks.json` | De hook-teksten bovenaan Shorts, per event-type (fail, bijna_dood, geluk, bouw, grap, jumpscare). **Alleen Engels.** |
 | `config/kivoxel/script_templates.json` | Zinnen van de gratis script-engine (openers, anticipatie, open loops, bruggen, slotzinnen). **Alleen Engels, explosief.** |
 | `config/kivoxel/voice_persona.json` | Hoe de verteller praat: stijlregels, verboden zinnen, reacties (slecht/goed) die rouleren, stem-stijlen per zin |
+| `lib/youtube/analysis.ts` | **Verdeling per upload** (besluit Milan, 17-11-2026): hoogstens 2 lange video's (`MAX_LONG_VIDEOS`) en Shorts zonder maximum: elk goed moment (actie, dood, fail, grappig, jumpscare, bijna dood) wordt een eigen Short, in wisselende lengtes uit de lengte-buckets |
 | `brand/thumbnail_header.json` | **Heilig.** De gele header van elke thumbnail: lettertype, kleur, rand, schaduw, plek en grootte |
 
 > Alles wat in de video komt is **Engels, altijd**. Een test faalt als er een Nederlands woord in deze bestanden staat.

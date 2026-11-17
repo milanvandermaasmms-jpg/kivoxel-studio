@@ -102,7 +102,7 @@ export function PublishPanel({ pkg, channel, studioId, episodeId, isAdmin }: { p
           }} />
         ))}
       </ul>
-      <p className="mt-3 text-xs text-slate-500">Made for Kids en het AI-label staan altijd aan. Eindschermen en kaarten kunnen bij Made for Kids niet; de beschrijving verwijst naar de afspeellijst &quot;DreamNest | Magical Sleep Worlds&quot;. Een lange video kost ± 1.750 quotum-eenheden, een Short ± 1.650 (gedeeld met KIVOXEL): verstuur Shorts liefst op verschillende dagen.</p>
+      <p className="mt-3 text-xs text-slate-500">Made for Kids en het AI-label staan altijd aan. Eindschermen en kaarten kunnen bij Made for Kids niet; de beschrijving verwijst naar de afspeellijst &quot;DreamNest | Magical Sleep Worlds&quot;. Uploads hebben een eigen daglimiet van 100 (samen met KIVOXEL); ondertitels, thumbnail en afspeellijst kosten samen ± 500 van de 10.000 quotum-eenheden per dag.</p>
     </Section>
   );
 }

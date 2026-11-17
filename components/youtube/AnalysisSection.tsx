@@ -8,7 +8,7 @@ import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode,
 import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwitch";
 import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, queueSeries, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { ViralCard } from "@/components/youtube/ViralCard";
-import { pageVisible } from "@/lib/visible";
+import { pollOnce } from "@/lib/visible";
 import { Editor } from "@/components/youtube/Editor";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { DEFAULT_BLUR_REGIONS, type Region } from "@/lib/youtube/render";
@@ -37,6 +37,7 @@ export function useAnalysis(studioId: string, enabled: boolean) {
   const [state, setState] = useState<AnalysisState | null>(null);
   const missing = useRef(false);
   const last = useRef("");
+  const polling = useRef(false);
   const refresh = useCallback(async () => {
     const s = await loadAnalysis(studioId);
     missing.current = !s.ready && s.reason === "migration";
@@ -50,7 +51,7 @@ export function useAnalysis(studioId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const timer = setInterval(() => pageVisible() && !missing.current && void refresh(), 5000);
+    const timer = setInterval(() => !missing.current && pollOnce(polling, refresh), 5000);
     return () => clearInterval(timer);
   }, [refresh, enabled]);
 

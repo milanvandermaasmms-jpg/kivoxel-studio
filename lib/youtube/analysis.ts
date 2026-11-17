@@ -207,11 +207,13 @@ export type PlannedVideo = { planKey: string; format: Format; moments: Moment[];
 
 /**
  * A long recording is told in full, as consecutive long videos (parts): together they cover the recording from the
- * first to the last second, without overlap and without gaps. Each part is about SERIES_PART_MS of footage and ends at
+ * first to the last second, without overlap and without gaps. There are at most MAX_LONG_VIDEOS parts, and each ends at
  * a natural story break: in the quiet stretch between two moments, never in the middle of one.
  */
 export const SERIES_MIN_MS = 15 * 60_000;
 export const SERIES_PART_MS = 7.5 * 60_000;
+/** At most this many long videos per recording (Milan, 17-11-2026: "maximaal 2 lange video's per upload"). */
+export const MAX_LONG_VIDEOS = 2;
 export const MIN_PART_MS = 3 * 60_000;
 export type SeriesPart = { index: number; count: number; startMs: number; endMs: number };
 
@@ -243,7 +245,7 @@ function storyBreaks(moments: Moment[]): { at: number; gap: number }[] {
 export function seriesParts(moments: Moment[], durationMs: number): SeriesPart[] {
   const whole = [{ index: 0, count: 1, startMs: 0, endMs: durationMs }];
   if (durationMs < SERIES_MIN_MS || !moments.length) return whole;
-  const wanted = Math.max(2, Math.round(durationMs / SERIES_PART_MS));
+  const wanted = Math.min(MAX_LONG_VIDEOS, Math.max(2, Math.round(durationMs / SERIES_PART_MS)));
   const partMs = durationMs / wanted;
   const breaks = storyBreaks(moments);
   const cuts: number[] = [];
@@ -295,7 +297,7 @@ const PROMISE: Record<Format, string> = {
  * `key` makes the plan stable: analysing the same recording again yields the same plan keys.
  */
 export function planVideos(moments: Moment[], durationMs: number, key: (m: Moment) => string): PlannedVideo[] {
-  // Superprompt (fase C): per recording one long video and at most MAX_SHORTS Shorts, the best moments first.
+  // Milan (17-11-2026): a Short for every good moment, no maximum; the best moments first.
   const usable = moments.filter(isUsable);
   const plans: PlannedVideo[] = [];
   const taken: Moment[] = [];
@@ -303,7 +305,6 @@ export function planVideos(moments: Moment[], durationMs: number, key: (m: Momen
     if (m.suggestedFormat === "C" || m.endMs - m.startMs > MAX_SHORT_SOURCE_MS) continue;
     const clash = taken.some((t) => t.suggestedFormat === m.suggestedFormat && overlap(t, m) > 0.5 * Math.min(t.endMs - t.startMs, m.endMs - m.startMs));
     if (clash) continue;
-    if (taken.length >= MAX_SHORTS) break;
     taken.push(m);
     plans.push({ planKey: `${m.suggestedFormat}:${key(m)}`, format: m.suggestedFormat, moments: [m], promise: PROMISE[m.suggestedFormat] });
   }
@@ -343,7 +344,8 @@ export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
 };
 /** One part of a recording told in full: about 7.5 minutes of footage plus the cold open. After the editor cuts menus and
  * idle stretches a part may end up shorter: better 3:30 that is all story than 5:00 with menus in it. */
-export const PART_TARGET = { minMs: 3 * 60_000, maxMs: 15 * 60_000 };
+// Up to 30 minutes since 17-11-2026: with at most two long videos per upload, a part covers more footage.
+export const PART_TARGET = { minMs: 3 * 60_000, maxMs: 30 * 60_000 };
 /** The target length of a video: a part of a story told in parts has its own. */
 export const targetFor = (format: Format, planKey?: string | null) => (format === "C" && parseSeriesKey(planKey) ? PART_TARGET : TARGET[format]);
 /** "Deel 2 van 5" for a part, null for any other video. */
@@ -373,8 +375,6 @@ export const CHAPTER_BEFORE_MS = 60_000;
 export const CHAPTER_AFTER_MS = 45_000;
 /** A Short takes up to this much build-up before the peak, also when the analysis cut the moment tighter. */
 export const SHORT_LEAD_IN_MS = 30_000;
-/** At most this many Shorts per recording (superprompt: 3-6). */
-export const MAX_SHORTS = 6;
 /** A long video tells at most this many moments as chapters (about 1:45 each, so 8-15 minutes). */
 export const MAX_LONG_MOMENTS = 7;
 
@@ -498,7 +498,9 @@ export function analysisPrompt(durationMs: number, chunk?: Chunk): string {
       : `The recording is ${formatTimecode(clipMs)} long. Give every time as "MM:SS" counted from the start (00:00).`,
     "Times must point at what is really on screen at that second; check each one against the picture before you answer. Report every usable moment.",
     `Kinds: ${MOMENT_KINDS.join(", ")}. Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.`,
-    "Only report moments a viewer would find exciting or surprising. Routine actions (sleeping, walking, crafting, building) are not moments unless something unexpected happens.",
+    "Only report moments a viewer would find exciting, funny or surprising. Routine actions (sleeping, walking, crafting, building) are not moments unless something unexpected happens.",
+    "Every moment becomes its own Short, so report ALL of them, also short ones of a few seconds: action and fights (mobs or other players), every death, funny moments, fails and silly mistakes, jumpscares, close calls and lucky escapes. Many separate moments are better than a few big ones.",
+    "Kinds for these: a death or a fail is mistake (near_death when the player barely survives), a funny or unexpected moment is surprise, a fight the player wins or flees from is escape.",
     "start is where the build-up starts (usually 10-20 seconds before the peak), end is where the outcome is clearly visible (at least 3 seconds after the peak). peak is the single most intense instant and lies before end.",
     "PvP fights against other players count too (near_death or escape); report each fight once, not every hit. Never write real names in reason or notes: say \"the opponent\".",
     "For each moment give: kind, start, peak, end (all \"MM:SS\"), reason (what happens on screen, one sentence), score 0-100,",

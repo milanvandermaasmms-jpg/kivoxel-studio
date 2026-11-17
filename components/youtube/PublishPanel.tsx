@@ -30,6 +30,7 @@ import {
   type Visibility,
 } from "@/lib/youtube/publication";
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
+import { SelfUpload } from "@/components/youtube/SelfUpload";
 import { type publicationGate } from "@/lib/youtube/gatekeeper";
 import { loadClonedVoice, loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
@@ -607,6 +608,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
             <ThumbnailPicker file={renderFile} durationMs={renderMs} valueMs={extras.thumbnail_ms} onChange={(ms) => setExtras({ ...extras, thumbnail_ms: ms })} workerOnline={workerOnline} />
           </div>
         )}
+        {!onYouTube && <SelfUpload videoId={videoId} renderFile={renderFile} thumbs={thumbs} title={draft.title} description={draft.description} tags={draft.tags} workerOnline={workerOnline} />}
         <p className="flex flex-wrap items-center gap-1.5 text-slate-500">
           {!extrasReady && <>Ondertitels en thumbnail: met migratie 040 · </>}Playlist <StatusBadge status="later" />
         </p>

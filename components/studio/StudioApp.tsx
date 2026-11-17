@@ -36,7 +36,7 @@ import { reviewQueue } from "@/lib/youtube/board";
 import { needsAction, type Flow } from "@/lib/youtube/flow";
 import { useFlow } from "@/lib/youtube/flowData";
 import { useStudio } from "@/lib/studio";
-import { pageVisible } from "@/lib/visible";
+import { pageVisible, pollOnce } from "@/lib/visible";
 import type { LocalRecording, WorkerHealth } from "@/lib/youtube/protocol";
 import {
   cancelJob,
@@ -143,6 +143,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
   const lastDb = useRef("");
   const lastLocal = useRef("");
   const healthMisses = useRef(0);
+  const polling = useRef(false);
   const refresh = useCallback(
     async (full = true) => {
       const [checked, state] = await Promise.all([workerHealth(), full || !dbMissing.current ? loadStudio(studio.id) : null]);
@@ -175,7 +176,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
   useEffect(() => {
     if (!isAdmin) return;
     void refresh();
-    const timer = setInterval(() => pageVisible() && void refresh(false), 5000);
+    const timer = setInterval(() => pollOnce(polling, () => refresh(false)), 5000);
     // Back on the Studio after a while: fresh numbers at once instead of waiting for the next round.
     const onShow = () => pageVisible() && void Promise.all([refresh(false), analysis.refresh(), flow.refresh()]);
     document.addEventListener("visibilitychange", onShow);

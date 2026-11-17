@@ -35,6 +35,9 @@ export const startYouTubeConnect = (channelId: string) => call<{ url: string }>(
 /** Fase E: fetch the statistics now (counts and analytics). */
 export const refreshStats = async () => (await call<{ message: string | null }>("/youtube/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).message;
 export const disconnectYouTube = (channelId: string) => call<{ ok: true }>("/youtube/disconnect", postJson("/youtube/disconnect", { channelId }));
+/** Zelf geüpload (17-11-2026): link a video uploaded by hand in YouTube Studio to this video in the Studio. */
+export type ManualLinkResult = { youtubeVideoId: string; title: string; status: "scheduled" | "uploaded" | "published"; publishAt: string | null };
+export const linkManualUpload = (videoId: string, url: string) => call<ManualLinkResult>("/youtube/link", postJson("/youtube/link", { videoId, url }));
 
 export type UploadPhase = "fingerprint" | "checking" | "uploading" | "verifying";
 export type UploadOutcome = { kind: "done" | "duplicate"; fingerprint: string; recording: LocalRecording };

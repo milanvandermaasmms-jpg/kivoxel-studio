@@ -8,7 +8,7 @@ import { loadBoard, type BoardState } from "./boardData";
 import { buildFlow, type FlowItem, type FlowPublication } from "./flow";
 import { loadPublications } from "./publicationData";
 import { supabase } from "../supabase";
-import { pageVisible } from "../visible";
+import { pollOnce } from "../visible";
 
 type Ready = Extract<BoardState, { ready: true }>;
 export type FlowState = { board: Ready; items: FlowItem[]; publications: FlowPublication[]; views: Record<string, number>; scores: Record<string, number> } | { error: string } | null;
@@ -16,6 +16,7 @@ export type FlowState = { board: Ready; items: FlowItem[]; publications: FlowPub
 export function useFlow(studioId: string, enabled: boolean) {
   const [state, setState] = useState<FlowState>(null);
   const last = useRef("");
+  const polling = useRef(false);
   const refresh = useCallback(async () => {
     try {
       const [board, pubs, checks, snaps] = await Promise.all([
@@ -55,7 +56,7 @@ export function useFlow(studioId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const t = setInterval(() => pageVisible() && void refresh(), 8000);
+    const t = setInterval(() => pollOnce(polling, refresh), 8000);
     return () => clearInterval(t);
   }, [refresh, enabled]);
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEditPlan, checkMoment, parseSeriesKey, partLabel, planVideos, scriptPrompt, seriesKey, seriesParts, seriesTitles, targetFor, PART_TARGET, TARGET, type Moment } from "./analysis";
+import { buildEditPlan, checkMoment, parseSeriesKey, partLabel, planVideos, scriptPrompt, seriesKey, seriesParts, seriesTitles, targetFor, MAX_LONG_VIDEOS, PART_TARGET, TARGET, type Moment } from "./analysis";
 
 // The 21 moments of "the one who watches" (37:21), as the analysis found them: start-end and score.
 const DURATION = 37 * 60_000 + 21_000;
@@ -20,8 +20,8 @@ const moments: Moment[] = FOUND.map(([kind, start, end, score], i) => {
 describe("a long recording told in parts", () => {
   const parts = seriesParts(moments, DURATION);
 
-  it("cuts 37 minutes into about five parts that cover everything, without gaps or overlap", () => {
-    expect(parts.length).toBe(5);
+  it("cuts 37 minutes into at most two parts that cover everything, without gaps or overlap", () => {
+    expect(parts.length).toBe(MAX_LONG_VIDEOS);
     expect(parts[0].startMs).toBe(0);
     expect(parts.at(-1)!.endMs).toBe(DURATION);
     for (let i = 1; i < parts.length; i++) expect(parts[i].startMs).toBe(parts[i - 1].endMs);
@@ -36,10 +36,20 @@ describe("a long recording told in parts", () => {
     for (const p of plans) expect(p.moments.length).toBeGreaterThan(0);
   });
 
-  it("keeps the Shorts as they were and plans no single long video next to the parts", () => {
+  it("makes a Short of every moment that does not overlap a better one, and no single long video next to the parts", () => {
     const plans = planVideos(moments, DURATION, (m) => m.id!);
-    expect(plans.filter((p) => p.format !== "C")).toHaveLength(6);
+    const shorts = plans.filter((p) => p.format !== "C");
+    expect(shorts.length).toBeGreaterThan(6);
+    expect(new Set(shorts.map((p) => p.moments[0].id)).size).toBe(shorts.length);
+    expect(plans.filter((p) => p.format === "C")).toHaveLength(MAX_LONG_VIDEOS);
     expect(plans.some((p) => p.planKey === "C")).toBe(false);
+  });
+
+  it("a very long recording still gives at most two long videos", () => {
+    const twoHours = 2 * 60 * 60_000;
+    const spread = Array.from({ length: 40 }, (_, i) => ({ ...moments[i % moments.length], id: `x${i}`, startMs: i * 180_000 + 10_000, peakMs: i * 180_000 + 18_000, endMs: i * 180_000 + 22_000 }));
+    expect(seriesParts(spread, twoHours)).toHaveLength(MAX_LONG_VIDEOS);
+    expect(planVideos(spread, twoHours, (m) => m.id!).filter((p) => p.format === "C")).toHaveLength(MAX_LONG_VIDEOS);
   });
 
   it("each part's edit plan shows its whole stretch of footage, in order", () => {
@@ -59,21 +69,21 @@ describe("a long recording told in parts", () => {
   it("the plan key carries the part, so the script step can read it back", () => {
     const key = `rec-1:${seriesKey(parts[1])}`;
     expect(parseSeriesKey(key)).toEqual(parts[1]);
-    expect(partLabel(key)).toBe("Deel 2 van 5");
+    expect(partLabel(key)).toBe("Deel 2 van 2");
     expect(parseSeriesKey("rec-1:C")).toBeNull();
     expect(partLabel("rec-1:A:m1")).toBeNull();
     expect(targetFor("C", key)).toBe(PART_TARGET);
     expect(targetFor("C", "rec-1:C")).toBe(TARGET.C);
   });
 
-  it("the script of a middle part recaps the previous part and teases the next", () => {
-    const p = parts[2];
-    const prompt = scriptPrompt("C", null, moments.filter((m) => m.peakMs >= p.startMs && m.peakMs < p.endMs), buildEditPlan("C", moments, DURATION, p), "en", undefined, { part: p, previous: [moments[0]], next: [moments[20]] });
-    expect(prompt).toContain("part 3 of 5");
-    expect(prompt).toContain("recap part 2");
-    expect(prompt).toContain("teaser for part 4");
-    expect(prompt).toContain("moment 21");
-    const last = scriptPrompt("C", null, [moments[20]], buildEditPlan("C", moments, DURATION, parts[4]), "en", undefined, { part: parts[4], previous: [], next: [] });
+  it("the script of the first part teases the next, the second part recaps the first", () => {
+    const [p1, p2] = parts;
+    const first = scriptPrompt("C", null, moments.filter((m) => m.peakMs < p1.endMs), buildEditPlan("C", moments, DURATION, p1), "en", undefined, { part: p1, previous: [], next: [moments[20]] });
+    expect(first).toContain("part 1 of 2");
+    expect(first).toContain("teaser for part 2");
+    expect(first).toContain("moment 21");
+    const last = scriptPrompt("C", null, [moments[20]], buildEditPlan("C", moments, DURATION, p2), "en", undefined, { part: p2, previous: [moments[0]], next: [] });
+    expect(last).toContain("recap part 1");
     expect(last).toContain("last part");
   });
 

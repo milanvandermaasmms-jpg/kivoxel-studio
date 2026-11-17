@@ -18,6 +18,7 @@ import { createYouTube } from "./youtube.ts";
 import { createUploader } from "./youtubeUpload.ts";
 import { createStats } from "./youtubeStats.ts";
 import { createStatsSync } from "./statsSync.ts";
+import { createManualLink } from "./manualLinkRoute.ts";
 import { createClient } from "@supabase/supabase-js";
 import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
@@ -192,6 +193,8 @@ const youtubeLink = createYouTubeLink(youtube, supabaseUrl && serviceKey ? { url
 const publisher: Publisher | null = youtube.configured && montage ? { uploader: createUploader({ yt: youtube, sessionDir: join(dataDir, "youtube-uploads") }), tokensChannelId: dreamnestEnabled(env) ? (row) => youtubeLink.tokensChannelId(row) : undefined, rendersDir: montage.rendersDir, tmpDir: montage.tmpDir, frame: (input, atMs, output) => extractFrame(ffmpeg, input, atMs, output) } : null;
 // Statistics (fase E): hourly counts and every 6 hours the delayed analytics, only while YouTube is linked.
 const statsSync = youtube.configured && supabaseUrl && serviceKey ? createStatsSync({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), stats: createStats({ yt: youtube }), log }) : null;
+// Zelf geüpload (17-11-2026): link a video Milan uploaded by hand to its video in the Studio (1 quota unit).
+const manualLink = youtube.configured && supabaseUrl && serviceKey ? createManualLink({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), youtubeFor: youtubeLink.youtubeFor, log }) : null;
 // Fase 3.1: reference videos in the niche through the linked YouTube account (only quota, no money).
 const research = youtube.configured ? createResearch({ yt: youtube }) : null;
 const queue = supabaseUrl && serviceKey ? createQueue(supabaseUrl, serviceKey, workerName, store, log, ai, montage, undefined, publisher, research) : null;
@@ -246,7 +249,7 @@ const server = createWorkerServer({
   health,
   rendersDir: montage?.rendersDir,
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
-  youtube: { ...youtubeLink, refresh: statsSync ? async () => ((await youtube.status()).connected ? statsSync.sync(true) : "YouTube is niet gekoppeld") : undefined },
+  youtube: { ...youtubeLink, refresh: statsSync ? async () => ((await youtube.status()).connected ? statsSync.sync(true) : "YouTube is niet gekoppeld") : undefined, link: manualLink ?? undefined },
   log,
   // Local mode: no queue, so run the intake straight away. Queue mode: the dashboard queues the step.
   // Ivar (and the dashboard) may wake the queue right after putting a step in; it only checks the queue sooner.

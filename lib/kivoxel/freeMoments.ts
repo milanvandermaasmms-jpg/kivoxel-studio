@@ -22,9 +22,9 @@ const AFTER = 3500;
 
 /**
  * The moments of a recording from its timeline: only events with a hook type and enough payoff, the strongest first,
- * at least 15 s apart (one moment, one Short), at most `max`.
+ * at least 15 s apart (one moment, one Short), at most `max` (no maximum by default: Milan, 17-11-2026).
  */
-export function momentsFromTimeline(t: EventTimeline, durationMs: number, max = 8, minPayoff = 40): Moment[] {
+export function momentsFromTimeline(t: EventTimeline, durationMs: number, max = Number.POSITIVE_INFINITY, minPayoff = 40): Moment[] {
   const picked: GameEvent[] = [];
   for (const e of [...t.events].filter((x) => x.type && x.payoff >= minPayoff).sort((a, b) => b.payoff - a.payoff)) {
     if (picked.some((p) => Math.abs(p.t_peak - e.t_peak) < 15_000)) continue;
