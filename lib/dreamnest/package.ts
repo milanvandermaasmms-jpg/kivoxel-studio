@@ -84,7 +84,7 @@ export function episodeText(o: { title: string; minutes: number; chapters: Chapt
     "",
     o.kerst ? "#babysleepmusic #christmaslullabies #sleepmusic" : "#babysleepmusic #lullabies #sleepmusic",
   ].join("\n");
-  const tags = fitTags([...(o.kerst ? ["christmas baby sleep music", "christmas lullabies", "silent night lullaby", "christmas sleep music"] : []), "baby sleep music", "lullabies for babies", "lullaby", "sleep music for babies", "bedtime music", "baby lullaby", "fireplace sleep music", "relaxing music for kids", "twinkle twinkle little star", "brahms lullaby", "calm music", "sleepy music", "dreamnest", "lumi"]);
+  const tags = fitTags([...(o.kerst ? ["christmas baby sleep music", "christmas lullabies", "silent night lullaby", "christmas sleep music"] : []), "baby sleep music", "lullabies for babies", "lullaby", "sleep music for babies", "bedtime music", "baby lullaby", "fireplace sleep music", "relaxing music for kids", ...(o.kerst ? [] : ["twinkle twinkle little star"]), "brahms lullaby", "calm music", "sleepy music", "dreamnest", "lumi"]);
   return { title, description, tags };
 }
 

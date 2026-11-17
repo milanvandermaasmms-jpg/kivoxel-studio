@@ -114,6 +114,7 @@ describe("Christmas packaging (Milan 17-11-2026: \"Lumi's Cozy Christmas Night\"
     expect(t.description).toMatch(/Silent Night/);
     expect(t.description).not.toMatch(/Twinkle/);
     expect(t.tags[0]).toBe("christmas baby sleep music");
+    expect(t.tags.join(" ")).not.toMatch(/twinkle/);
     expect(t.tags.join(",").length).toBeLessThanOrEqual(500);
   });
 });

@@ -85,7 +85,27 @@ const SCENES = kerst ? [
 ];
 const thumbs: string[] = [];
 const image = env.GEMINI_API_KEY ? createGeminiImage(env.GEMINI_API_KEY) : null;
-for (let i = 0; i < 3; i++) {
+// Kerst (Milan 17-11-2026, budget op: "Beeld uit de video, gratis"): the background is a still from the video itself,
+// the middle of the scene in the bright story part. Free, and it matches the video exactly.
+const FRAME_SCENES = ["b02-lumi-rocking-chair", "b06-window-momo", "b09-lumi-falls-asleep"];
+// Lumi sits on the right in these scenes, where the title goes: mirror them so she is on the left and stays visible.
+const FRAME_FLIP = [true, false, true];
+const frameAt = (key: string): number | null => {
+  const s = timeline.segments.find((x) => x.asset.endsWith(key) && x.startS < 12 * 60);
+  return s ? s.startS + s.lengthS / 2 : null;
+};
+const fromVideo = kerst && !process.argv.includes("--ai-thumbs");
+for (let i = 0; i < 3 && fromVideo; i++) {
+  const dir = join(out, "thumbs");
+  const at = frameAt(FRAME_SCENES[i]) ?? 60 + i * 120;
+  await waitForKivoxel();
+  await ff(["-ss", at.toFixed(2), "-i", video, ...(FRAME_FLIP[i] ? ["-vf", "hflip"] : []), "-frames:v", "1", `bg-${i + 1}.png`], dir);
+  await writeFile(join(dir, `t${i + 1}.ass`), dnThumbAss(thumbLines(title), `${minutes >= 120 ? `${minutes / 60} Hours` : minutes === 90 ? "90 Minutes" : "1 Hour"} of Sleep Music`, i));
+  await ff(["-i", `bg-${i + 1}.png`, "-vf", `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.05,ass=t${i + 1}.ass`, "-frames:v", "1", "-q:v", "3", `thumb-${i + 1}.jpg`], dir);
+  thumbs.push(rel("thumbs", `thumb-${i + 1}.jpg`));
+  log(`Thumbnail ${i + 1}/3 uit de video (${Math.round(at)} s, gratis)`);
+}
+for (let i = 0; i < 3 && !fromVideo; i++) {
   const prompt =
     `YouTube thumbnail artwork, 16:9, no text. Lumi van Dreamnest: ${lumi.prompt_dna} ` +
     `She is big and close in the left 45% of the frame, seen from the waist up, eyes peacefully closed, hugging Twinkle the softly glowing star plush; ${SCENES[i]}. ` +
