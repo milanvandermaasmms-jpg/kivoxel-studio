@@ -70,6 +70,17 @@ export function pickTrack(library: Track[], type: EventType, energy: number, rec
   return ties[Math.floor(rnd() * ties.length)] ?? ranked[0];
 }
 
+/**
+ * The KIVOXEL motif (own music, Milan 18-11-2026): at the very start of every Short, and at the start and the end of a
+ * long video. Not in "Alleen gamegeluid" (no music and no voice). Softer under a voice than in the music mode.
+ */
+export function motifCues(o: { short: boolean; durationMs: number; motifMs: number; music: boolean; voice: boolean }): { atMs: number; db: number }[] {
+  if (!o.music && !o.voice) return [];
+  const db = o.voice ? -14 : -8;
+  if (o.short || o.durationMs < o.motifMs * 3) return [{ atMs: 0, db }];
+  return [{ atMs: 0, db }, { atMs: Math.max(0, o.durationMs - o.motifMs), db }];
+}
+
 /** Where to start in the track so a downbeat (start of a bar of 4 beats) lands exactly on `peakMs` in the video. */
 export function beatStart(track: Pick<Track, "bpm" | "beat_offset_ms">, peakMs: number | null, extraBars = 0): number {
   if (peakMs === null) return Math.max(0, track.beat_offset_ms ?? 0);

@@ -71,7 +71,7 @@ import type { PhraseLog } from "./phraseLog.ts";
 import type { LocalTts } from "./localTts.ts";
 import { AUDIO_MODES, type AudioMode } from "../lib/kivoxel/config.ts";
 import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
-import { beatStart, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
+import { beatStart, motifCues, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
 import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
 import { momentsFromTimeline } from "../lib/kivoxel/freeMoments.ts";
 import { loudnessCheck, targetFrom, type LoudnessTarget } from "../lib/kivoxel/loudness.ts";
@@ -114,6 +114,8 @@ export type Montage = {
   media?: {
     music: () => Promise<{ dir: string; tracks: Track[] }>;
     sfx: () => Promise<{ dir: string; items: Sfx[] }>;
+    /** The KIVOXEL motif (own music); optional so tests and older setups work without it. */
+    motif?: () => Promise<{ file: string; durMs: number } | null>;
     musicLog: PhraseLog;
     sfxLog: PhraseLog;
   };
@@ -1017,7 +1019,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: lib.tracks, recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
           if (parts.length) {
             const titles = [...new Set(parts.map((p) => p.title))];
-            music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (Pixabay)`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
+            const own = parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("eigen"));
+            music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (${own ? "eigen KIVOXEL-muziek" : "Pixabay"})`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
             void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
             mixNote = parts.length > 1 ? `Muziek wisselt mee: ${parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)} s`).join(", ")}` : null;
           } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
@@ -1039,6 +1042,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           }
           void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
         }
+        // Own KIVOXEL motif (Milan, 18-11-2026): start of every Short, start and end of a long video.
+        const motif = await media.motif?.().catch(() => null);
+        if (motif) for (const c of motifCues({ short: isShort, durationMs: cutMs, motifMs: motif.durMs, music: !!modeSpec.music, voice: !!modeSpec.voice })) sfx.push({ file: motif.file, atMs: c.atMs, db: c.db, kind: "motif" });
         mixPlan = { mode: kSettings.audio_mode, spec: modeSpec, music, sfx, voiceChain: true };
       }
       const plan = renderArgs({

@@ -3,7 +3,7 @@
 // - SFX: the self-made sounds in the repo (assets/kivoxel/sfx) plus any extra in <data>/kivoxel-media/sfx.
 // Entries with a problem (no licence, wrong file type, missing file) are skipped and reported in Dutch.
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { SFX_KINDS, trackProblems, type Sfx, type Track } from "../lib/kivoxel/media.ts";
 import { createPhraseLog } from "./phraseLog.ts";
@@ -40,6 +40,16 @@ export function createMediaLibrary(dataDir: string, repoSfxDir: string, log: (ms
         for (const s of lib?.sfx ?? []) if (SFX_KINDS.includes(s.kind) && existsSync(join(dir, s.file))) items.push({ ...s, file: join(dir, s.file) });
       }
       return { dir: "", items };
+    },
+    /** The KIVOXEL motif (own work, scripts/kivoxel-make-music.ts) in <data>/kivoxel-media/jingles; null when it is not there. */
+    async motif(): Promise<{ file: string; durMs: number } | null> {
+      const file = join(dataDir, "kivoxel-media", "jingles", "kivoxel-motief.wav");
+      try {
+        const { size } = await stat(file);
+        return { file, durMs: Math.round(((size - 44) / (48_000 * 4)) * 1000) }; // 48 kHz, 16-bit stereo
+      } catch {
+        return null;
+      }
     },
     musicLog: createPhraseLog(join(dataDir, "kivoxel-music-log.json")),
     sfxLog: createPhraseLog(join(dataDir, "kivoxel-sfx-log.json")),
