@@ -39,6 +39,9 @@ export function downbeatStart(track: Pick<Track, "bpm" | "beat_offset_ms">, from
   return Math.max(0, Math.round(first + k * bar - peakIn));
 }
 
+/** Shorts open with only the game sound of the climax (the teaser); the music drops in after it (Milan, 18-11-2026). */
+export const SHORT_GAME_ONLY_MS = 1300;
+
 export type MusicPlanInput = { durationMs: number; events: MusicEvent[]; library: Track[]; recent: string[]; rnd: () => number; short: boolean; noRepeatWithin?: number; allowTest?: boolean };
 
 /**
@@ -78,7 +81,9 @@ export function planMusicParts(input: MusicPlanInput): MusicPart[] {
   }
   // A Short without any action: calm (or happy) the whole way; a Short that is all action: busy the whole way.
   const used = new Map<string, number>();
-  return merged.map((s) => {
+  const lead = short ? Math.min(SHORT_GAME_ONLY_MS, durationMs) : 0;
+  return merged.filter((s) => s.to > lead).map((s0) => {
+    const s = { ...s0, from: Math.max(s0.from, lead) };
     const track = s.kind === "action" ? action : calm;
     const len = s.to - s.from;
     // Continue the track where it stopped; for action, shift so a downbeat lands on the peak.

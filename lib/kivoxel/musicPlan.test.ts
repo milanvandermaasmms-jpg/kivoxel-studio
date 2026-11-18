@@ -3,7 +3,7 @@ import { presetFile, resolveSettings } from "./config";
 import { longTopEvents } from "./hookText";
 import type { Track } from "./media";
 import { mixFilters, mixInputs } from "./mix";
-import { actionSpans, downbeatStart, planMusicParts } from "./musicPlan";
+import { actionSpans, downbeatStart, planMusicParts, SHORT_GAME_ONLY_MS } from "./musicPlan";
 
 const track = (file: string, energy: number, moods: Track["moods"], bpm = 120): Track => ({ file, title: file, source: "test", license: "test", energy, moods, bpm, beat_offset_ms: 0 });
 const library = [track("busy.mp3", 5, ["hype", "funny"], 140), track("busy2.mp3", 4, ["tense"]), track("calm.mp3", 1, ["chill"], 80), track("happy.mp3", 3, ["happy"])];
@@ -32,6 +32,9 @@ describe("music follows the content (Milan, 16-11-2026)", () => {
   });
   it("a Short that is all action gets one busy track; a calm Short one calm track", () => {
     const busy = planMusicParts({ durationMs: 15_000, events: [{ atMs: 9000, payoff: 95, type: "fail", kind: "death" }], library, recent: [], rnd, short: true });
+    // 18-11-2026: the first 1.3 s of a Short is only the game sound of the climax; the music drops in after it.
+    expect(busy[0].atMs).toBe(SHORT_GAME_ONLY_MS);
+    expect(busy.reduce((s, p) => s + p.durMs, 0)).toBe(15_000 - SHORT_GAME_ONLY_MS);
     expect(busy.length).toBe(1);
     expect(busy[0].kind).toBe("action");
     const calm = planMusicParts({ durationMs: 20_000, events: [{ atMs: 9000, payoff: 60, type: "bouw", kind: "ai_moment" }], library, recent: [], rnd, short: true });

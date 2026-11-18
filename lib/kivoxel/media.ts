@@ -71,13 +71,14 @@ export function pickTrack(library: Track[], type: EventType, energy: number, rec
 }
 
 /**
- * The KIVOXEL motif (own music, Milan 18-11-2026): at the very start of every Short, and at the start and the end of a
- * long video. Not in "Alleen gamegeluid" (no music and no voice). Softer under a voice than in the music mode.
+ * The KIVOXEL motif (own music, Milan 18-11-2026): at the end of every Short (since 18-11-2026 evening: the first second
+ * belongs to the action, a known tune at the start makes viewers swipe), and at the start and the end of a long video. Not in "Alleen gamegeluid" (no music and no voice). Softer under a voice than in the music mode.
  */
 export function motifCues(o: { short: boolean; durationMs: number; motifMs: number; music: boolean; voice: boolean }): { atMs: number; db: number }[] {
   if (!o.music && !o.voice) return [];
   const db = o.voice ? -14 : -8;
-  if (o.short || o.durationMs < o.motifMs * 3) return [{ atMs: 0, db }];
+  if (o.short) return [{ atMs: Math.max(0, o.durationMs - o.motifMs), db }];
+  if (o.durationMs < o.motifMs * 3) return [{ atMs: 0, db }];
   return [{ atMs: 0, db }, { atMs: Math.max(0, o.durationMs - o.motifMs), db }];
 }
 
