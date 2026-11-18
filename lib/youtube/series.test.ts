@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEditPlan, checkMoment, parseSeriesKey, partLabel, planVideos, scriptPrompt, seriesKey, seriesParts, seriesTitles, targetFor, MAX_LONG_VIDEOS, PART_TARGET, TARGET, type Moment } from "./analysis";
+import { buildEditPlan, checkMoment, parseSeriesKey, partLabel, planVideos, scriptPrompt, seriesKey, seriesParts, seriesTitles, targetFor, MAX_LONG_VIDEOS, MAX_SHORTS_PER_RECORDING, PART_TARGET, TARGET, type Moment } from "./analysis";
 
 // The 21 moments of "the one who watches" (37:21), as the analysis found them: start-end and score.
 const DURATION = 37 * 60_000 + 21_000;
@@ -36,10 +36,11 @@ describe("a long recording told in parts", () => {
     for (const p of plans) expect(p.moments.length).toBeGreaterThan(0);
   });
 
-  it("makes a Short of every moment that does not overlap a better one, and no single long video next to the parts", () => {
+  it("makes at most MAX_SHORTS_PER_RECORDING Shorts, each its own moment, and no single long video next to the parts", () => {
     const plans = planVideos(moments, DURATION, (m) => m.id!);
     const shorts = plans.filter((p) => p.format !== "C");
-    expect(shorts.length).toBeGreaterThan(6);
+    expect(shorts.length).toBeGreaterThan(0);
+    expect(shorts.length).toBeLessThanOrEqual(MAX_SHORTS_PER_RECORDING);
     expect(new Set(shorts.map((p) => p.moments[0].id)).size).toBe(shorts.length);
     expect(plans.filter((p) => p.format === "C")).toHaveLength(MAX_LONG_VIDEOS);
     expect(plans.some((p) => p.planKey === "C")).toBe(false);

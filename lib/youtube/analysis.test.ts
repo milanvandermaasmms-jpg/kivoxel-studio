@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEditPlan, checkMoment, estimateAnalysisCents, formatTimecode, parseAnalysis, parseScript, planVideos, scriptPrompt, testMoments, testScript, type Moment } from "./analysis";
+import { buildEditPlan, checkMoment, estimateAnalysisCents, formatTimecode, parseAnalysis, parseScript, planVideos, scriptPrompt, MAX_SHORTS_PER_RECORDING, MIN_SHORT_SCORE, testMoments, testScript, type Moment } from "./analysis";
 
 describe("AI script", () => {
   it("accepts a valid script, drops lines outside the video and sorts", () => {
@@ -76,11 +76,12 @@ describe("parseAnalysis", () => {
 
 describe("planVideos", () => {
   const key = (m: Moment) => String(m.startMs);
-  it("makes a Short of every usable moment, without a maximum, the best moments first", () => {
-    const many = Array.from({ length: 30 }, (_, i) => ok({ start_ms: i * 100_000, end_ms: i * 100_000 + 20_000, peak_ms: i * 100_000 + 10_000, score: 50 + i }, 3_100_000));
+  it("makes Shorts of only the strongest moments: at most MAX_SHORTS_PER_RECORDING, best first", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ok({ start_ms: i * 100_000, end_ms: i * 100_000 + 20_000, peak_ms: i * 100_000 + 10_000, score: 70 + i }, 3_100_000));
     const shorts = planVideos(many, 3_100_000, key).filter((p) => p.format !== "C");
-    expect(shorts).toHaveLength(30);
-    expect(shorts[0].moments[0].score).toBe(79);
+    expect(shorts).toHaveLength(MAX_SHORTS_PER_RECORDING);
+    expect(shorts[0].moments[0].score).toBe(99);
+    expect(shorts.every((p) => p.moments[0].score >= MIN_SHORT_SCORE)).toBe(true);
   });
   it("makes one Short per usable moment and skips unusable ones", () => {
     const plans = planVideos([ok(), ok({ kind: "rare_find", start_ms: 100_000, end_ms: 125_000, peak_ms: 110_000 }), ok({ start_ms: 300_000, end_ms: 301_000, peak_ms: 300_500, has_payoff: false })], 600_000, key);

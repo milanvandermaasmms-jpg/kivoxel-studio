@@ -21,7 +21,9 @@ Zet hem in `hooks.json` bij het juiste type. Regels (de tests en de werker contr
 - emoji mogen (voor de titel); in het beeld laat de Studio ze weg, want het lettertype kan ze niet tekenen.
 
 ## Lengte van Shorts
-De lengte volgt de inhoud: de kortste lengte waarin hook → spanning → payoff compleet is (`length_buckets` in `presets.json`: Loop 7-14 s, Kort 15-25 s, Midden 26-40 s, Verhaal 41-58 s; Verhaal alleen met echte opbouw). Twee Shorts na elkaar uit dezelfde opname krijgen nooit dezelfde bucket, en de exacte lengte is nooit een rond getal. Menu's, stilstand en zwart beeld in het stuk worden eruit geknipt; de payoff zelf blijft heel.
+De lengte volgt de inhoud: de kortste lengte waarin hook → spanning → payoff compleet is (`length_buckets` in `presets.json`: Loop 7-12 s, Kort 13-20 s, Midden 21-30 s, Verhaal 31-45 s; Verhaal alleen met echte opbouw). Twee Shorts na elkaar uit dezelfde opname krijgen nooit dezelfde bucket, en de exacte lengte is nooit een rond getal. Menu's, stilstand en zwart beeld in het stuk worden eruit geknipt; de payoff zelf blijft heel.
+
+**Explosief begin (18-11-2026):** elke Short opent met een flits van het hoogtepunt (1,3 s: de explosie, val of clutch) en spoelt dan terug naar de korte opbouw (`payoff_tease` staat aan voor alle presets, KIVOXEL en SpawnNado). Reden: van onze Shorts veegde 45-80% van de kijkers in de eerste seconden weg; de enige uitschieter (7.872 views) was 9 s en begon meteen met de actie.
 
 ## Een preset maken
 Voeg in `presets.json` onder `presets` een blok toe. Je noemt alleen wat anders moet dan `base`, bijvoorbeeld:

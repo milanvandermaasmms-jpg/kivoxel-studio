@@ -33,10 +33,10 @@
       "fps": "source",
       "safe_zone": { "top_px": 220, "bottom_px": 480, "right_px": 140, "left_px": 60 },
       "length_buckets": [
-        { "key": "loop", "label": "Loop", "min_ms": 7000, "max_ms": 14000 },
-        { "key": "kort", "label": "Kort", "min_ms": 15000, "max_ms": 25000 },
-        { "key": "midden", "label": "Midden", "min_ms": 26000, "max_ms": 40000 },
-        { "key": "verhaal", "label": "Verhaal", "min_ms": 41000, "max_ms": 58000, "needs_buildup": true }
+        { "key": "loop", "label": "Loop", "min_ms": 7000, "max_ms": 12000 },
+        { "key": "kort", "label": "Kort", "min_ms": 13000, "max_ms": 20000 },
+        { "key": "midden", "label": "Midden", "min_ms": 21000, "max_ms": 30000 },
+        { "key": "verhaal", "label": "Verhaal", "min_ms": 31000, "max_ms": 45000, "needs_buildup": true }
       ],
       "no_same_bucket_in_a_row": true,
       "first_action_max_ms": 500
@@ -48,7 +48,7 @@
 
     "features": {
       "hook_first_second": true,
-      "payoff_tease": false,
+      "payoff_tease": true,
       "cut_dead_air": true,
       "max_pause_ms": 700,
       "pattern_interrupts": true,

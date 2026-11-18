@@ -11,6 +11,9 @@ import type { DeadSpan, EventTimeline, GameEvent } from "./events.ts";
 export const MIN_BUILD_MS = 4500;
 /** After the peak: the payoff and its reaction (a death shows the GAME OVER screen a bit longer). */
 export const aftermathMs = (e: GameEvent) => (e.kind === "death" ? 2600 : 2000);
+/** 18-11-2026: every Short opens on its climax. The teaser shows this much before and after the peak (1.3 s in all). */
+export const TEASER_BEFORE_MS = 400;
+export const TEASER_AFTER_MS = 900;
 /** Never cut within this distance of the peak: the payoff stays whole. */
 export const KEEP_AROUND_PEAK = 1500;
 /** Is this dead stretch part of a payoff (it touches the area right around a peak)? Then it stays, on purpose. */
@@ -107,8 +110,8 @@ export function planShort(event: GameEvent, t: EventTimeline, settings: Settings
   const hi = Math.min(pick.max_ms, maxPossible);
   let want = hi > lo ? lo + rnd() * (hi - lo) : lo;
   want = Math.round(want / 100) * 100 + (Math.round(want / 1000) * 1000 === Math.round(want / 100) * 100 ? 300 : 0);
-  // Slow motion (+0.8 s) and a teaser (+0.6 s) make the Short longer: take that off the footage, so it stays in its bucket.
-  const extra = (settings.features.interrupts.includes("speed_ramp") ? 800 : 0) + (settings.features.payoff_tease ? 600 : 0);
+  // Slow motion (+0.8 s) and a teaser (+1.3 s) make the Short longer: take that off the footage, so it stays in its bucket.
+  const extra = (settings.features.interrupts.includes("speed_ramp") ? 800 : 0) + (settings.features.payoff_tease ? TEASER_BEFORE_MS + TEASER_AFTER_MS : 0);
   const wantLive = Math.max(minimal, want - extra);
   const start = liveStart(startFor(wantLive, end, event, t, floorMs), event.t_peak, t.dead);
   const short = wantLive - outLength(start, end, event, t.dead);
@@ -125,9 +128,9 @@ export function planShort(event: GameEvent, t: EventTimeline, settings: Settings
     segments.push({ part, src_start_ms: a, src_end_ms: b, out_start_ms: out, speed, effects, note });
     out += Math.round((b - a) / speed);
   };
-  // Section 7.1: tease the payoff for half a second, then rewind ("12 SECONDS EARLIER…").
+  // Section 7.1: open on the payoff for 1.3 s, then rewind ("12 SECONDS EARLIER…").
   if (settings.features.payoff_tease) {
-    push("teaser", event.t_peak - 150, Math.min(end, event.t_peak + 450), 1, "teaser van de payoff", ["zoom"]);
+    push("teaser", event.t_peak - TEASER_BEFORE_MS, Math.min(end, event.t_peak + TEASER_AFTER_MS), 1, "teaser van de payoff", ["zoom"]);
     overlays.push({ startMs: out, endMs: out + 1100, text: `${Math.max(2, Math.round((event.t_peak - start) / 1000))} SECONDS EARLIER…` });
   }
   // Section 7.3: speed ramp, slow motion in the last moment before the peak (only with room for build-up before it).

@@ -91,10 +91,11 @@ describe("project cards", () => {
 
 describe("review queue", () => {
   it("lists concepts and final versions, oldest first, per channel", () => {
-    const videos = [vid("a", "1", "review"), vid("bb", "1", "scripted"), vid("ccc", "1", "failed"), vid("dddd", null, "review", "C", { channel_id: D })];
+    const videos = [vid("a", "1", "review"), vid("bb", "1", "scripted"), vid("ccc", "1", "failed"), vid("eeeee", "1", "archived"), vid("dddd", null, "review", "C", { channel_id: D })];
     const scripts = [
       { id: "s", video_id: "bb", version: 1, status: "draft" as const },
       { id: "t", video_id: "ccc", version: 1, status: "draft" as const },
+      { id: "u", video_id: "eeeee", version: 1, status: "draft" as const },
     ];
     expect(reviewQueue(videos, scripts)).toEqual([{ kind: "final", videoId: "a" }, { kind: "concept", videoId: "bb", scriptId: "s" }, { kind: "final", videoId: "dddd" }]);
     expect(reviewQueue(videos, scripts, D)).toEqual([{ kind: "final", videoId: "dddd" }]);

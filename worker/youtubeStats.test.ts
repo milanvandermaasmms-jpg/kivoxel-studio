@@ -31,10 +31,10 @@ describe("asking YouTube", () => {
 
   it("reads channel counts and the per-video analytics with a filter on our videos", async () => {
     const { stats, urls, spent } = setup({
-      "channels?part=statistics": { items: [{ statistics: { subscriberCount: "2", viewCount: "120", videoCount: "1", hiddenSubscriberCount: false } }] },
+      "channels?part=statistics": { items: [{ id: "UCx", statistics: { subscriberCount: "2", viewCount: "120", videoCount: "1", hiddenSubscriberCount: false } }] },
       "v2/reports": { columnHeaders: [{ name: "video" }, { name: "views" }, { name: "engagedViews" }, { name: "estimatedMinutesWatched" }, { name: "averageViewDuration" }, { name: "averageViewPercentage" }, { name: "subscribersGained" }, { name: "likes" }, { name: "comments" }], rows: [["vid1", 100, 80, 25.5, 15, 83.3, 1, 4, 0]] },
     });
-    expect(await stats.channel()).toEqual({ subscribers: 2, views: 120, videos: 1, hiddenSubscribers: false });
+    expect(await stats.channel()).toEqual({ id: "UCx", subscribers: 2, views: 120, videos: 1, hiddenSubscribers: false });
     expect(await stats.videoAnalytics(["vid1"], "2026-11-12")).toEqual([{ videoId: "vid1", views: 100, engagedViews: 80, minutes: 25.5, avgViewDurationS: 15, avgViewPct: 83.3, subscribersGained: 1, likes: 4, comments: 0 }]);
     const q = new URL(urls[1]).searchParams;
     expect(Object.fromEntries(q)).toMatchObject({ ids: "channel==MINE", dimensions: "video", filters: "video==vid1", startDate: "2026-11-12", endDate: "2026-11-12", sort: "-views" });

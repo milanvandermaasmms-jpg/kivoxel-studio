@@ -24,6 +24,6 @@ describe("analysis without AI", () => {
     expect(m.map((x) => x.peakMs)).toEqual([100_000, 300_000]);
     expect(m[1].reason).toBe("only 3.5 hearts left, one more hit could end it");
     expect(m.every((x) => x.peakMs - x.startMs >= 9000 && x.endMs - x.peakMs >= 3000)).toBe(true);
-    expect(planVideos(m, 600_000, (x) => `${x.kind}:${x.startMs}`).length).toBeGreaterThanOrEqual(2);
+    expect(planVideos(m, 600_000, (x) => `${x.kind}:${x.startMs}`).length).toBeGreaterThanOrEqual(1);
   });
 });

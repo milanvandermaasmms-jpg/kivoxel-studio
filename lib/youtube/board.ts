@@ -142,7 +142,7 @@ export function buildProjects(input: BoardInput): Project[] {
 export function reviewQueue(videos: BoardVideo[], scripts: BoardScript[], channelId: string | null = null): ReviewItem[] {
   const items: ReviewItem[] = [];
   for (const v of [...videos].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
-    if (v.status === "failed" || (channelId && v.channel_id !== channelId)) continue;
+    if (v.status === "failed" || v.status === "archived" || (channelId && v.channel_id !== channelId)) continue;
     const stage = videoStage(v, scripts);
     if (stage === "keur2") items.push({ kind: "final", videoId: v.id });
     else if (stage === "keur1") items.push({ kind: "concept", videoId: v.id, scriptId: scriptState(v.id, scripts).latest!.id });

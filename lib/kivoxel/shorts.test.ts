@@ -139,9 +139,9 @@ describe("Short length", () => {
   });
 
   it("reports length checks", () => {
-    expect(bucketOf(22_300, settings.shorts.length_buckets)!.key).toBe("kort");
-    expect(lengthChecks(22_300, "kort", settings).find((c) => c.key === "length_varies")!.ok).toBe(false);
-    expect(lengthChecks(22_300, "loop", settings).every((c) => c.ok)).toBe(true);
+    expect(bucketOf(17_300, settings.shorts.length_buckets)!.key).toBe("kort");
+    expect(lengthChecks(17_300, "kort", settings).find((c) => c.key === "length_varies")!.ok).toBe(false);
+    expect(lengthChecks(17_300, "loop", settings).every((c) => c.ok)).toBe(true);
     expect(lengthChecks(70_000, null, settings)[0].ok).toBe(false);
   });
 });

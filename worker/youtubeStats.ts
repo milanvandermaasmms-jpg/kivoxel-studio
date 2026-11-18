@@ -10,10 +10,11 @@ const API = "https://www.googleapis.com/youtube/v3";
 const ANALYTICS = "https://youtubeanalytics.googleapis.com/v2/reports";
 export const ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly";
 
-export type ChannelCounts = { subscribers: number | null; views: number; videos: number; hiddenSubscribers: boolean };
+export type ChannelCounts = { id: string | null; subscribers: number | null; views: number; videos: number; hiddenSubscribers: boolean };
 export type UploadItem = { videoId: string; title: string; publishedAt: string };
 export type VideoCounts = { videoId: string; views: number; likes: number | null; comments: number | null; durationS: number | null };
 export type VideoAnalytics = { videoId: string; views: number; engagedViews: number | null; minutes: number; avgViewDurationS: number; avgViewPct: number; subscribersGained: number; likes: number; comments: number };
+export type VideoStatus = { videoId: string; channelId: string; privacyStatus: "private" | "unlisted" | "public"; publishAt: string | null; publishedAt: string | null };
 export type DailyRow = { day: string; views: number; engagedViews: number | null; minutes: number; subscribersGained: number };
 export type RetentionPoint = { at: number; ratio: number; relative: number | null };
 
@@ -55,9 +56,9 @@ export function createStats(o: { yt: YouTube; fetch?: typeof fetch; now?: () => 
     /** Subscribers, total views and number of videos (channels.list, 1 unit). */
     async channel(): Promise<ChannelCounts> {
       await o.yt.spend("channels.list");
-      const json = await get<{ items?: { statistics?: Record<string, string | boolean> }[] }>(`${API}/channels?part=statistics&mine=true`, "Kanaalcijfers");
+      const json = await get<{ items?: { id?: string; statistics?: Record<string, string | boolean> }[] }>(`${API}/channels?part=statistics&mine=true`, "Kanaalcijfers");
       const s = json.items?.[0]?.statistics ?? {};
-      return { subscribers: s.hiddenSubscriberCount ? null : num(s.subscriberCount), views: num(s.viewCount) ?? 0, videos: num(s.videoCount) ?? 0, hiddenSubscribers: s.hiddenSubscriberCount === true };
+      return { id: json.items?.[0]?.id ?? null, subscribers: s.hiddenSubscriberCount ? null : num(s.subscriberCount), views: num(s.viewCount) ?? 0, videos: num(s.videoCount) ?? 0, hiddenSubscribers: s.hiddenSubscriberCount === true };
     },
 
     /** The newest uploads of the channel, also videos uploaded by hand (2 units). */
@@ -84,6 +85,21 @@ export function createStats(o: { yt: YouTube; fetch?: typeof fetch; now?: () => 
         const part = ids.slice(i, i + 50);
         const json = await get<{ items?: { id: string; statistics?: Record<string, string>; contentDetails?: { duration?: string } }[] }>(`${API}/videos?part=statistics,contentDetails&id=${part.map(encodeURIComponent).join(",")}`, "Videocijfers");
         for (const v of json.items ?? []) out.push({ videoId: v.id, views: num(v.statistics?.viewCount) ?? 0, likes: num(v.statistics?.likeCount), comments: num(v.statistics?.commentCount), durationS: isoDurationS(v.contentDetails?.duration) });
+      }
+      return out;
+    },
+
+    /** What YouTube says now about visibility and planning (videos.list part=status, 1 unit per 50 videos). */
+    async statuses(ids: string[]): Promise<VideoStatus[]> {
+      const out: VideoStatus[] = [];
+      for (let i = 0; i < ids.length; i += 50) {
+        await o.yt.spend("videos.list");
+        const part = ids.slice(i, i + 50);
+        const json = await get<{ items?: { id: string; snippet?: { channelId?: string; publishedAt?: string }; status?: { privacyStatus?: string; publishAt?: string } }[] }>(`${API}/videos?part=snippet,status&id=${part.map(encodeURIComponent).join(",")}`, "Videostatus");
+        for (const v of json.items ?? []) {
+          const p = v.status?.privacyStatus;
+          out.push({ videoId: v.id, channelId: v.snippet?.channelId ?? "", privacyStatus: p === "public" || p === "unlisted" ? p : "private", publishAt: v.status?.publishAt ?? null, publishedAt: v.snippet?.publishedAt ?? null });
+        }
       }
       return out;
     },

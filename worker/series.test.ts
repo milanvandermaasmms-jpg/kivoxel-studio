@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createQueue } from "./queue.ts";
 import type { Store } from "./store.ts";
+import { MAX_SHORTS_PER_RECORDING } from "../lib/youtube/analysis.ts";
 
 type Call = { table: string; op: string; values?: unknown; filters: [string, string, unknown][] };
 
@@ -74,7 +75,8 @@ describe("a long recording told in parts", () => {
     expect(partLinks.flatMap((c) => (c.values as { moment_id: string }[]).map((l) => l.moment_id)).sort()).toEqual(MOMENTS.map((m) => m.id).sort());
     const scripts = calls.filter((c) => c.op === "insert" && c.table === "yt_jobs" && (c.values as { step: string }).step === "script");
     // No maximum on Shorts: every one of the 16 separate moments gets its own Short.
-    expect(scripts.length).toBe(parts.length + MOMENTS.length);
+    expect(scripts.length - parts.length).toBeGreaterThan(0);
+    expect(scripts.length - parts.length).toBeLessThanOrEqual(MAX_SHORTS_PER_RECORDING);
     // The stored moments are not touched.
     expect(calls.some((c) => c.table === "yt_moments" && c.op !== "select")).toBe(false);
   });

@@ -215,6 +215,10 @@ export const SERIES_MIN_MS = 15 * 60_000;
 export const SERIES_PART_MS = 7.5 * 60_000;
 /** At most this many long videos per recording (Milan, 17-11-2026: "maximaal 2 lange video's per upload"). */
 export const MAX_LONG_VIDEOS = 2;
+/** Shorts per recording (Milan, 18-11-2026: selective, only the strongest moments; all channels). */
+export const MAX_SHORTS_PER_RECORDING = 4;
+export const MIN_SHORT_SCORE = 80;
+export const MIN_SHORT_GAP_MS = 45_000;
 export const MIN_PART_MS = 3 * 60_000;
 export type SeriesPart = { index: number; count: number; startMs: number; endMs: number };
 
@@ -298,13 +302,16 @@ const PROMISE: Record<Format, string> = {
  * `key` makes the plan stable: analysing the same recording again yields the same plan keys.
  */
 export function planVideos(moments: Moment[], durationMs: number, key: (m: Moment) => string): PlannedVideo[] {
-  // Milan (17-11-2026): a Short for every good moment, no maximum; the best moments first.
+  // Milan (18-11-2026, replaces "no maximum"): "wees selectiever, we willen viraal gaan". Near-duplicate Shorts from one
+  // recording cost reach on YouTube, so only the strongest few: at most MAX_SHORTS_PER_RECORDING, each at least
+  // MIN_SHORT_SCORE (the best one always), and at least MIN_SHORT_GAP_MS apart so every Short is its own scene.
   const usable = moments.filter(isUsable);
   const plans: PlannedVideo[] = [];
   const taken: Moment[] = [];
   for (const m of [...usable].sort((a, b) => b.score - a.score || a.startMs - b.startMs)) {
     if (m.suggestedFormat === "C" || m.endMs - m.startMs > MAX_SHORT_SOURCE_MS) continue;
-    const clash = taken.some((t) => t.suggestedFormat === m.suggestedFormat && overlap(t, m) > 0.5 * Math.min(t.endMs - t.startMs, m.endMs - m.startMs));
+    if (taken.length >= MAX_SHORTS_PER_RECORDING || (taken.length && m.score < MIN_SHORT_SCORE)) continue;
+    const clash = taken.some((t) => (t.suggestedFormat === m.suggestedFormat && overlap(t, m) > 0.5 * Math.min(t.endMs - t.startMs, m.endMs - m.startMs)) || Math.abs(t.peakMs - m.peakMs) < MIN_SHORT_GAP_MS);
     if (clash) continue;
     taken.push(m);
     plans.push({ planKey: `${m.suggestedFormat}:${key(m)}`, format: m.suggestedFormat, moments: [m], promise: PROMISE[m.suggestedFormat] });
