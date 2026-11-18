@@ -47,6 +47,7 @@ Rechtsonder staat Ivar (of druk **Alt+I**). Vraag hem iets over het kanaal of de
 
 - Kies bovenin **SpawnNado** (adres `/studio/spawnnado`). Alles werkt zoals bij KIVOXEL: uploaden, keuren, montage, naar YouTube.
 - Bij **Uploaden** kies je de game: Fortnite, Roblox, GTA, Call of Duty of Minecraft. Weet je het niet, dan herkent de analyse hem. Titels, tags en beschrijving volgen die game.
+- Geluid op SpawnNado: **Muziek, geen stem** (eigen muziek en het SpawnNado-deuntje, standaard) of **Alleen gamegeluid**. Geen stem, geen ondertiteling, geen vervaagde hoeken.
 - Inbox-map: zet `spawnnado` in de bestandsnaam (bijv. `18-11 spawnnado fortnite.mp4`), anders gaat de opname naar KIVOXEL.
 
 ## Zonder tegoed doorwerken

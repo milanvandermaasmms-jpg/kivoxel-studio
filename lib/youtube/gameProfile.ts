@@ -188,6 +188,10 @@ export type ChannelProfile = {
   defaultGame: GameId;
   /** The fixed block in every description. */
   block: (game: Game, kind: "short" | "long") => string;
+  /** The audio modes (config/kivoxel/presets.json) this channel may use; the first is its default. Undefined = all. */
+  audioModes?: string[];
+  /** Blur the fixed corners (chat, notifications) from the settings; false = never. */
+  blur: boolean;
 };
 
 export const PROFILES: Record<ChannelProfileKey, ChannelProfile> = {
@@ -197,6 +201,7 @@ export const PROFILES: Record<ChannelProfileKey, ChannelProfile> = {
     tag: "kivoxel",
     games: ["minecraft"],
     defaultGame: "minecraft",
+    blur: true,
     block: (_g, kind) =>
       kind === "short"
         ? "KIVOXEL plays Minecraft survival on PS5 – new Shorts every day: close calls, fails, finds and big moments.\n🔔 Subscribe so you never miss the next one!"
@@ -208,6 +213,9 @@ export const PROFILES: Record<ChannelProfileKey, ChannelProfile> = {
     tag: "spawnnado",
     games: ["fortnite", "roblox", "gta", "cod", "minecraft"],
     defaultGame: "fortnite",
+    // Milan, 18-11-2026: no voice, no captions and no blurred corners on SpawnNado; only music (own tune) or only game sound.
+    audioModes: ["muziek_geen_vo", "alleen_game"],
+    blur: false,
     block: (g, kind) =>
       kind === "short"
         ? `SpawnNado plays ${g.name} – new Shorts every day: clutches, fails, wins and big moments from Fortnite, Roblox, GTA, Call of Duty and Minecraft.\n🔔 Subscribe so you never miss the next one!`
@@ -242,3 +250,8 @@ export function labelWithGame(label: string, game: GameId | null, profile: Chann
 }
 
 export const gameOf = (id: GameId | null | undefined): Game => GAMES[id ?? "minecraft"];
+
+/** The audio mode a montage gets: the asked one when the channel allows it, else the channel's first mode. */
+export function channelAudioMode<M extends string>(asked: M, profile: ChannelProfile): M {
+  return !profile.audioModes || profile.audioModes.includes(asked) ? asked : (profile.audioModes[0] as M);
+}

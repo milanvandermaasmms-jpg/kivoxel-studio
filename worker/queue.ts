@@ -40,7 +40,7 @@ import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
 import { nicheQueries } from "../lib/ivar/insights.ts";
-import { gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
+import { channelAudioMode, gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderChunks, renderFileName, renderSize, segmentOverlays, srtFileName, type RenderInput, type VoiceClip } from "../lib/youtube/render.ts";
@@ -881,7 +881,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const settings = await db.from("yt_settings").select("*").eq("studio_id", job.studio_id).maybeSingle<SettingsRow>();
     if (settings.error) throw new Error(settings.error.message);
     const privacyReady = !!settings.data && "privacy_regions" in settings.data;
-    const blur = privacyReady && settings.data!.privacy_blur ? cleanRegions(settings.data!.privacy_regions) : [];
+    const channelProfile = (await recordingGameInfo(video.data.recording_id, job.studio_id)).profile;
+    const blur = channelProfile.blur && privacyReady && settings.data!.privacy_blur ? cleanRegions(settings.data!.privacy_regions) : [];
     type FlagRow = { position: number; yt_moments: { privacy_flags: string[]; start_ms: number; end_ms: number; peak_ms: number | null } | null };
     const flags = await db.from("yt_video_moments").select("position, yt_moments(privacy_flags, start_ms, end_ms, peak_ms)").eq("video_id", video.data.id).order("position").returns<FlagRow[]>();
     if (flags.error) throw new Error(flags.error.message);
@@ -910,7 +911,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let localVoiceName: string | null = null;
     // KIVOXEL fase 1, section 3: the audio mode of this montage (chosen in the review, else the channel default).
     const askedMode = typeof job.payload?.audio_mode === "string" && (AUDIO_MODES as readonly string[]).includes(job.payload.audio_mode) ? (job.payload.audio_mode as AudioMode) : null;
-    const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, askedMode ?? presetFile.channel_default.audio_mode);
+    // SpawnNado: only "music, no voice" or "only game sound" (no voice, no captions).
+    const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, channelAudioMode(askedMode ?? presetFile.channel_default.audio_mode, channelProfile));
     const modeSpec = kSettings.audio_modes[kSettings.audio_mode];
     let storyOverlays: StoryText[] = [];
     let mixPlan: MixPlan | null = null;

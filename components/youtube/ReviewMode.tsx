@@ -151,6 +151,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 script={script}
                 attempt={board.jobs.filter((j) => j.step === "render" && (j as { payload?: { script_id?: string } | null }).payload?.script_id === script.id).length + 1}
                 current={renderAudio(render)}
+                channel={channel}
                 nextVersion={Math.max(0, ...scripts.map((x) => x.version)) + 1}
                 act={act}
               />

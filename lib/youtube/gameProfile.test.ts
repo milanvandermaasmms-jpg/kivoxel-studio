@@ -93,3 +93,20 @@ describe("free mode (no credit) works for SpawnNado too", () => {
     expect(standardTitle({ scriptTitles: ["Fortnite clutch of the year"], gameName: "Fortnite" })).toBe("Fortnite clutch of the year");
   });
 });
+
+describe("SpawnNado: no voice, no captions, no blur", () => {
+  it("only music or only game sound; KIVOXEL keeps every mode and its blur", async () => {
+    const { channelAudioMode } = await import("./gameProfile");
+    expect(channelAudioMode("vo_muziek", PROFILES.spawnnado)).toBe("muziek_geen_vo");
+    expect(channelAudioMode("alleen_game", PROFILES.spawnnado)).toBe("alleen_game");
+    expect(channelAudioMode("vo_muziek", PROFILES.kivoxel)).toBe("vo_muziek");
+    expect(PROFILES.spawnnado.blur).toBe(false);
+    expect(PROFILES.kivoxel.blur).toBe(true);
+    const { presetFile } = await import("../kivoxel/config");
+    for (const m of PROFILES.spawnnado.audioModes ?? []) {
+      const spec = presetFile.base.audio_modes[m as keyof typeof presetFile.base.audio_modes];
+      expect(spec.voice).toBe(false);
+      expect((spec as { text_story?: boolean }).text_story).toBe(false);
+    }
+  });
+});

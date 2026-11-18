@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AUDIO_MODES, presetFile, type AudioMode } from "@/lib/kivoxel/config";
 import { queueRender, remontage, type DbScript } from "@/lib/youtube/analysisData";
+import { channelAudioMode, profileFor } from "@/lib/youtube/gameProfile";
 
 type RenderAudio = { mode?: string; label?: string; music?: string | null; sfx?: number; voice?: boolean };
 
@@ -15,9 +16,12 @@ export function renderAudio(render: { qc?: unknown } | null | undefined): Render
 /** A script from before fase 1: its lines are not tied to the Event Timeline (no `kind`), so a new mix alone does not help. */
 export const oldScript = (script: DbScript) => !(Array.isArray(script.lines) && (script.lines as { kind?: unknown }[]).some((l) => typeof l?.kind === "string"));
 
-export function AudioModeSwitch({ studioId, script, attempt, current, nextVersion, onQueued, act }: { studioId: string; script: DbScript; attempt: number; current: RenderAudio | null; /** For "Opnieuw door de nieuwe montage" (a new script version). */ nextVersion?: number; onQueued?: () => void; act: (fn: () => Promise<void>) => Promise<unknown> }) {
+export function AudioModeSwitch({ studioId, script, attempt, current, nextVersion, onQueued, act, channel }: { studioId: string; script: DbScript; attempt: number; current: RenderAudio | null; /** For "Opnieuw door de nieuwe montage" (a new script version). */ nextVersion?: number; onQueued?: () => void; act: (fn: () => Promise<void>) => Promise<unknown>; /** SpawnNado offers only its own audio modes. */ channel?: { slug?: string | null; name?: string | null } | null }) {
   const modes = presetFile.base.audio_modes;
-  const [mode, setMode] = useState<AudioMode>((AUDIO_MODES as readonly string[]).includes(current?.mode ?? "") ? (current!.mode as AudioMode) : presetFile.channel_default.audio_mode);
+  const profile = profileFor(channel);
+  const allowed = AUDIO_MODES.filter((m) => !profile.audioModes || profile.audioModes.includes(m));
+  const fallback = channelAudioMode(presetFile.channel_default.audio_mode, profile);
+  const [mode, setMode] = useState<AudioMode>((allowed as readonly string[]).includes(current?.mode ?? "") ? (current!.mode as AudioMode) : fallback);
   if (oldScript(script) && nextVersion) {
     return (
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
@@ -39,10 +43,10 @@ export function AudioModeSwitch({ studioId, script, attempt, current, nextVersio
       <label className="flex items-center gap-1">
         <span className="sr-only">Audio-modus</span>
         <select value={mode} onChange={(e) => setMode(e.target.value as AudioMode)} className="rounded-md border border-slate-300 bg-transparent px-1.5 py-1">
-          {AUDIO_MODES.map((m) => (
+          {allowed.map((m) => (
             <option key={m} value={m}>
               {modes[m].label}
-              {m === presetFile.channel_default.audio_mode ? " (standaard)" : ""}
+              {m === fallback ? " (standaard)" : ""}
             </option>
           ))}
         </select>
