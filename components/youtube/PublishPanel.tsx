@@ -327,7 +327,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
     const hookLine = hook?.first_line ?? gateCtx.script?.hook ?? null;
     const meta = { profile: profileFor(gateCtx.channel), game: gateCtx.game };
     setDraft((d) => {
-      const title = d.title || standardTitle({ scriptTitles: gateCtx.script?.titles, hookLine });
+      const title = d.title || standardTitle({ scriptTitles: gateCtx.script?.titles, hookLine, gameName: meta.profile.games.length > 1 ? gameOf(meta.game).name : null });
       if (!d.title) autoTitle.current = title;
       const texts = [title, hookLine ?? "", gateCtx.script?.top_line ?? "", ...(gateCtx.script?.titles ?? [])];
       return {

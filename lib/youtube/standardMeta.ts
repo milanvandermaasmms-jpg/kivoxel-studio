@@ -44,7 +44,9 @@ export function standardDescription(input: { kind: "short" | "long"; title: stri
 }
 
 /** The standard title: the first title the script already wrote (free), else the hook of the script. */
-export function standardTitle(input: { scriptTitles?: string[] | null; hookLine?: string | null }): string {
-  const t = input.scriptTitles?.find((x) => x.trim()) ?? input.hookLine ?? "";
-  return t.replace(/[<>]/g, "").trim().slice(0, 100);
+export function standardTitle(input: { scriptTitles?: string[] | null; hookLine?: string | null; gameName?: string | null }): string {
+  const t = (input.scriptTitles?.find((x) => x.trim()) ?? input.hookLine ?? "").replace(/[<>]/g, "").trim();
+  // SpawnNado (several games): the game goes in front when the title does not name it yet ("Fortnite: Bro had ONE job!").
+  const named = !input.gameName || !t || t.toLowerCase().includes(input.gameName.toLowerCase()) ? t : `${input.gameName}: ${t}`;
+  return named.slice(0, 100);
 }

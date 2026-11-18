@@ -61,7 +61,7 @@ import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/
 import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
 import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
-import { FREE_ENGINE_MODEL, fillSilences, freeScript, pick, seeded, templates } from "../lib/kivoxel/voiceScript.ts";
+import { FREE_ENGINE_MODEL, fillSilences, forGame, freeScript, pick, seeded, templates } from "../lib/kivoxel/voiceScript.ts";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
 import type { GameEvent } from "../lib/kivoxel/events.ts";
 import { bucketOf, lengthChecks, planShort } from "../lib/kivoxel/shortPlan.ts";
@@ -676,7 +676,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const sp = planShort(shortEvent, timeline, kSettings, seeded(`${video.data.id}:len:${version}`), previousBucket);
         plan = { segments: sp.segments, targetMs: sp.targetMs, warnings: [...plan.warnings.filter((w) => !/lengte|duur|seconden/i.test(w))] };
         const recentHooks = await recentShortHooks(job.studio_id, video.data.id);
-        const h = chooseHook(shortEvent.type ?? eventTypeForMoment(main.kind), recentHooks, seeded(`${video.data.id}:hook:${version}`), kSettings.hooks.no_repeat_within, hookFile, shortEvent.kind === "death");
+        const h = chooseHook(shortEvent.type ?? eventTypeForMoment(main.kind), recentHooks, seeded(`${video.data.id}:hook:${version}`), kSettings.hooks.no_repeat_within, game === "minecraft" ? hookFile : { ...hookFile, hooks: Object.fromEntries(Object.entries(hookFile.hooks).map(([k, v]) => [k, forGame(v, game)])) as typeof hookFile.hooks }, shortEvent.kind === "death");
         shortHook = h.hook;
         shortInfo = { bucket: sp.bucket, reason: sp.reason, cutMs: sp.cutMs, hook: h.hook, hookRepeated: h.repeated };
       }
@@ -685,7 +685,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const learned = approved.error ? undefined : learnFrom(approved.data ?? []);
       learnedFrom = learned?.from ?? 0;
       const free = () => {
-        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short, learned });
+        const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short, learned, game });
         const overlay = shortHook ?? pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
         void montage?.phrases?.add([...f.used, overlay]).catch(() => {});
         return { topLine: overlay, hook: f.hook, lines: f.lines, hooks: [], loopLine: null, titles: [] } satisfies ScriptDraft;

@@ -73,3 +73,23 @@ describe("other games skip the Minecraft picture checks", () => {
     expect(withoutMinecraftHud(v).frames[0]).toMatchObject({ health: 1000, ui: 0, tint: 0, motion: 1 });
   });
 });
+
+describe("free mode (no credit) works for SpawnNado too", () => {
+  it("free script lines skip Minecraft-only words for other games, KIVOXEL keeps them", async () => {
+    const { forGame, templates } = await import("../kivoxel/voiceScript");
+    const pool = templates.anticipation.bijna_dood;
+    expect(forGame(pool)).toEqual(pool);
+    expect(forGame(pool, "minecraft")).toEqual(pool);
+    const fn = forGame(pool, "fortnite");
+    expect(fn.length).toBeGreaterThan(0);
+    expect(fn.some((x) => /heart/i.test(x))).toBe(false);
+    expect(forGame(templates.open_loop, "gta").some((x) => /heart/i.test(x))).toBe(false);
+  });
+
+  it("free standard title names the game on SpawnNado only", async () => {
+    const { standardTitle } = await import("./standardMeta");
+    expect(standardTitle({ hookLine: "Bro had ONE job!" })).toBe("Bro had ONE job!");
+    expect(standardTitle({ hookLine: "Bro had ONE job!", gameName: "Fortnite" })).toBe("Fortnite: Bro had ONE job!");
+    expect(standardTitle({ scriptTitles: ["Fortnite clutch of the year"], gameName: "Fortnite" })).toBe("Fortnite clutch of the year");
+  });
+});

@@ -42,3 +42,15 @@
 ## Ivar
 
 Rechtsonder staat Ivar (of druk **Alt+I**). Vraag hem iets over het kanaal of de video die je open hebt: titels, een analyse, een editvoorstel, of "waar is mijn render mee bezig?". Ivar zet alleen concepten klaar en start alleen iets als je het echt vraagt; betaalde stappen krijgen eerst een kostenkaart. Publiceren blijft jouw klik. Meer: `docs/ivar.md`.
+
+## SpawnNado (tweede gamekanaal)
+
+- Kies bovenin **SpawnNado** (adres `/studio/spawnnado`). Alles werkt zoals bij KIVOXEL: uploaden, keuren, montage, naar YouTube.
+- Bij **Uploaden** kies je de game: Fortnite, Roblox, GTA, Call of Duty of Minecraft. Weet je het niet, dan herkent de analyse hem. Titels, tags en beschrijving volgen die game.
+- Inbox-map: zet `spawnnado` in de bestandsnaam (bijv. `18-11 spawnnado fortnite.mp4`), anders gaat de opname naar KIVOXEL.
+
+## Zonder tegoed doorwerken
+
+- **Gemini-plafond op?** Dan gaat de Studio vanzelf gratis verder: momenten uit de gratis analyse, script uit de sjablonen, standaardtitels, -tags en -beschrijving, luistercheck alleen op regels. Uploaden, keuren en naar YouTube sturen kosten niets. De video's zijn dan wel iets minder slim.
+- **Claude op?** De Studio en de werker draaien helemaal zonder Claude.
+- **YouTube-koppeling verlopen?** Staat de app in Google Cloud op "Testing", dan vervalt elke koppeling na 7 dagen. Klik dan bij Instellingen → Kanalen op **Opnieuw koppelen** en kies het juiste kanaal (KIVOXEL, DreamNest of SpawnNado). Zet je de app in Google Cloud op "In production", dan hoeft dat niet meer.

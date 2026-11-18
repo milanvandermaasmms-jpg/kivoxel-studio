@@ -121,7 +121,19 @@ export type FreeScriptInput = {
   recent?: string[];
   /** Short (<= 60 s) or long video. */
   short: boolean;
+  /** The game (SpawnNado); without it, or for Minecraft, every template line can be used (KIVOXEL as before). */
+  game?: string;
 };
+
+/** Template lines that only make sense in Minecraft (hearts in the HUD, hardcore, blocks, mobs). */
+export const MINECRAFT_ONLY = /\bhearts?\b|hardcore|\bblocks?\b|creeper|zombie|skeleton|enderman|diamond|nether|minecraft|\bmobs?\b/i;
+
+/** The pool for the game: for another game without the Minecraft-only lines (never empty). */
+export function forGame(pool: string[], game?: string): string[] {
+  if (!game || game === "minecraft") return pool;
+  const kept = pool.filter((x) => !MINECRAFT_ONLY.test(x));
+  return kept.length ? kept : pool;
+}
 
 /**
  * The free script engine (section 8): a voice-over from templates, written against the timeline.
@@ -153,19 +165,20 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   const mainType: EventType = main?.type ?? "fail";
 
   const lines: VoLine[] = [];
-  const hook = take(templates.opener[mainType]);
-  lines.push({ at_ms: 0, text: hook, kind: "hook", style: "schreeuw", alts: shorterAlts(hook, templates.opener[mainType]) });
+  const g = (pool: string[]) => forGame(pool, input.game);
+  const hook = take(g(templates.opener[mainType]));
+  lines.push({ at_ms: 0, text: hook, kind: "hook", style: "schreeuw", alts: shorterAlts(hook, g(templates.opener[mainType])) });
 
   // Long video (section 7.9): the cold open shows the best moment first; then "but how did we get here?".
   const cold = !short ? input.segments.find((sg) => sg.part === "cold_open") : undefined;
   if (cold) {
     const coldEnd = cold.out_start_ms + Math.round((cold.src_end_ms - cold.src_start_ms) / cold.speed);
-    const bridge = take(templates.cold_open_bridge);
+    const bridge = take(g(templates.cold_open_bridge));
     lines.push({ at_ms: coldEnd + 200, text: bridge, kind: "bridge", style: "spannend", alts: shorterAlts(bridge, templates.cold_open_bridge) });
   }
   const first = chosen[0];
   if (first && first.peak_out > 9000 && !cold) {
-    const loopPool = withLearned(templates.open_loop, input.learned?.open_loop);
+    const loopPool = g(withLearned(templates.open_loop, input.learned?.open_loop));
     const loop = take(loopPool);
     lines.push({ at_ms: 2600, text: loop, kind: "open_loop", style: "spannend", alts: shorterAlts(loop, loopPool) });
   }
@@ -174,10 +187,10 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   for (const [i, e] of chosen.entries()) {
     const type = e.type ?? mainType;
     if (!short && i > 0) {
-      const bridge = take(templates.bridge);
+      const bridge = take(g(templates.bridge));
       lines.push({ at_ms: Math.max(0, e.peak_out - 9000), text: bridge, kind: "bridge", style: "normaal" });
     }
-    const options = withLearned(templates.anticipation[type], input.learned?.anticipation[type]);
+    const options = g(withLearned(templates.anticipation[type], input.learned?.anticipation[type]));
     const text = take(options, e);
     lines.push({ at_ms: Math.max(0, e.peak_out - 600 - estimateMs(text)), text, kind: "anticipation", event_src_ms: e.t_peak, event_id: e.id, style: styleFor("anticipation", type), alts: shorterAlts(text, options, e) });
     // After the peak at most one short reaction, then on to the next arc.
@@ -195,7 +208,7 @@ export function freeScript(input: FreeScriptInput): { hook: string; lines: VoLin
   const lastPeak = chosen.length ? chosen[chosen.length - 1].peak_out : -Infinity;
   const loopRoom = input.targetMs - (lastPeak + settings.sync.peak_quiet_ms / 2 + 1200);
   if (settings.features.loop_ending && input.targetMs > 8000 && loopRoom >= 2200) {
-    const endPool = withLearned(templates.loop_end, input.learned?.loop);
+    const endPool = g(withLearned(templates.loop_end, input.learned?.loop));
     const end = take(endPool);
     lines.push({ at_ms: Math.max(0, input.targetMs - estimateMs(end) - 400), text: end, kind: "loop", style: "spannend", alts: shorterAlts(end, endPool) });
   }
