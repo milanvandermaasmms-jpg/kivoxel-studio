@@ -32,6 +32,7 @@ import { ChannelSwitcher, StudioTopBar } from "@/components/youtube/StudioTopBar
 import { DreamnestStudio } from "@/components/dreamnest/DreamnestStudio";
 import { IVAR_OPEN_EVENT, usePublishPageContext } from "@/lib/ivar/pageContext";
 import { findChannel, isDreamnestChannel } from "@/lib/studioRoutes";
+import { profileFor } from "@/lib/youtube/gameProfile";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
 import { reviewQueue } from "@/lib/youtube/board";
 import { needsAction, type Flow } from "@/lib/youtube/flow";
@@ -199,7 +200,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
     // Also for a duplicate: the file may already be on the pc but not in this studio's database. Registering is safe to repeat.
     if (dbReady) {
       try {
-        await registerRecording(studio.id, outcome.recording);
+        await registerRecording(studio.id, outcome.recording, channel);
         if (outcome.kind === "done") note = "De intake staat in de wachtrij.";
       } catch (e) {
         setError(`De opname staat op de pc, maar kon niet in de database worden gezet: ${e instanceof Error ? e.message : e}`);
@@ -369,7 +370,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
         <div className="min-w-0 space-y-4">
           {tab === "upload" && (
             <>
-              <UploadCard workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
+              <UploadCard profile={profileFor(channelsNow.find((c) => c.id === channel))} workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
               <InboxCard health={health} />
               <Fold id="upload.local" title="Opnames op de pc" intro={local ? `${local.length} opnames · wat FFmpeg erover uitlas` : "De ruwe opnames staan alleen op de pc."}>
                 {!health ? (
@@ -401,7 +402,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                             {status}
                             {/* On the pc but not (yet) in this studio's database, e.g. after moving to a new Supabase project. */}
                             {!row && dbReady && r.probe && !r.intakeError && (
-                              <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => void act(() => registerRecording(studio.id, r))}>
+                              <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => void act(() => registerRecording(studio.id, r, channel))}>
                                 Aanmelden
                               </Button>
                             )}

@@ -4,6 +4,7 @@ import type { PrivacyFlag } from "./analysis";
 import type { Channel } from "./channels";
 import type { GateScript } from "./gatekeeper";
 import type { StoredThumb } from "./thumbnails";
+import { profileFor, recordingGame, type GameId } from "./gameProfile";
 
 const isMissing = (error: { code?: string; message: string }) => error.code === "42703" || error.code === "PGRST204" || /does not exist|could not find/i.test(error.message);
 
@@ -24,23 +25,25 @@ export async function savePrivateTerms(studioId: string, terms: string[]): Promi
   if (error) throw new Error(friendlyError(error.message));
 }
 
-export type GateContext = { channel: Channel | null; privateTerms: string[]; script: (GateScript & { titles?: string[] }) | null; flags: PrivacyFlag[] };
+export type GateContext = { channel: Channel | null; privateTerms: string[]; script: (GateScript & { titles?: string[] }) | null; flags: PrivacyFlag[]; game?: GameId };
 
 /** Everything the checklist of one video needs; privateTerms is empty before migration 046. */
 export async function loadGateContext(studioId: string, videoId: string): Promise<GateContext> {
   const [video, scripts, terms] = await Promise.all([
-    supabase.from("yt_videos").select("channel_id, yt_video_moments(moment_id)").eq("id", videoId).maybeSingle<{ channel_id: string; yt_video_moments: { moment_id: string }[] }>(),
+    supabase.from("yt_videos").select("channel_id, recording_id, yt_video_moments(moment_id)").eq("id", videoId).maybeSingle<{ channel_id: string; recording_id: string | null; yt_video_moments: { moment_id: string }[] }>(),
     supabase.from("yt_scripts").select("*").eq("video_id", videoId).eq("status", "approved").order("version", { ascending: false }).limit(1).returns<(GateScript & { titles?: string[] })[]>(),
     loadPrivateTerms(studioId).catch(() => null),
   ]);
   if (video.error) throw new Error(friendlyError(video.error.message));
   const momentIds = (video.data?.yt_video_moments ?? []).map((m) => m.moment_id);
-  const [channel, moments] = await Promise.all([
+  const [channel, moments, recording] = await Promise.all([
     video.data ? supabase.from("yt_channels").select("*").eq("id", video.data.channel_id).maybeSingle<Channel>() : null,
     momentIds.length ? supabase.from("yt_moments").select("privacy_flags").in("id", momentIds).returns<{ privacy_flags: PrivacyFlag[] }[]>() : null,
+    video.data?.recording_id ? supabase.from("yt_recordings").select("label").eq("id", video.data.recording_id).maybeSingle<{ label: string }>() : null,
   ]);
   return {
     channel: channel?.data ?? null,
+    game: recordingGame(recording?.data?.label, profileFor(channel?.data)),
     privateTerms: terms ?? [],
     script: scripts.data?.[0] ?? null,
     flags: [...new Set((moments?.data ?? []).flatMap((m) => m.privacy_flags))],

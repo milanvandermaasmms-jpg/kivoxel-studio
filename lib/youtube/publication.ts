@@ -79,11 +79,11 @@ export function uploadProblems(d: PublicationDraft, now = Date.now()): string[] 
 }
 
 /** Advice that does not block (2.2 chapter 24.9). */
-export function draftAdvice(d: PublicationDraft, kind: "short" | "long"): string[] {
+export function draftAdvice(d: PublicationDraft, kind: "short" | "long", gameName = "Minecraft"): string[] {
   const a: string[] = [];
   const n = hashtags(d.description);
   if (n > HASHTAGS_ADVICE) a.push(`${n} hashtags in de beschrijving; 3 tot 5 werkt beter (geen hashtag-spam).`);
-  if (d.title.trim() && !/minecraft/i.test(d.title)) a.push("Zet het belangrijkste trefwoord (Minecraft) vooraan in de titel.");
+  if (d.title.trim() && !d.title.toLowerCase().includes(gameName.toLowerCase())) a.push(`Zet het belangrijkste trefwoord (${gameName}) vooraan in de titel.`);
   if (kind === "short" && d.title.length > 60) a.push("Op een telefoon is een Short-titel na ongeveer 60 tekens afgekapt.");
   return a;
 }
@@ -92,17 +92,17 @@ export function draftAdvice(d: PublicationDraft, kind: "short" | "long"): string
  * Starting points made from the chosen hook (no AI and nothing invented): Milan adapts them.
  * Formula 24.9: game + what happens + optional context, keyword first.
  */
-export function titleSuggestions(hook: Pick<Hook, "first_line" | "overlay"> | null): string[] {
+export function titleSuggestions(hook: Pick<Hook, "first_line" | "overlay"> | null, gameName = "Minecraft"): string[] {
   if (!hook) return [];
   const line = hook.first_line.replace(/[<>]/g, "").trim().replace(/[.!]+$/, "");
   const overlay = hook.overlay.replace(/[<>]/g, "").trim();
   const capital = overlay ? overlay.charAt(0) + overlay.slice(1).toLowerCase() : "";
-  const out = [line && `Minecraft: ${line}`, capital && `Minecraft: ${capital}`, line && capital && `${capital} in Minecraft (${line})`];
+  const out = [line && `${gameName}: ${line}`, capital && `${gameName}: ${capital}`, line && capital && `${capital} in ${gameName} (${line})`];
   return [...new Set(out.filter((t): t is string => !!t).map((t) => t.slice(0, TITLE_MAX)))];
 }
 
-export function descriptionSuggestion(hook: Pick<Hook, "first_line"> | null, kind: "short" | "long"): string {
-  const tags = ["#minecraft", "#gaming", ...(kind === "short" ? ["#shorts"] : [])].join(" ");
+export function descriptionSuggestion(hook: Pick<Hook, "first_line"> | null, kind: "short" | "long", hashtag = "#minecraft"): string {
+  const tags = [hashtag, "#gaming", ...(kind === "short" ? ["#shorts"] : [])].join(" ");
   return [hook?.first_line.replace(/[<>]/g, "").trim(), tags].filter(Boolean).join("\n\n");
 }
 

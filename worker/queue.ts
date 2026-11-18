@@ -40,6 +40,7 @@ import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
 import { nicheQueries } from "../lib/ivar/insights.ts";
+import { gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderChunks, renderFileName, renderSize, segmentOverlays, srtFileName, type RenderInput, type VoiceClip } from "../lib/youtube/render.ts";
@@ -115,7 +116,7 @@ export type Montage = {
     music: () => Promise<{ dir: string; tracks: Track[] }>;
     sfx: () => Promise<{ dir: string; items: Sfx[] }>;
     /** The KIVOXEL motif (own music); optional so tests and older setups work without it. */
-    motif?: () => Promise<{ file: string; durMs: number } | null>;
+    motif?: (channel?: string) => Promise<{ file: string; durMs: number } | null>;
     musicLog: PhraseLog;
     sfxLog: PhraseLog;
   };
@@ -247,6 +248,25 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     await afterFinalFailure(job);
   }
 
+  /** The channel profile and game of a recording: KIVOXEL is always Minecraft, SpawnNado takes the game from the label. */
+  async function recordingGameInfo(recordingId: string | null, studioId: string): Promise<{ profile: ChannelProfile; game: GameId; label: string | null }> {
+    if (!recordingId) return { profile: PROFILES.kivoxel, game: "minecraft", label: null };
+    const rec = await db.from("yt_recordings").select("label, channel_id").eq("id", recordingId).eq("studio_id", studioId).maybeSingle<{ label: string; channel_id: string }>();
+    const ch = rec.data?.channel_id ? await db.from("yt_channels").select("name, slug").eq("id", rec.data.channel_id).maybeSingle<{ name: string; slug: string | null }>() : null;
+    const profile = profileFor(ch?.data);
+    return { profile, game: recordingGame(rec.data?.label, profile), label: rec.data?.label ?? null };
+  }
+
+  /** The Minecraft HUD signals (hearts, menus, death screen) only count in Minecraft. */
+  async function hudOf(recordingId: string | null, studioId: string): Promise<"minecraft" | "none"> {
+    return (await recordingGameInfo(recordingId, studioId)).game === "minecraft" ? "minecraft" : "none";
+  }
+
+  async function videoGame(videoId: string, studioId: string): Promise<GameId> {
+    const v = await db.from("yt_videos").select("recording_id").eq("id", videoId).maybeSingle<{ recording_id: string | null }>();
+    return (await recordingGameInfo(v.data?.recording_id ?? null, studioId)).game;
+  }
+
   async function recordingRow(job: Job) {
     if (!job.recording_id) throw new Error("Deze stap hoort niet bij een opname");
     const { data, error } = await db.from("yt_recordings").select("id, fingerprint, status, is_test, duration_ms").eq("id", job.recording_id).eq("studio_id", job.studio_id).single<RecordingRow>();
@@ -362,6 +382,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const found: Moment[][] = [];
     const rejected: string[] = [];
     let answered = 0;
+    // SpawnNado (several games): the game comes from the label; without one the analysis says which game it sees.
+    const gi = await recordingGameInfo(row.id, job.studio_id);
+    const detect = gi.profile.games.length > 1 && !gameInText(gi.label, gi.profile) ? gi.profile.games : undefined;
+    let detected: unknown = null;
     let timer: NodeJS.Timeout | null = null;
     try {
       for (const chunk of chunks) {
@@ -373,7 +397,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         try {
           const expected = expectedThinkingMs(lengthMs);
           const partHints = timeline ? signalHints(timeline, many ? chunk : undefined) : hints;
-          const prompt = analysisPrompt(row.duration_ms, chunk);
+          const prompt = analysisPrompt(row.duration_ms, chunk, { game: gi.game, detect });
           const { json } = await paid(job, () =>
             ai.gemini.analyseVideo(file, partHints ? `${prompt}\n${partHints}` : prompt, (stage) => {
               void lv.phase(`${ANALYSIS_STAGES[stage].label}${label}`, stageProgress(stage, 0));
@@ -389,6 +413,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           );
           if (timer) clearInterval(timer);
           const parsed = parseAnalysis(json, row.duration_ms, chunk);
+          detected ??= (json as { game?: unknown } | null)?.game ?? null;
           answered += 1;
           found.push(parsed.moments);
           rejected.push(...parsed.rejected);
@@ -396,6 +421,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         } finally {
           if (file !== proxy) await ai.removeProxy(file);
         }
+      }
+      if (detect && detected) {
+        // The game goes in front of the label ("Fortnite · ..."), so the script, tags and Milan all see it.
+        const label = labelWithGame(gi.label ?? "", recordingGame(null, gi.profile, detected), gi.profile);
+        if (label && label !== gi.label) await db.from("yt_recordings").update({ label }).eq("id", row.id);
+        await lv.event("note", `Game herkend: ${GAMES[recordingGame(null, gi.profile, detected)].name}`);
       }
       await lv.phase("Momenten opslaan en formats plannen", 0.98);
       const merged = { moments: mergeMoments(found), rejected };
@@ -429,7 +460,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const local = await store.get(row.fingerprint);
       if (!local || !montage?.events) throw new Error(`${why}; de gratis analyse kan hier niet (geen FFmpeg of bestand)`);
       await lv.phase("Gratis analyse: hartjes, doodscherm, klappen en harde geluiden", 0);
-      const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+      const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { hud: await hudOf(row.id, job.studio_id), signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
       used.engine = "free";
       used.note = why;
       await lv.event("note", `${why}: momenten uit de gratis analyse (${t.events.length} events)`);
@@ -497,7 +528,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await lv.phase("Event Timeline maken (hartjes, doodscherm, geluidspieken)", 0);
         const local = await store.get(row.fingerprint);
         if (local) {
-          const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { moments, signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+          const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { moments, hud: await hudOf(row.id, job.studio_id), signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
           events = { events: t.events.length, top: topPayoffs(t, 3).map((e) => `${formatTimecode(e.t_peak)} ${e.description}`) };
           await lv.event("note", `Event Timeline: ${t.events.length} events${events.top.length ? `, beste: ${events.top.join("; ")}` : ""}`);
         }
@@ -592,6 +623,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const others = all.data.map(fromRow);
       series = { part, previous: others.filter((m) => m.peakMs < part.startMs).slice(-2), next: others.filter((m) => m.peakMs >= part.endMs).slice(0, 2) };
     }
+    const game = (await recordingGameInfo(video.data.recording_id, job.studio_id)).game;
     let plan = buildEditPlan(video.data.format, moments, rec?.data?.duration_ms ?? undefined, part);
     let draft: ScriptDraft;
     let grounding: Record<string, unknown> | null = null;
@@ -608,7 +640,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const evidence = await gatherEvidence(job, video.data.recording_id, plan.segments, false);
       if (!evidence) throw new Error("Keuren kan alleen met de opname op deze pc");
       await reserve(job, 2);
-      const ev0 = await describeEvidence(job, evidence);
+      const ev0 = await describeEvidence(job, evidence, game);
       return { assess: true, frames: evidence.frames.length, strength: contentStrength(ev0), summary: ev0.summary, uncertain: ev0.uncertain };
     } else {
       const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null);
@@ -619,7 +651,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (montage?.events && video.data.recording_id) {
         const recRow = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).maybeSingle<{ fingerprint: string }>();
         const local = recRow.data ? await store.get(recRow.data.fingerprint) : null;
-        if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs).catch(() => null);
+        if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs, { hud: game === "minecraft" ? "minecraft" : "none" }).catch(() => null);
       }
       const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
       // Long video (section 7.2): menus, standing still and black screens out of every piece, before the script is written.
@@ -677,7 +709,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const feedback = await previousFeedback(job, video.data.id, version);
           let facts = "";
           if (evidence) {
-            const ev = await describeEvidence(job, evidence);
+            const ev = await describeEvidence(job, evidence, game);
             let edit: { removedMs: number; zooms: number } | null = null;
             // Without an Event Timeline the frames cut the idle stretches (Studio 2.0 editor); with one the timeline already did.
             const polished = timeline || job.payload?.polish === false ? null : polishPlan(plan.segments, evidence.frames, ev, video.data.format, video.data.plan_key);
@@ -690,12 +722,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             grounding = { frames: evidence.frames.length, summary: ev.summary, uncertain: ev.uncertain, strength: contentStrength(ev), mode: "anticipation", edit };
           }
           // Packaging (hooks, titles, top line) with the same facts; the lines themselves come from the anticipation prompt.
-          const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series) + facts + storyText));
+          const { json } = await paid(job, () => ai.gemini.generateText(scriptPrompt(video.data.format, video.data.promise, moments, plan, VIDEO_LANGUAGE, feedback ?? undefined, series, game) + facts + storyText));
           const parsed = parseScript(json, plan.targetMs);
           if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
           draft = withShortHook(parsed.draft);
           engine = "ai";
-          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note, evidence: facts || undefined, story: storyText || undefined });
+          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, game, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note, evidence: facts || undefined, story: storyText || undefined });
           const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
           const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
           // Almost nothing left after the checks (17-11-2026: one line for a 6-minute video, the rest read screen text):
@@ -806,7 +838,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   }
 
   /** Gemini describes the frames, in batches of 40; the answers are joined with the frame numbers of the whole video. */
-  async function describeEvidence(job: Job, evidence: { frames: FramePick[]; images: unknown[] }): Promise<Evidence> {
+  async function describeEvidence(job: Job, evidence: { frames: FramePick[]; images: unknown[] }, game?: GameId): Promise<Evidence> {
     const parts: { offset: number; evidence: Evidence }[] = [];
     for (const b of evidenceBatches(evidence.frames)) {
       const images = evidence.images.slice(b.offset, b.offset + b.frames.length);
@@ -814,7 +846,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       let parsed: Evidence | { error: string } = { error: "geen antwoord" };
       for (let attempt = 0; attempt < 2 && "error" in parsed; attempt++) {
         try {
-          const { json } = await paid(job, () => ai!.gemini.generateWithParts([...images, { text: evidencePrompt(b.frames) }]));
+          const { json } = await paid(job, () => ai!.gemini.generateWithParts([...images, { text: evidencePrompt(b.frames, game) }]));
           parsed = parseEvidence(json, b.frames.length);
         } catch (e) {
           parsed = { error: e instanceof Error ? e.message : String(e) };
@@ -867,7 +899,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const fase1 = (cut.lines as VoLine[]).some((l) => !!l.kind);
     let timeline: EventTimeline | null = null;
     if (montage.events && !video.data.is_test) {
-      timeline = await montage.events.timeline(rec.data.fingerprint, local.file, local.probe.durationMs, { signal: lv.signal }).catch(async (e) => {
+      timeline = await montage.events.timeline(rec.data.fingerprint, local.file, local.probe.durationMs, { hud: await hudOf(video.data.recording_id, job.studio_id), signal: lv.signal }).catch(async (e) => {
         if (e instanceof CancelledError) throw e;
         await lv.event("error", `Event Timeline niet gelukt: ${e instanceof Error ? e.message : String(e)}`);
         return null;
@@ -1043,7 +1075,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
         }
         // Own KIVOXEL motif (Milan, 18-11-2026): start of every Short, start and end of a long video.
-        const motif = await media.motif?.().catch(() => null);
+        const motif = await media.motif?.((await recordingGameInfo(video.data.recording_id, job.studio_id)).profile.key).catch(() => null);
         if (motif) for (const c of motifCues({ short: isShort, durationMs: cutMs, motifMs: motif.durMs, music: !!modeSpec.music, voice: !!modeSpec.voice })) sfx.push({ file: motif.file, atMs: c.atMs, db: c.db, kind: "motif" });
         mixPlan = { mode: kSettings.audio_mode, spec: modeSpec, music, sfx, voiceChain: true };
       }
@@ -1503,6 +1535,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       language: video.data.language,
       kind,
       channel: channel.data ? { name: channel.data.name, audience: channel.data.audience } : null,
+      game: await videoGame(video.data.id, job.studio_id),
       title: typeof p.title === "string" ? p.title.slice(0, 100) : "",
       description: typeof p.description === "string" ? p.description.slice(0, 2000) : "",
       narration: (s?.lines ?? []).map((l) => l.text),
@@ -1604,6 +1637,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     }
     const input = {
+      game: await videoGame(video.data.id, job.studio_id),
       kind,
       language: channel.data?.language ?? video.data.language,
       audience: channel.data?.audience ?? null,
@@ -1661,10 +1695,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (!research) throw new Error("YouTube is niet gekoppeld op deze pc; referentievideo's ophalen kan niet");
     const channelId = typeof job.payload?.channel_id === "string" ? job.payload.channel_id : null;
     if (!channelId) throw new Error("Geen kanaal opgegeven");
-    const ch = await db.from("yt_channels").select("language, is_default, slug, safety_profile").eq("id", channelId).single<{ language: "en" | "nl"; is_default: boolean; slug: string | null; safety_profile: string | null }>();
+    const ch = await db.from("yt_channels").select("name, language, is_default, slug, safety_profile").eq("id", channelId).single<{ name: string; language: "en" | "nl"; is_default: boolean; slug: string | null; safety_profile: string | null }>();
     if (ch.error) throw new Error(ch.error.message);
     const pref = await db.from("studio_preferences").select("value").eq("studio_id", job.studio_id).eq("channel_id", channelId).eq("key", "reference_queries").maybeSingle<{ value: unknown }>();
-    const queries = Array.isArray(pref.data?.value) && pref.data.value.length ? (pref.data.value as string[]).slice(0, 3) : (nicheQueries(isDreamnestChannel({ id: channelId, ...ch.data }) ? "dreamnest" : "kivoxel", ch.data.language) ?? defaultQueries(ch.data.language));
+    const queries = Array.isArray(pref.data?.value) && pref.data.value.length ? (pref.data.value as string[]).slice(0, 3) : profileFor(ch.data).key === "spawnnado" ? profileFor(ch.data).games.slice(0, 3).map((g) => GAMES[g].queries[0]) : (nicheQueries(isDreamnestChannel({ id: channelId, ...ch.data }) ? "dreamnest" : "kivoxel", ch.data.language) ?? defaultQueries(ch.data.language));
     let saved = 0;
     for (const query of queries) {
       const found = (await research.search(query, ch.data.language)).filter((v) => v.views > 0).sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0)).slice(0, 20);

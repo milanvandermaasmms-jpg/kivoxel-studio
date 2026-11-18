@@ -1,0 +1,244 @@
+// Channel profiles for the gaming channels (Milan, 18-11-2026): KIVOXEL plays Minecraft, SpawnNado plays a mix of
+// Fortnite, Roblox, GTA, Call of Duty and Minecraft. Everything else (presets, montage, Shorts plus at most 2 long
+// videos, upload and review) is the same; only the name and the games differ. The game of a recording comes from its
+// label (Milan picks it at upload, or the inbox file name says it), else from the analysis, else the channel's default.
+// KIVOXEL must behave exactly as before: its texts below are the old fixed Minecraft texts, word for word.
+// Video content is always English (decision 16-11-2026).
+
+export const GAME_IDS = ["minecraft", "fortnite", "roblox", "gta", "cod"] as const;
+export type GameId = (typeof GAME_IDS)[number];
+
+export type Game = {
+  id: GameId;
+  /** "Minecraft": the search keyword at the front of a title. */
+  name: string;
+  /** "Minecraft (PS5, Bedrock)": how the prompts name the game. */
+  subject: string;
+  /** What the analysis gets: "raw Minecraft (PS5, Bedrock) survival gameplay". */
+  gameplay: string;
+  /** What the analysis should look out for. */
+  focus: string;
+  /** Extra narration rule (kid-friendly words for shooters), or null. */
+  toneNote: string | null;
+  /** Recognises the game in a recording label or file name. */
+  match: RegExp;
+  tags: string[];
+  shortTags: string[];
+  longTags: string[];
+  hashtag: string;
+  longHashtag: string;
+  /** Words in a title that are worth a tag of their own, with the tag they become. */
+  topics: [RegExp, string[]][];
+  /** Reference searches for the weekly viral reference (YouTube Data API). */
+  queries: string[];
+};
+
+const KID_SAFE_SHOOTER =
+  "Keep it kid-friendly: say \"eliminated\", \"knocked\" or \"took out\", never kill, blood, injuries or weapons details; cheer the skill and the clutch, not the violence.";
+
+const tagged = (prefix: string, list: [RegExp, string[]][]) => list.map(([re, t]) => [re, t.map((x) => `${prefix} ${x}`)] as [RegExp, string[]]);
+
+export const GAMES: Record<GameId, Game> = {
+  minecraft: {
+    id: "minecraft",
+    name: "Minecraft",
+    subject: "Minecraft (PS5, Bedrock)",
+    gameplay: "raw Minecraft (PS5, Bedrock) survival gameplay",
+    focus: "Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.",
+    toneNote: null,
+    match: /minecraft/i,
+    tags: ["minecraft", "minecraft survival", "minecraft bedrock", "minecraft ps5"],
+    shortTags: ["minecraft shorts", "shorts"],
+    longTags: ["minecraft lets play", "minecraft survival series"],
+    hashtag: "#minecraft",
+    longHashtag: "#minecraftsurvival",
+    topics: [
+      [/\btnt\b|explo/i, ["minecraft tnt", "tnt explosion"]],
+      [/creeper/i, ["minecraft creeper"]],
+      [/zombie|husk/i, ["minecraft zombie"]],
+      [/skeleton/i, ["minecraft skeleton"]],
+      [/spider/i, ["minecraft spider"]],
+      [/enderman|ender pearl|\bend\b/i, ["minecraft enderman"]],
+      [/iron golem|golem/i, ["minecraft iron golem"]],
+      [/diamond/i, ["minecraft diamonds"]],
+      [/\bcave|mine ?shaft|underground/i, ["minecraft cave", "minecraft caves"]],
+      [/lava|nether/i, ["minecraft lava"]],
+      [/elytra/i, ["minecraft elytra"]],
+      [/\bmace\b|wind (burst|charge)/i, ["minecraft mace"]],
+      [/\bpvp\b|duel|fight/i, ["minecraft pvp"]],
+      [/snow|ice|frozen/i, ["minecraft snow"]],
+      [/hardcore/i, ["minecraft hardcore"]],
+      [/\bbuild|base|house|tower/i, ["minecraft build"]],
+      [/trap/i, ["minecraft trap"]],
+      [/fail|death|dies|died|dead/i, ["minecraft fails"]],
+      [/funny|lol/i, ["minecraft funny moments"]],
+      [/\bpart \d|series/i, ["minecraft series"]],
+    ],
+    queries: ["minecraft survival", "minecraft shorts"],
+  },
+  fortnite: {
+    id: "fortnite",
+    name: "Fortnite",
+    subject: "Fortnite",
+    gameplay: "raw Fortnite gameplay (Battle Royale, Zero Build or Creative)",
+    focus: "Look especially for eliminations, close fights, low health or shield, the storm circle closing, rare loot, wins (Victory Royale) and big fails.",
+    toneNote: KID_SAFE_SHOOTER,
+    match: /fortnite/i,
+    tags: ["fortnite", "fortnite battle royale", "fortnite zero build", "fortnite gameplay"],
+    shortTags: ["fortnite shorts", "shorts"],
+    longTags: ["fortnite lets play", "fortnite full match"],
+    hashtag: "#fortnite",
+    longHashtag: "#fortnitebattleroyale",
+    topics: tagged("fortnite", [
+      [/victory|win|crown/i, ["victory royale"]],
+      [/clutch|1v|last/i, ["clutch"]],
+      [/storm|zone|circle/i, ["endgame"]],
+      [/build|box|edit/i, ["building"]],
+      [/mythic|legendary|loot|chest/i, ["loot"]],
+      [/fail|death|dies|died/i, ["fails"]],
+      [/funny|lol/i, ["funny moments"]],
+      [/\bpart \d|series/i, ["series"]],
+    ]),
+    queries: ["fortnite shorts", "fortnite victory royale"],
+  },
+  roblox: {
+    id: "roblox",
+    name: "Roblox",
+    subject: "Roblox",
+    gameplay: "raw Roblox gameplay (obbies, tycoons, horror, simulator and other Roblox games)",
+    focus: "Look especially for falls and fails, close calls, jumpscares, finished stages or levels, wins, rare items and funny moments.",
+    toneNote: null,
+    match: /roblox/i,
+    tags: ["roblox", "roblox gameplay", "roblox games"],
+    shortTags: ["roblox shorts", "shorts"],
+    longTags: ["roblox lets play", "roblox full game"],
+    hashtag: "#roblox",
+    longHashtag: "#robloxgameplay",
+    topics: tagged("roblox", [
+      [/obby|parkour|jump/i, ["obby"]],
+      [/horror|scary|jumpscare/i, ["horror"]],
+      [/tycoon/i, ["tycoon"]],
+      [/brookhaven/i, ["brookhaven"]],
+      [/doors/i, ["doors"]],
+      [/win|first place/i, ["win"]],
+      [/fail|death|dies|died|fell/i, ["fails"]],
+      [/funny|lol/i, ["funny moments"]],
+      [/\bpart \d|series/i, ["series"]],
+    ]),
+    queries: ["roblox shorts", "roblox funny moments"],
+  },
+  gta: {
+    id: "gta",
+    name: "GTA",
+    subject: "GTA V (Grand Theft Auto)",
+    gameplay: "raw GTA V (Grand Theft Auto) gameplay",
+    focus: "Look especially for car chases, big jumps and stunts, crashes, escapes from the police, finished missions and funny fails.",
+    toneNote: KID_SAFE_SHOOTER,
+    match: /\bgta\b|grand theft/i,
+    tags: ["gta", "gta 5", "gta v", "gta gameplay"],
+    shortTags: ["gta shorts", "shorts"],
+    longTags: ["gta lets play", "gta 5 gameplay"],
+    hashtag: "#gta",
+    longHashtag: "#gta5",
+    topics: tagged("gta", [
+      [/stunt|jump|ramp|flip/i, ["stunts"]],
+      [/chase|police|cops|wanted/i, ["police chase"]],
+      [/crash/i, ["crash"]],
+      [/car|race|drive/i, ["cars"]],
+      [/mission|heist/i, ["mission"]],
+      [/fail|wasted/i, ["fails"]],
+      [/funny|lol/i, ["funny moments"]],
+      [/\bpart \d|series/i, ["series"]],
+    ]),
+    queries: ["gta 5 shorts", "gta funny moments"],
+  },
+  cod: {
+    id: "cod",
+    name: "Call of Duty",
+    subject: "Call of Duty",
+    gameplay: "raw Call of Duty gameplay (multiplayer or Warzone)",
+    focus: "Look especially for multi-eliminations, clutches, close fights, low health, round or match wins, killstreak rewards and funny fails.",
+    toneNote: KID_SAFE_SHOOTER,
+    match: /call of duty|\bcod\b|warzone|black ops|modern warfare/i,
+    tags: ["call of duty", "cod", "warzone", "call of duty gameplay"],
+    shortTags: ["cod shorts", "shorts"],
+    longTags: ["call of duty lets play", "warzone full match"],
+    hashtag: "#callofduty",
+    longHashtag: "#warzone",
+    topics: tagged("cod", [
+      [/clutch|1v|last/i, ["clutch"]],
+      [/win|victory/i, ["win"]],
+      [/streak|nuke|multi/i, ["streak"]],
+      [/sniper|snipe|quickscope/i, ["sniper"]],
+      [/fail|death|dies|died/i, ["fails"]],
+      [/funny|lol/i, ["funny moments"]],
+      [/\bpart \d|series/i, ["series"]],
+    ]),
+    queries: ["call of duty shorts", "warzone shorts"],
+  },
+};
+
+export type ChannelProfileKey = "kivoxel" | "spawnnado";
+export type ChannelProfile = {
+  key: ChannelProfileKey;
+  name: string;
+  /** The channel's own tag (always on). */
+  tag: string;
+  games: GameId[];
+  defaultGame: GameId;
+  /** The fixed block in every description. */
+  block: (game: Game, kind: "short" | "long") => string;
+};
+
+export const PROFILES: Record<ChannelProfileKey, ChannelProfile> = {
+  kivoxel: {
+    key: "kivoxel",
+    name: "KIVOXEL",
+    tag: "kivoxel",
+    games: ["minecraft"],
+    defaultGame: "minecraft",
+    block: (_g, kind) =>
+      kind === "short"
+        ? "KIVOXEL plays Minecraft survival on PS5 – new Shorts every day: close calls, fails, finds and big moments.\n🔔 Subscribe so you never miss the next one!"
+        : "KIVOXEL plays Minecraft survival on PS5, told as a story: every close call, fail and find from the whole session.\n🔔 Subscribe for the next part!",
+  },
+  spawnnado: {
+    key: "spawnnado",
+    name: "SpawnNado",
+    tag: "spawnnado",
+    games: ["fortnite", "roblox", "gta", "cod", "minecraft"],
+    defaultGame: "fortnite",
+    block: (g, kind) =>
+      kind === "short"
+        ? `SpawnNado plays ${g.name} – new Shorts every day: clutches, fails, wins and big moments from Fortnite, Roblox, GTA, Call of Duty and Minecraft.\n🔔 Subscribe so you never miss the next one!`
+        : `SpawnNado plays ${g.name}, told as a story: every clutch, fail and win from the whole session.\n🔔 Subscribe for the next part!`,
+  },
+};
+
+/** The profile of a channel: SpawnNado by slug or name, every other gaming channel behaves like KIVOXEL. */
+export function profileFor(channel: { slug?: string | null; name?: string | null } | null | undefined): ChannelProfile {
+  return /spawn-?nado/i.test(`${channel?.slug ?? ""} ${channel?.name ?? ""}`) ? PROFILES.spawnnado : PROFILES.kivoxel;
+}
+
+/** The game a label or file name names, when it is one of the channel's games. */
+export function gameInText(text: string | null | undefined, profile: ChannelProfile): GameId | null {
+  if (!text) return null;
+  return profile.games.find((g) => GAMES[g].match.test(text)) ?? null;
+}
+
+/** The game of a recording: from its label, else what the analysis saw, else the channel's default. */
+export function recordingGame(label: string | null | undefined, profile: ChannelProfile, detected?: unknown): GameId {
+  if (profile.games.length === 1) return profile.games[0];
+  const fromLabel = gameInText(label, profile);
+  if (fromLabel) return fromLabel;
+  const seen = typeof detected === "string" ? (GAME_IDS as readonly string[]).find((g) => g === detected.toLowerCase().trim()) : undefined;
+  return seen && profile.games.includes(seen as GameId) ? (seen as GameId) : profile.defaultGame;
+}
+
+/** "Fortnite · 13-11 storm" — how the upload puts the chosen game in front of the label. */
+export function labelWithGame(label: string, game: GameId | null, profile: ChannelProfile): string {
+  if (!game || profile.games.length === 1 || gameInText(label, profile) === game) return label;
+  return `${GAMES[game].name} · ${label}`.slice(0, 200);
+}
+
+export const gameOf = (id: GameId | null | undefined): Game => GAMES[id ?? "minecraft"];

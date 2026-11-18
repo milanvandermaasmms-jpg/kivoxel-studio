@@ -2,6 +2,7 @@
 // with what goes well and 2-3 concrete fixes with timestamps. Rules on measured facts plus one Gemini judgement that
 // listens to the voice-over. It is a prediction, never a guarantee. Pure functions (shared by worker and dashboard).
 import type { ScriptLine, Segment } from "./analysis.ts";
+import { gameOf, type GameId } from "./gameProfile.ts";
 import type { DeadSpan, Peak } from "./footage.ts";
 import { relayout } from "./editor.ts";
 
@@ -35,6 +36,8 @@ export type Features = {
 };
 
 export type ViralInput = {
+  /** The game of the video (default Minecraft, KIVOXEL). */
+  game?: GameId;
   kind: "short" | "long";
   language: "en" | "nl";
   audience: string | null;
@@ -238,7 +241,7 @@ export function voicePart(i: ViralInput): { part: Part; f: Pick<Features, "voice
 export function listenPrompt(i: ViralInput, rules: Record<PartKey, Part>): string {
   const said = spoken(i.hook, i.lines);
   return [
-    `You review a ${i.kind === "short" ? "YouTube Short" : "long YouTube video"} of a faceless Minecraft channel before it is published. The attached audio is the AI voice-over with the game sound.`,
+    `You review a ${i.kind === "short" ? "YouTube Short" : "long YouTube video"} of a faceless ${gameOf(i.game).name} channel before it is published. The attached audio is the AI voice-over with the game sound.`,
     i.audience ? `Audience: ${i.audience}.` : "",
     `Language of the video: ${i.language === "nl" ? "Dutch" : "English"}.`,
     "Script with timestamps (mm:ss):",

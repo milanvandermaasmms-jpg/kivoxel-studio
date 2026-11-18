@@ -1,6 +1,7 @@
 // AI suggestions for the publication screen (fase 1.6): 10-15 tags, 3 titles and a description. Shared by the worker
 // (prompt and parsing) and the dashboard (types and merging). Pure functions, so the rules are tested without Gemini.
 // No browser imports here: the worker loads this file too.
+import { gameOf, type GameId } from "./gameProfile.ts";
 
 export const TAG_MIN = 10;
 export const TAG_MAX = 15;
@@ -11,6 +12,8 @@ export type SuggestInput = {
   language: "en" | "nl";
   kind: "short" | "long";
   channel: { name: string; audience?: string | null } | null;
+  /** The game of the video (default Minecraft, KIVOXEL). */
+  game?: GameId;
   title: string;
   description: string;
   /** Narration of the approved script (the voice-over), in order. */
@@ -31,8 +34,9 @@ const clean = (s: string) => s.replace(/[<>]/g, "").replace(/\s+/g, " ").trim();
 
 export function suggestPrompt(i: SuggestInput): string {
   const lang = i.language === "en" ? "English" : "Dutch";
+  const game = gameOf(i.game);
   return [
-    `You help a faceless Minecraft (PS5, Bedrock) YouTube channel${i.channel ? ` called "${i.channel.name}"` : ""} publish a ${i.kind === "short" ? "YouTube Short" : "long video (8-15 minutes)"}.`,
+    `You help a faceless ${game.subject} YouTube channel${i.channel ? ` called "${i.channel.name}"` : ""} publish a ${i.kind === "short" ? "YouTube Short" : "long video (8-15 minutes)"}.`,
     i.channel?.audience ? `Audience: ${i.channel.audience}.` : "",
     `Write everything in ${lang}.`,
     `Current title: ${i.title || "(none yet)"}`,
@@ -42,8 +46,8 @@ export function suggestPrompt(i: SuggestInput): string {
     i.usedTags.length ? `Tags the creator used on earlier videos (reuse the ones that fit): ${i.usedTags.slice(0, 30).join(", ")}` : "",
     i.dislikedTags?.length ? `The creator keeps removing these tags, so do not suggest them: ${i.dislikedTags.slice(0, 30).join(", ")}` : "",
     i.likedTitles?.length ? `Titles the creator picked before (match this style, do not copy them): ${i.likedTitles.map((t) => `"${t}"`).join("; ")}` : "",
-    `Give ${TAG_MIN} to ${TAG_MAX} YouTube tags: specific first (what happens in this video), then broader (minecraft, game mode), lowercase, no hashtags, no duplicates, together under 450 characters.`,
-    "Give exactly 3 titles of at most 70 characters, each a different kind: 1) keyword first (starts with \"Minecraft\"), 2) curiosity, 3) challenge or number. Only promise what the video really shows; no clickbait.",
+    `Give ${TAG_MIN} to ${TAG_MAX} YouTube tags: specific first (what happens in this video), then broader (${game.name.toLowerCase()}, game mode), lowercase, no hashtags, no duplicates, together under 450 characters.`,
+    `Give exactly 3 titles of at most 70 characters, each a different kind: 1) keyword first (starts with "${game.name}"), 2) curiosity, 3) challenge or number. Only promise what the video really shows; no clickbait.`,
     `Give a description of 2 to 4 short sentences that matches the video, then a blank line and 3 to 5 hashtags${i.kind === "short" ? " including #shorts" : ""}.`,
     "Never use real names or personal data.",
     i.forbidden.length ? `Never use these words: ${i.forbidden.join(", ")}.` : "",

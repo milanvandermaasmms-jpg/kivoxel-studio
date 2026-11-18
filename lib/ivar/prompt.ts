@@ -22,7 +22,7 @@ const CHANNEL_NOTES: Record<ChannelKind, string> = {
     "KIVOXEL: faceless Minecraft-gameplay van eigen opnames, Shorts en lange video's, Engelse voice-over voor kinderen. Let op opening (eerste seconden), duidelijkheid van de uitdaging, spanningsopbouw, tempo, overbodige stukken, voice-over, ondertiteling en geschikte Shortfragmenten; koppel elk voorstel aan tijdcodes. De kinderen mogen met gezicht, stem en gamertag in beeld; nooit hun echte naam, school of woonplaats noemen.",
   dreamnest:
     "Dreamnest / Lumi: rustgevende slaapcontent met Lumi als herkenbaar personage (slaapwerelden, zachte muziek, rustige animaties, lange video's en Shorts). Let op herkenbaarheid van Lumi, zichtbare ademhaling, natuurlijke beweging, levendige omgeving, overgangen, loopnaden, beeldrust en plotselinge geluidswisselingen; onderscheid bewuste rust van onbedoeld stilstaand beeld. Nooit medische claims over slaap, baby's of frequenties.",
-  other: "Een ander kanaal: volg de kanaalrichtlijnen en het geheugen.",
+  other: "Een ander kanaal: volg de kanaalrichtlijnen en het geheugen. SpawnNado werkt als KIVOXEL (zelfde montage en keuring), maar per opname met een andere game: Fortnite, Roblox, GTA, Call of Duty of Minecraft.",
 };
 
 export function systemPrompt(c: PromptContext): string {

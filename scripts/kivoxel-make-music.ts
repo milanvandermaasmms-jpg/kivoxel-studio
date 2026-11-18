@@ -10,7 +10,7 @@
 // Output (for listening first; nothing goes into the library yet): <data>/kivoxel-media/music-eigen/
 //   node scripts/kivoxel-make-music.ts
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { findTool } from "../worker/ffmpeg.ts";
@@ -480,6 +480,35 @@ const TRACKS: Track[] = [
     },
   },
 ];
+
+/**
+ * The SpawnNado motif (18-11-2026): its own tune, not a variation of the KIVOXEL cell. A "tornado" run that spins up in
+ * E minor (fast rising sixteenths, twice), a riser of noise, and a hard landing on a big E power chord.
+ *   node scripts/kivoxel-make-music.ts --spawnnado   (renders only this one and puts it in the jingles folder)
+ */
+function spawnnadoMotif(): Float32Array[] {
+  const mix = new Mix(3.0);
+  play(mix, "lead", 0, seq("E5:1 G5:1 B5:1 E6:1 D6:1 B5:1 G5:1 B5:1 E6:1 G6:1 B6:1 A6:1 G6:1 F#6:1 -:2"), { vol: 0.3, gate: 0.6, accent: [0, 4, 8, 12] });
+  const hitS = 16 * S16;
+  for (const m of ["E5", "B5"]) tone(mix, "lead", hitS, 0.9, midi(m) + LEAD_SHIFT, { vol: m === "E5" ? 0.36 : 0.16, slide: 2, vibrato: true, release: 0.45 });
+  for (const [m, pan] of [["E5", 0.35], ["G5", -0.35]] as const) tone(mix, "pulse50", hitS, 0.9, midi(m), { vol: 0.06, pan, release: 0.45 });
+  tone(mix, "tri", 0, 0.8, midi("E3"), { vol: 0.35, gate: 0.5 });
+  tone(mix, "tri", 8 * S16, 0.8, midi("G2"), { vol: 0.35, gate: 0.5 });
+  tone(mix, "tri", hitS, 0.9, midi("E2"), { vol: 0.6, release: 0.3, slide: 2 });
+  drums(mix, 0, "K.s.K.s.K.sSsSsX", 0.9);
+  fadeTail(mix, 2.4, 0.6);
+  return master(mix);
+}
+if (process.argv.includes("--spawnnado")) {
+  const ch = spawnnadoMotif();
+  await mkdir(outDir, { recursive: true });
+  await save("spawnnado-motief", ch, -14);
+  const jingles = join(dataDir, "kivoxel-media", "jingles");
+  await mkdir(jingles, { recursive: true });
+  await writeFile(join(jingles, "spawnnado-motief.wav"), await readFile(join(outDir, "spawnnado-motief.wav")));
+  console.log(`SpawnNado motief: ${join(jingles, "spawnnado-motief.wav")} (${(ch[0].length / SR).toFixed(1)} s)`);
+  process.exit(0);
+}
 
 // ---------- render ----------
 type Made = { file: string; title: string; seconds: number; kind: "jingle" | "track"; energy?: number; moods?: string[] };

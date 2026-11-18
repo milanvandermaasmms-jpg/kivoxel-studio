@@ -31,10 +31,11 @@ export async function isKnownRecording(studioId: string, fingerprint: string): P
 }
 
 /** Records the received file and queues the intake step for the worker. Safe to repeat: nothing is added twice. */
-export async function registerRecording(studioId: string, local: LocalRecording): Promise<void> {
+export async function registerRecording(studioId: string, local: LocalRecording, channelId?: string | null): Promise<void> {
   const insert = await supabase
     .from("yt_recordings")
-    .insert({ studio_id: studioId, label: local.label, original_name: local.originalName, size_bytes: local.size, fingerprint: local.fingerprint, sha256: local.sha256, status: "received", is_test: local.isTest })
+    // Without a channel the database puts it on the default channel (KIVOXEL); from /studio/<channel> it goes to that channel.
+    .insert({ studio_id: studioId, ...(channelId ? { channel_id: channelId } : {}), label: local.label, original_name: local.originalName, size_bytes: local.size, fingerprint: local.fingerprint, sha256: local.sha256, status: "received", is_test: local.isTest })
     .select("id")
     .single<{ id: string }>();
   let id = insert.data?.id;

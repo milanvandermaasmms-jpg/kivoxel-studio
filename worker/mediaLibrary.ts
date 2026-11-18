@@ -41,9 +41,12 @@ export function createMediaLibrary(dataDir: string, repoSfxDir: string, log: (ms
       }
       return { dir: "", items };
     },
-    /** The KIVOXEL motif (own work, scripts/kivoxel-make-music.ts) in <data>/kivoxel-media/jingles; null when it is not there. */
-    async motif(): Promise<{ file: string; durMs: number } | null> {
-      const file = join(dataDir, "kivoxel-media", "jingles", "kivoxel-motief.wav");
+    /**
+     * The channel's own motif (own work, scripts/kivoxel-make-music.ts) in <data>/kivoxel-media/jingles:
+     * kivoxel-motief.wav, spawnnado-motief.wav; null when it is not there (then the video has no motif).
+     */
+    async motif(channel = "kivoxel"): Promise<{ file: string; durMs: number } | null> {
+      const file = join(dataDir, "kivoxel-media", "jingles", `${channel}-motief.wav`);
       try {
         const { size } = await stat(file);
         return { file, durMs: Math.round(((size - 44) / (48_000 * 4)) * 1000) }; // 48 kHz, 16-bit stereo

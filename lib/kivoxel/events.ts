@@ -26,7 +26,7 @@ export type GameEvent = {
 export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" | "black" | "quiet" };
 /** `rules`: version of the detection rules; a stored timeline with older rules is built again. */
 export const EVENT_RULES = 3;
-export type EventTimeline = { version: 1; rules?: number; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
+export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game). */ hud?: "minecraft" | "none"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
 export type AiMoment = { kind: string; type: EventType; startMs: number; peakMs: number; endMs: number; score: number; reason: string };
@@ -204,8 +204,18 @@ export function mergeEvents(events: GameEvent[], gapMs = 3000): GameEvent[] {
 }
 
 /** The whole timeline for one recording. `ai` and `reactions` are optional: without them it is the free engine. */
-export function buildEvents(input: { visual: VisualSignals; signals: Signals | null; ai?: AiMoment[]; reactions?: Reaction[]; now?: Date }): EventTimeline {
-  const { visual: v, signals } = input;
+/**
+ * The hearts, the grey menu panel and the red death screen are Minecraft's HUD (measured on Milan's PS5 recordings).
+ * In another game (SpawnNado: Fortnite, Roblox, GTA, Call of Duty) those pixels mean something else, so they are
+ * neutralised: no deaths, damage, low health or menus from the picture; motion, sharpness, sound and AI moments stay.
+ */
+export function withoutMinecraftHud(v: VisualSignals): VisualSignals {
+  return { ...v, frames: v.frames.map((f) => ({ ...f, health: 1000, ui: 0, tint: 0 })) };
+}
+
+export function buildEvents(input: { visual: VisualSignals; signals: Signals | null; ai?: AiMoment[]; reactions?: Reaction[]; now?: Date; hud?: "minecraft" | "none" }): EventTimeline {
+  const signals = input.signals;
+  const v = input.hud === "none" ? withoutMinecraftHud(input.visual) : input.visual;
   const durationMs = v.durationMs || Math.round((v.frames.length * 1000) / v.fps);
   const within = (ms: number) => Math.max(0, Math.min(durationMs, Math.round(ms)));
   const raw: GameEvent[] = [];

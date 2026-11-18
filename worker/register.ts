@@ -2,6 +2,7 @@
 // a row in yt_recordings (never twice: the fingerprint is unique) and an intake step in the queue.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LocalRecording } from "../lib/youtube/protocol.ts";
+import { profileFor } from "../lib/youtube/gameProfile.ts";
 
 export function createRegistrar(db: SupabaseClient) {
   let studioId: string | null = null;
@@ -17,9 +18,15 @@ export function createRegistrar(db: SupabaseClient) {
 
   return async function register(local: LocalRecording): Promise<void> {
     const sid = await studio();
+    // "13-11 spawnnado fortnite.mp4" goes to SpawnNado; every other file to the default channel (KIVOXEL), as before.
+    let channelId: string | null = null;
+    if (/spawn-?nado/i.test(local.label)) {
+      const chs = await db.from("yt_channels").select("id, name, slug").eq("studio_id", sid).returns<{ id: string; name: string; slug: string | null }[]>();
+      channelId = (chs.data ?? []).find((c) => profileFor(c).key === "spawnnado")?.id ?? null;
+    }
     const insert = await db
       .from("yt_recordings")
-      .insert({ studio_id: sid, label: local.label, original_name: local.originalName, size_bytes: local.size, fingerprint: local.fingerprint, sha256: local.sha256, status: "received", is_test: local.isTest })
+      .insert({ studio_id: sid, ...(channelId ? { channel_id: channelId } : {}), label: local.label, original_name: local.originalName, size_bytes: local.size, fingerprint: local.fingerprint, sha256: local.sha256, status: "received", is_test: local.isTest })
       .select("id")
       .single<{ id: string }>();
     let id = insert.data?.id;

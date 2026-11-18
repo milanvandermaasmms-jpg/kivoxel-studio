@@ -14,16 +14,16 @@ import type { SpeechStore } from "./kidsSpeech.ts";
 export const toAiMoments = (moments: Moment[]): AiMoment[] =>
   moments.map((m) => ({ kind: m.kind, type: eventTypeForMoment(m.kind), startMs: m.startMs, peakMs: m.peakMs, endMs: m.endMs, score: m.score, reason: m.reason }));
 
-export type TimelineOptions = { signal?: AbortSignal; onFrames?: (frames: number) => void; moments?: Moment[]; refresh?: boolean };
+export type TimelineOptions = { signal?: AbortSignal; onFrames?: (frames: number) => void; moments?: Moment[]; refresh?: boolean; /** "none" for a game other than Minecraft (SpawnNado). */ hud?: "minecraft" | "none" };
 
 /** `speech`: the kids' reactions (Whisper, section 7.8) are merged in when given. */
 export function createEventStore(ffmpeg: string, dataDir: string, speech?: SpeechStore | null) {
   const file = (fp: string) => join(dataDir, "events", `${fp}.json`);
-  async function cached(fingerprint: string): Promise<EventTimeline | null> {
+  async function cached(fingerprint: string, hud: "minecraft" | "none" = "minecraft"): Promise<EventTimeline | null> {
     try {
       const t = JSON.parse(await readFile(file(fingerprint), "utf8")) as EventTimeline;
       // Older detection rules (e.g. before menus were found by the missing hearts): build it again.
-      return t.version === 1 && t.rules === EVENT_RULES ? t : null;
+      return t.version === 1 && t.rules === EVENT_RULES && (t.hud ?? "minecraft") === hud ? t : null;
     } catch {
       return null;
     }
@@ -33,7 +33,7 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
     /** Builds (or reads) the timeline. With AI moments or `refresh`, it is built again so the moments are merged in. */
     async timeline(fingerprint: string, recordingFile: string, durationMs: number, options: TimelineOptions = {}): Promise<EventTimeline> {
       if (!options.refresh && !options.moments?.length) {
-        const t = await cached(fingerprint);
+        const t = await cached(fingerprint, options.hud);
         if (t) return t;
       }
       const path = join(dataDir, "recordings", recordingFile);
@@ -47,14 +47,16 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
       }
       const visual = await visualFor(ffmpeg, dataDir, fingerprint, path, durationMs, { signal: options.signal, onFrames: options.onFrames });
       const ai = options.moments ? toAiMoments(options.moments) : undefined;
-      let t = buildEvents({ visual, signals, ai });
+      const hud = options.hud ?? "minecraft";
+      let t = buildEvents({ visual, signals, ai, hud });
       if (speech && signals) {
         // Listen only around the strongest moments and the loud peaks: that is where the kids shout.
         const times = [...[...t.events].sort((a, b) => b.payoff - a.payoff).slice(0, 40).map((e) => e.t_peak), ...buildTimeline(signals).peaks.map((p) => p.atMs)];
         const reactions = await speech.reactions(fingerprint, path, durationMs, times, signals.loudness, options.signal);
-        if (reactions.length) t = buildEvents({ visual, signals, ai, reactions });
+        if (reactions.length) t = buildEvents({ visual, signals, ai, reactions, hud });
       }
       await mkdir(join(dataDir, "events"), { recursive: true });
+      if (hud === "none") t = { ...t, hud };
       await writeFile(file(fingerprint), JSON.stringify(t));
       return t;
     },

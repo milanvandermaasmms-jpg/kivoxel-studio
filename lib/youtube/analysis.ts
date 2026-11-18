@@ -1,6 +1,7 @@
 // Pakket 52: from analysed moments to formats, edit plans and scripts. Pure functions (only the hook rules imported), so both the
 // dashboard and the worker (plain Node with type stripping) can use them. Formats and timings: docs/youtube-onderzoek.md, chapter 5.
 import { HOOK_TYPES, parseHooks, type Hook } from "./hooks.ts";
+import { gameOf, GAMES, type GameId } from "./gameProfile.ts";
 
 export type Format = "A" | "B" | "C";
 export const MOMENT_KINDS = ["near_death", "rescue", "mistake", "rare_find", "discovery", "escape", "surprise", "build_result"] as const;
@@ -489,15 +490,22 @@ export function testScript(plan: EditPlan, moments: Moment[]): ScriptDraft {
 }
 
 /** Instructions for the analysis service (Gemini, after approval). The answer must be JSON that parseAnalysis accepts. */
-export function analysisPrompt(durationMs: number, chunk?: Chunk): string {
+/**
+ * game: the game of the recording (default Minecraft, KIVOXEL). detect: on a channel with several games and no game in
+ * the label, the analysis also says which game it sees ("game" in the JSON); recordingGame() takes it from there.
+ */
+export function analysisPrompt(durationMs: number, chunk?: Chunk, opts: { game?: GameId; detect?: GameId[] } = {}): string {
   const clipMs = chunk ? chunk.endMs - chunk.startMs : durationMs;
+  const game = gameOf(opts.game);
   return [
-    "You analyse raw Minecraft (PS5, Bedrock) survival gameplay for a faceless YouTube channel.",
+    opts.detect?.length
+      ? `You analyse raw gameplay for a faceless YouTube channel. First decide which game it is, one of: ${opts.detect.map((g) => `${g} (${GAMES[g].name})`).join(", ")}, and answer that id as "game" next to "moments".`
+      : `You analyse ${game.gameplay} for a faceless YouTube channel.`,
     chunk && chunk.count > 1
       ? `This clip is part ${chunk.index + 1} of ${chunk.count} of a longer recording and is ${formatTimecode(clipMs)} long. Give every time as "MM:SS" counted from the start of THIS clip (00:00), never from the whole recording.`
       : `The recording is ${formatTimecode(clipMs)} long. Give every time as "MM:SS" counted from the start (00:00).`,
     "Times must point at what is really on screen at that second; check each one against the picture before you answer. Report every usable moment.",
-    `Kinds: ${MOMENT_KINDS.join(", ")}. Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.`,
+    `Kinds: ${MOMENT_KINDS.join(", ")}. ${opts.detect?.length ? "Look especially for low health, close fights, eliminations, falls, rare items or loot, wins and big fails." : game.focus}`,
     "Only report moments a viewer would find exciting, funny or surprising. Routine actions (sleeping, walking, crafting, building) are not moments unless something unexpected happens.",
     "Every moment becomes its own Short, so report ALL of them, also short ones of a few seconds: action and fights (mobs or other players), every death, funny moments, fails and silly mistakes, jumpscares, close calls and lucky escapes. Many separate moments are better than a few big ones.",
     "Kinds for these: a death or a fail is mistake (near_death when the player barely survives), a funny or unexpected moment is surprise, a fight the player wins or flees from is escape.",
@@ -506,8 +514,10 @@ export function analysisPrompt(durationMs: number, chunk?: Chunk): string {
     "For each moment give: kind, start, peak, end (all \"MM:SS\"), reason (what happens on screen, one sentence), score 0-100,",
     "has_context (is it clear what is going on before the peak?) with context_note, has_payoff (is the outcome visible?) with payoff_note,",
     `privacy_flags (any of ${PRIVACY_FLAGS.join(", ")} that is visible or audible), suggested_format (A near-death Short, B rare-find Short, C long story).`,
-    "Only describe what is visible or audible. Do not invent story elements. Answer with JSON only: {\"moments\": [...]}",
-  ].join("\n");
+    "Only describe what is visible or audible. Do not invent story elements. Answer with JSON only: {\"moments\": [...]}" + (opts.detect?.length ? ' (plus "game")' : ""),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Estimated cost of analysing a recording, in whole euro cents, rounded up. Default: 35 cents per hour (research chapter 9, high resolution). */
@@ -556,6 +566,13 @@ const FORMAT_RULES: Record<Format, string> = {
  */
 export const HUD_RULE =
   "Never read numbers off the screen or its HUD: no coordinates or position (x, y, z), no clock time or time of day, no day counter, no FPS, no seed, no settings. Talk about what happens, not about the numbers in the corner. Never read on-screen text aloud either: no chat, death messages, recipe or advancement pop-ups, titles or signs, and no quoted text.";
+
+/** The narrator rules for a game; for Minecraft exactly the old KIVOXEL rules. */
+export const narratorVoice = (id?: GameId): string[] => {
+  const game = gameOf(id);
+  const rules = NARRATOR_VOICE.map((r, i) => (i === 0 ? r.replace("kids who love Minecraft", `kids who love ${game.name}`) : r));
+  return game.toneNote ? [...rules, game.toneNote] : rules;
+};
 
 export const NARRATOR_VOICE = [
   "Audience: kids who love Minecraft (about 8-12 years old). Narrate like their most excited gaming buddy: high energy, warm and friendly, real reactions to what happens.",
@@ -609,11 +626,12 @@ function seriesRules(s: SeriesContext): string[] {
   ];
 }
 
-export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl", feedback?: ScriptFeedback, series?: SeriesContext): string {
+export function scriptPrompt(format: Format, promise: string | null, moments: Moment[], plan: EditPlan, language: "en" | "nl", feedback?: ScriptFeedback, series?: SeriesContext, gameId?: GameId): string {
+  const game = gameOf(gameId);
   return [
-    `You write narration for a faceless Minecraft (PS5, Bedrock) YouTube channel, in ${language === "en" ? "English" : "Dutch"}.`,
+    `You write narration for a faceless ${game.subject} YouTube channel, in ${language === "en" ? "English" : "Dutch"}.`,
     FORMAT_RULES[format],
-    ...NARRATOR_VOICE,
+    ...narratorVoice(gameId),
     ...(format === "C" ? [] : SHORT_OPENING),
     ...(series ? seriesRules(series) : []),
     promise ? `Viewer promise: ${promise}` : "",
@@ -627,7 +645,7 @@ export function scriptPrompt(format: Format, promise: string | null, moments: Mo
     `Then hooks: exactly 3 alternative openings of DIFFERENT types from: ${HOOK_TYPES.join(", ")}. Each: {"type", "first_line" (at most 10 words, about what is on screen in the first second), "overlay" (at most 6 words, capitals, specific), "cold_open" (true when the video should open with a 1.5 s glimpse of the payoff)}.`,
     "Then loop_line: one short last sentence that leads straight back into the first second, so viewers watch again. For videos longer than 30 s, put a second small hook or open question halfway in the lines.",
     `And lines: narration as [{"at_ms": number, "text": string}] on the timeline of the final video, between 0 and ${plan.targetMs} ms, about 2.5 words per second, short sentences.`,
-    "Then titles: exactly 3 YouTube titles of at most 70 characters, each a different kind: 1) keyword first (starts with \"Minecraft\", for search), 2) curiosity (makes viewers want to know what happens), 3) challenge or number (for example \"3 creepers, 1 heart\"). Title, thumbnail and first 30 seconds make the same promise; no clickbait that the video does not deliver, no real names.",
+    `Then titles: exactly 3 YouTube titles of at most 70 characters, each a different kind: 1) keyword first (starts with "${game.name}", for search), 2) curiosity (makes viewers want to know what happens), 3) challenge or number (for example \"3 creepers, 1 heart\"). Title, thumbnail and first 30 seconds make the same promise; no clickbait that the video does not deliver, no real names.`,
     ...(feedback
       ? [
           `The owner sent the previous version back with this comment: "${feedback.note.replace(/"/g, "'")}". Change only what the comment asks; keep everything else as it was.`,

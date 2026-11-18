@@ -6,6 +6,7 @@ import { Notice, Section } from "@/components/settings/Section";
 import { Button, Field, inputClass } from "@/components/ui/Dialog";
 import { formatBytes } from "@/lib/youtube/studio";
 import { uploadRecording, type UploadOutcome, type UploadPhase } from "@/lib/youtube/workerClient";
+import { GAMES, labelWithGame, PROFILES, type ChannelProfile, type GameId } from "@/lib/youtube/gameProfile";
 
 const PHASE_TEXT: Record<UploadPhase, string> = {
   fingerprint: "Vingerafdruk berekenen…",
@@ -21,7 +22,10 @@ export function UploadCard({
   workerOnline,
   isKnown,
   onReceived,
+  profile = PROFILES.kivoxel,
 }: {
+  /** The channel the recording is for: on SpawnNado Milan picks the game (KIVOXEL is always Minecraft). */
+  profile?: ChannelProfile;
   workerOnline: boolean;
   isKnown: (fingerprint: string) => Promise<boolean>;
   onReceived: (outcome: UploadOutcome) => Promise<string | null>;
@@ -30,6 +34,8 @@ export function UploadCard({
   // Real gameplay is the normal case now (pakket 52): test data must be chosen on purpose.
   const [label, setLabel] = useState("");
   const [isTest, setIsTest] = useState(false);
+  // "" = let the analysis recognise the game.
+  const [game, setGame] = useState<GameId | "">("");
   const [progress, setProgress] = useState<Progress | null>(null);
   const [paused, setPaused] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
@@ -44,7 +50,7 @@ export function UploadCard({
     setMessage(null);
     try {
       const outcome = await uploadRecording(file, {
-        label: label.trim(),
+        label: labelWithGame(label.trim(), game || null, profile),
         isTest,
         signal: abort.signal,
         isKnown,
@@ -78,6 +84,18 @@ export function UploadCard({
         <Field label="Naam van de opname" hint="Bijvoorbeeld de datum en wat er gebeurt. Gebruik geen achternaam, school of woonplaats.">
           <input className={inputClass} value={label} maxLength={200} placeholder="bijv. 11-11 grot met creepers" onChange={(e) => setLabel(e.target.value)} disabled={busy || paused} />
         </Field>
+        {profile.games.length > 1 && (
+          <Field label="Game" hint="Welke game staat er in deze opname? Weet je het niet, dan herkent de analyse het zelf.">
+            <select className={inputClass} value={game} onChange={(e) => setGame(e.target.value as GameId | "")} disabled={busy || paused}>
+              <option value="">Laat de analyse het herkennen</option>
+              {profile.games.map((g) => (
+                <option key={g} value={g}>
+                  {GAMES[g].name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={isTest} onChange={(e) => setIsTest(e.target.checked)} disabled={busy || paused} className="h-4 w-4 accent-emerald-600" />
           Testdata (geen echte gameplay; wordt gratis en zonder AI verwerkt)

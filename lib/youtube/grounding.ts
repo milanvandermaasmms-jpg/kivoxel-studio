@@ -3,6 +3,7 @@
 // mobs, actions, events. The script must lean on that evidence; a second pass removes or rewrites every line without
 // support. Plus a speaking-time target, so long videos are not 80% silent. Pure functions, tested.
 import { readsHud, type Format, type ScriptLine, type Segment } from "./analysis.ts";
+import { gameOf, type GameId } from "./gameProfile.ts";
 
 export type FramePick = { index: number; srcMs: number; outMs: number; segment: number };
 export type Light = "day" | "night" | "cave_dark" | "cave_lit" | "underwater" | "nether" | "unknown";
@@ -65,14 +66,27 @@ export function mergeEvidence(parts: { offset: number; evidence: Evidence }[]): 
 
 const mmss =(ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
 
-export function evidencePrompt(frames: FramePick[]): string {
+export function evidencePrompt(frames: FramePick[], game?: GameId): string {
+  const events =
+    " events: only clear events (explosion, damage taken, death screen, item found, fall, block placed). When a book, diary, sign or other readable text is on screen, add an event \"text: <the visible words, at most 15>\".";
+  // Minecraft (KIVOXEL): exactly the old lines. Another game (SpawnNado): the same fields without Minecraft words.
+  const minecraft = (game ?? "minecraft") === "minecraft";
   return [
-    `You get ${frames.length} frames from a Minecraft (PS5, Bedrock) gameplay recording, in time order. Frame k is at ${frames.map((f) => `k=${f.index}: ${mmss(f.outMs)}`).join(", ")} of the final video.`,
-    "Report ONLY what is clearly visible in each frame. Never guess what happens between frames. If the health bar (hearts) is not clearly readable, use not_visible.",
-    "Horror add-ons can add a creepy figure (a tall dark or black shape, often with glowing eyes, standing far away or suddenly close): when you see one, list it in mobs as \"watcher\".",
-    `light: one of ${LIGHTS.join(", ")} (cave_dark = really dark, hard to see; cave_lit = underground but clearly visible).`,
-    `health: one of ${HEALTHS.join(", ")} from the hearts in the HUD (full = 10 hearts, most = 7-9, half = 4-6, low = 1-3).`,
-    "mobs: visible mobs (creeper, zombie, skeleton, spider, enderman, ...). action: what the player does (mining, walking, fighting, falling, building, swimming, in menu/inventory). events: only clear events (explosion, damage taken, death screen, item found, fall, block placed). When a book, diary, sign or other readable text is on screen, add an event \"text: <the visible words, at most 15>\".",
+    `You get ${frames.length} frames from a ${gameOf(game).subject} gameplay recording, in time order. Frame k is at ${frames.map((f) => `k=${f.index}: ${mmss(f.outMs)}`).join(", ")} of the final video.`,
+    ...(minecraft
+      ? [
+          "Report ONLY what is clearly visible in each frame. Never guess what happens between frames. If the health bar (hearts) is not clearly readable, use not_visible.",
+          "Horror add-ons can add a creepy figure (a tall dark or black shape, often with glowing eyes, standing far away or suddenly close): when you see one, list it in mobs as \"watcher\".",
+          `light: one of ${LIGHTS.join(", ")} (cave_dark = really dark, hard to see; cave_lit = underground but clearly visible).`,
+          `health: one of ${HEALTHS.join(", ")} from the hearts in the HUD (full = 10 hearts, most = 7-9, half = 4-6, low = 1-3).`,
+          "mobs: visible mobs (creeper, zombie, skeleton, spider, enderman, ...). action: what the player does (mining, walking, fighting, falling, building, swimming, in menu/inventory)." + events,
+        ]
+      : [
+          "Report ONLY what is clearly visible in each frame. Never guess what happens between frames. If the player's health bar is not clearly readable, use not_visible.",
+          `light: one of ${LIGHTS.join(", ")} (cave_dark = really dark, hard to see; cave_lit = indoors or underground but clearly visible).`,
+          `health: one of ${HEALTHS.join(", ")} from the player's health bar in the HUD (full, most, half or low).`,
+          "mobs: visible enemies, opponents or NPCs (for example \"opponent\", \"police car\", \"zombie\"). action: what the player does (running, driving, fighting, building, falling, jumping, in menu or lobby)." + events,
+        ]),
     "Then summary: 2-3 sentences about what really happens over the whole clip, and uncertain: things you cannot tell from the frames.",
     'Answer with JSON only: {"frames":[{"i":0,"light":"...","health":"...","mobs":[],"action":"...","events":[]}],"summary":"...","uncertain":["..."]}',
   ].join("\n");
@@ -185,11 +199,11 @@ export function groundingBlock(e: Evidence, frames: FramePick[], format: Format,
   ].join("\n");
 }
 
-export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], extra: { topLine?: string; hook?: string; titles?: string[]; windowS?: number } = {}): string {
+export function verifyPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], extra: { topLine?: string; hook?: string; titles?: string[]; windowS?: number; game?: GameId } = {}): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   const w = extra.windowS ?? 3;
   return [
-    `Check a Minecraft narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (within about ${w} s before or after; the frames are samples, so what is seen just before or after still counts). Excitement, humour, tension and opinions are fine, and so are feelings, fears and questions ('Is he watching us?'): only concrete events, mobs, damage and places are claims.`,
+    `Check a ${gameOf(extra.game).name} narration against the evidence from the real frames. A line is supported when every factual claim in it is visible in the evidence near its time (within about ${w} s before or after; the frames are samples, so what is seen just before or after still counts). Excitement, humour, tension and opinions are fine, and so are feelings, fears and questions ('Is he watching us?'): only concrete events, mobs, damage and places are claims.`,
     "Evidence:",
     ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; mobs ${f.mobs.join(", ") || "-"}; action ${f.action || "-"}; events ${f.events.join(", ") || "-"}`),
     `Summary: ${e.summary}`,
@@ -285,7 +299,7 @@ export function silentGaps(lines: ScriptLine[], durationMs: number, minMs: numbe
   return gaps;
 }
 
-export function expandPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], gaps: [number, number][], extraWords: number): string {
+export function expandPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], gaps: [number, number][], extraWords: number, game?: GameId): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   return [
     "Add narration lines to fill silent gaps in a Minecraft video, in the same energetic narrator voice (English). Only say what the evidence supports near that time; reactions, tension and humour are welcome.",

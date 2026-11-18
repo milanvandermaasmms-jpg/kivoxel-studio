@@ -32,6 +32,7 @@ import {
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
 import { SelfUpload } from "@/components/youtube/SelfUpload";
 import { standardDescription, standardTags, standardTitle } from "@/lib/youtube/standardMeta";
+import { gameOf, profileFor } from "@/lib/youtube/gameProfile";
 import { type publicationGate } from "@/lib/youtube/gatekeeper";
 import { loadClonedVoice, loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
@@ -324,6 +325,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
     if (row === undefined || !editable || !gateCtx || standardDone.current) return;
     standardDone.current = true;
     const hookLine = hook?.first_line ?? gateCtx.script?.hook ?? null;
+    const meta = { profile: profileFor(gateCtx.channel), game: gateCtx.game };
     setDraft((d) => {
       const title = d.title || standardTitle({ scriptTitles: gateCtx.script?.titles, hookLine });
       if (!d.title) autoTitle.current = title;
@@ -331,8 +333,8 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       return {
         ...d,
         title,
-        description: d.description || standardDescription({ kind, title, hookLine }),
-        tags: [...new Set([...d.tags, ...standardTags({ kind, texts })])].slice(0, 15),
+        description: d.description || standardDescription({ kind, title, hookLine, ...meta }),
+        tags: [...new Set([...d.tags, ...standardTags({ kind, texts, ...meta })])].slice(0, 15),
       };
     });
   }, [row, gateCtx, hook, kind]);
@@ -401,10 +403,11 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const saved = row ? JSON.stringify(toDraft(row)) === JSON.stringify(draft) && row.render_id === renderId && (!extrasReady || JSON.stringify(extrasOf(row)) === JSON.stringify(extras)) : false;
   const problems = draftProblems(draft);
   const before = uploadProblems(draft);
-  const advice = draftAdvice(draft, kind);
+  const game = gameOf(gateCtx?.game);
+  const advice = draftAdvice(draft, kind, game.name);
   // Milan, 16-11-2026: no Poortwachter at all. (A cloned voice still switches the AI disclosure on by itself, below.)
   const gate: ReturnType<typeof publicationGate> = [];
-  const titles = titleSuggestions(hook);
+  const titles = titleSuggestions(hook, game.name);
   const aiTitles = gateCtx?.script?.titles ?? [];
   const field = "w-full min-w-0 rounded-md border border-slate-300 bg-transparent px-2 py-1";
 
@@ -574,7 +577,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
           <textarea value={draft.description} rows={4} onChange={(e) => set({ description: e.target.value })} className={field} />
         </label>
         {!draft.description && (
-          <button type="button" onClick={() => set({ description: descriptionSuggestion(hook, kind) })} className="text-slate-600 underline underline-offset-2">
+          <button type="button" onClick={() => set({ description: descriptionSuggestion(hook, kind, game.hashtag) })} className="text-slate-600 underline underline-offset-2">
             Begin met een voorstel (eerste zin van de hook en 3 hashtags)
           </button>
         )}

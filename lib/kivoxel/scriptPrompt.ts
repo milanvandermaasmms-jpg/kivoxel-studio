@@ -4,6 +4,7 @@
 import { looksDutch, persona, type EventType, type Language, type Settings } from "./config.ts";
 import type { EventTimeline, GameEvent } from "./events.ts";
 import { HUD_RULE, readsHud, type Segment } from "../youtube/analysis.ts";
+import { gameOf, type GameId } from "../youtube/gameProfile.ts";
 import { estimateMs, eventsInMontage, type LineKind, type TtsStyle, type VoLine } from "./voiceScript.ts";
 
 /**
@@ -29,7 +30,7 @@ const KINDS: LineKind[] = ["hook", "anticipation", "reaction", "open_loop", "bri
 const STYLES: TtsStyle[] = ["spannend", "fluisterend", "schreeuw", "lachend", "normaal"];
 const tc = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string; /** What the frames show (section 1a, vision model). */ evidence?: string; /** Milan's own story of the recording. */ story?: string }): { prompt: string; ids: Map<string, number> } {
+export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; /** The game (default Minecraft, KIVOXEL). */ game?: GameId; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string; /** What the frames show (section 1a, vision model). */ evidence?: string; /** Milan's own story of the recording. */ story?: string }): { prompt: string; ids: Map<string, number> } {
   // KIVOXEL videos are English, always.
   const lang = "English";
   const events = eventsInMontage(input.segments, input.timeline).filter((e) => e.peak_out < input.targetMs - 800);
@@ -42,7 +43,7 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
   const p = persona;
   const s = input.settings.sync;
   const prompt = [
-    `You write the voice-over for a ${input.short ? "YouTube Short" : "long YouTube video"} of Minecraft gameplay recorded by kids, in ${lang}. Video length: ${tc(input.targetMs)}.`,
+    `You write the voice-over for a ${input.short ? "YouTube Short" : "long YouTube video"} of ${gameOf(input.game).name} gameplay recorded by kids, in ${lang}.${gameOf(input.game).toneNote ? ` ${gameOf(input.game).toneNote}` : ""} Video length: ${tc(input.targetMs)}.`,
     "These events happen in the video (times are in the finished video). Use ONLY these; invent nothing:",
     ...(list.length ? list : ["(no clear events: keep it short, curious and light)"]),
     ...(input.evidence ? [input.evidence] : []),
