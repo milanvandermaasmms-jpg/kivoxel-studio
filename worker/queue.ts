@@ -42,7 +42,7 @@ import { totalMs } from "../lib/youtube/editor.ts";
 import { nicheQueries } from "../lib/ivar/insights.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
-import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderFileName, renderSize, segmentOverlays, srtFileName, type VoiceClip } from "../lib/youtube/render.ts";
+import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderChunks, renderFileName, renderSize, segmentOverlays, srtFileName, type RenderInput, type VoiceClip } from "../lib/youtube/render.ts";
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
 import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
@@ -1047,7 +1047,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (motif) for (const c of motifCues({ short: isShort, durationMs: cutMs, motifMs: motif.durMs, music: !!modeSpec.music, voice: !!modeSpec.voice })) sfx.push({ file: motif.file, atMs: c.atMs, db: c.db, kind: "motif" });
         mixPlan = { mode: kSettings.audio_mode, spec: modeSpec, music, sfx, voiceChain: true };
       }
-      const plan = renderArgs({
+      const renderInput: RenderInput = {
         recording: join(store.recordingsDir, local.file),
         recordingMs: local.probe.durationMs,
         hasAudio: !!local.probe.audioCodec,
@@ -1062,7 +1062,20 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         ...(mixPlan ? { mix: { plan: mixPlan, settings: kSettings } } : {}),
         // Section 7.7: frame rate as the source (60 for PS5 60 fps, else 30) and a high bitrate for the new montages.
         ...(fase1 ? { fps: outFps, highQuality: true, fx: fxFilter || undefined, ...(isShort && kSettings.features.loop_ending ? { loopFadeMs: 400 } : {}) } : {}),
-      });
+      };
+      // 18-11-2026: a long part with hundreds of cuts is first made in chunks (each at most MAX_PIECES_PER_RUN pieces),
+      // otherwise FFmpeg runs out of memory or over the Windows command-line limit. Shorts need no chunks.
+      const chunks = renderChunks(renderInput, (k) => join(tmp, `chunk-${String(k).padStart(3, "0")}.mkv`));
+      if (chunks.length) {
+        await lv.phase(`Montage in ${chunks.length} delen voorbereiden`, 0);
+        for (const [k, c] of chunks.entries()) {
+          if (lv.signal.aborted) throw new CancelledError();
+          await montage.run(c.args, tmp, Math.max(10 * 60_000, c.ms * 20), { signal: lv.signal });
+          void lv.progress({ progress: (k + 1) / chunks.length, metrics: { chunk: k + 1, chunks: chunks.length } });
+        }
+        await lv.event("log", `${chunks.length} deelstukken klaar (${chunks.reduce((s, c) => s + c.pieces, 0)} fragmenten)`);
+      }
+      const plan = renderArgs(renderInput, chunks.map((c) => ({ file: c.file, ms: c.ms })));
       // KIVOXEL fase 1, section 5: in a Short the hook pops in and shakes at the payoff (the main event of the video).
       // The yellow header text: a Short keeps it all the way; a long video shows it for the first minute, then it fades (Milan, 16-11-2026).
       const hook = fase1 && cut.topLine?.trim() ? { style: hookStyle(size, kSettings), events: isShort ? hookEvents(cut.topLine, plan.durationMs, mainEvent?.peak_out ?? null, size, kSettings) : longTopEvents(cut.topLine, plan.durationMs, size, kSettings) } : undefined;
@@ -1710,9 +1723,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
   }
 
-  const handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { intake, analyse, script, ...(montage ? { render } : {}), ...(publisher ? { upload, publish } : {}) };
+  const handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { intake, analyse, script, ...(montage ? { render } : {}) };
   /** Short steps that must not wait behind a montage of many minutes: they run in their own lane, next to the main one. */
   const fastHandlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = { suggest, viral, reference };
+  /** 18-11-2026: uploads to YouTube in their own lane, so 24 uploads do not wait behind 35 montages (network, not CPU). */
+  const uploadHandlers: Record<string, (job: Job, lv: Live) => Promise<unknown>> = publisher ? { upload, publish } : {};
 
   async function finish(job: Job, outcome: { result: unknown } | { error: string }) {
     const failed = "error" in outcome;
@@ -1762,14 +1777,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return data?.length ?? 0;
   }
 
-  const tick = () => runLane(handlers, "main");
+  // The exported tick also runs the upload lane (after the main lane), so one tick handles every KIVOXEL step.
+  const tickMain = () => runLane(handlers, "main");
+  const tick = async () => {
+    await tickMain();
+    await tickUpload();
+  };
   const tickFast = () => runLane(fastHandlers, "fast");
+  const tickUpload = () => (Object.keys(uploadHandlers).length ? runLane(uploadHandlers, "upload") : Promise.resolve());
   let fastBusy = false;
+  let uploadBusy = false;
 
-  async function runLane(handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>>, lane: "main" | "fast") {
-    if (lane === "main" ? busy : fastBusy) return;
+  async function runLane(handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>>, lane: "main" | "fast" | "upload") {
+    if (lane === "main" ? busy : lane === "fast" ? fastBusy : uploadBusy) return;
     if (lane === "main") busy = true;
-    else fastBusy = true;
+    else if (lane === "fast") fastBusy = true;
+    else uploadBusy = true;
     try {
       for (;;) {
         const { data, error } = await db.rpc("claim_yt_job", { p_worker: workerName, p_steps: Object.keys(handlers) });
@@ -1806,7 +1829,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     } finally {
       if (lane === "main") busy = false;
-      else fastBusy = false;
+      else if (lane === "fast") fastBusy = false;
+      else uploadBusy = false;
     }
   }
 
@@ -1814,8 +1838,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     start(intervalMs = 5000) {
       // Fase 2: old Studio events are not needed to learn (migration 049; quietly nothing before it).
       void Promise.resolve(db.rpc("prune_studio_events", { p_days: 180 })).catch(() => undefined);
-      void recover().then(() => Promise.all([tick(), tickFast()]));
-      timer = setInterval(() => void Promise.all([tick(), tickFast()]), intervalMs);
+      void recover().then(() => Promise.all([tickMain(), tickFast(), tickUpload()]));
+      timer = setInterval(() => void Promise.all([tickMain(), tickFast(), tickUpload()]), intervalMs);
       // Fase 3.1: reference videos once a week (checked at start and every 6 hours).
       void scheduleReference().catch(() => undefined);
       setInterval(() => void scheduleReference().catch(() => undefined), 6 * 60 * 60_000);
@@ -1833,7 +1857,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     stop() {
       if (timer) clearInterval(timer);
     },
-    poke: () => void Promise.all([tick(), tickFast()]),
+    poke: () => void Promise.all([tickMain(), tickFast(), tickUpload()]),
     /** Dreamnest (only with FEATURE_DREAMNEST=true) asks this before each step: KIVOXEL goes first. Read-only. */
     mainBusy: () => busy,
   };

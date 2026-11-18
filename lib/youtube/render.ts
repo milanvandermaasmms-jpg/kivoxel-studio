@@ -177,24 +177,25 @@ export function usableSegments(segments: Segment[], recordingMs: number) {
 }
 
 /**
- * FFmpeg arguments for the montage. Every segment is its own input with -ss/-t before -i, so FFmpeg jumps to the piece
- * instead of decoding the whole recording. Pieces are sped up with setpts/atempo and joined with concat.
+ * At most this many recording pieces in one FFmpeg run (18-11-2026). Every piece is its own decoder; a long part of
+ * 20 minutes has hundreds of cuts, and opening them all at once ran out of memory ("Cannot allocate memory") or over the
+ * Windows command-line limit ("spawn ENAMETOOLONG"). Longer montages are first made in chunks (see renderChunks).
  */
-export function renderArgs(input: RenderInput): RenderPlan {
-  const pieces = usableSegments(input.segments, input.recordingMs);
-  if (!pieces.length) throw new Error("Het montageplan heeft geen bruikbare stukken binnen de opname");
+export const MAX_PIECES_PER_RUN = 16;
+/** A chunk made by renderChunks: already at the final size, frame rate, speed, zoom and blur. */
+export type PreparedPiece = { file: string; ms: number };
+type Piece = ReturnType<typeof usableSegments>[number];
+
+const fitFor = (width: number, height: number) =>
+  height > width ? `scale=-2:${height},crop=${width}:${height}` : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+
+/** Inputs and filters that turn recording pieces into [vc][ac]: blur, speed, zoom, size, frame rate, then concat. */
+function pieceGraph(input: RenderInput, pieces: Piece[]): { inputs: string[]; filters: string[]; durationMs: number } {
   const { width, height } = input.size;
   const fps = input.fps ?? 30;
-  const fit =
-    height > width
-      ? `scale=-2:${height},crop=${width}:${height}`
-      : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
-
-  const args = ["-hide_banner", "-loglevel", "error", "-y"];
-  for (const p of pieces) args.push("-ss", sec(p.start), "-t", sec(p.end - p.start), "-i", input.recording);
-  for (const v of input.voice) args.push("-i", v.file);
-  if (input.mix) args.push(...mixInputs(input.mix.plan));
-
+  const fit = fitFor(width, height);
+  const inputs: string[] = [];
+  for (const p of pieces) inputs.push("-ss", sec(p.start), "-t", sec(p.end - p.start), "-i", input.recording);
   const filters: string[] = [];
   const blur = cleanRegions(input.blur ?? []);
   let durationMs = 0;
@@ -212,6 +213,60 @@ export function renderArgs(input: RenderInput): RenderPlan {
     );
   });
   filters.push(`${pieces.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${pieces.length}:v=1:a=1[vc][ac]`);
+  return { inputs, filters, durationMs };
+}
+
+/**
+ * A long montage in chunks of at most MAX_PIECES_PER_RUN pieces. Each chunk becomes one intermediate file (near-lossless
+ * H.264 and plain PCM sound, so nothing is lost before the final render); renderArgs then joins the chunks instead of the
+ * pieces. Short montages need no chunks: the result is then empty.
+ */
+export function renderChunks(input: RenderInput, fileFor: (k: number) => string): { args: string[]; file: string; ms: number; pieces: number }[] {
+  const pieces = usableSegments(input.segments, input.recordingMs);
+  if (pieces.length <= MAX_PIECES_PER_RUN) return [];
+  const out: { args: string[]; file: string; ms: number; pieces: number }[] = [];
+  for (let k = 0; k * MAX_PIECES_PER_RUN < pieces.length; k++) {
+    const part = pieces.slice(k * MAX_PIECES_PER_RUN, (k + 1) * MAX_PIECES_PER_RUN);
+    const g = pieceGraph(input, part);
+    const file = fileFor(k);
+    out.push({
+      file,
+      ms: g.durationMs,
+      pieces: part.length,
+      args: ["-hide_banner", "-loglevel", "error", "-y", ...g.inputs, "-filter_complex", g.filters.join(";"), "-map", "[vc]", "-map", "[ac]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "12", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", file],
+    });
+  }
+  return out;
+}
+
+/**
+ * FFmpeg arguments for the montage. Every segment is its own input with -ss/-t before -i, so FFmpeg jumps to the piece
+ * instead of decoding the whole recording. Pieces are sped up with setpts/atempo and joined with concat.
+ * With `prepared` (chunks from renderChunks) the chunks are the inputs instead, already cut, sped up and sized.
+ */
+export function renderArgs(input: RenderInput, prepared?: PreparedPiece[]): RenderPlan {
+  const pieces = usableSegments(input.segments, input.recordingMs);
+  if (!pieces.length) throw new Error("Het montageplan heeft geen bruikbare stukken binnen de opname");
+  const fps = input.fps ?? 30;
+  const args = ["-hide_banner", "-loglevel", "error", "-y"];
+  let filters: string[];
+  let durationMs: number;
+  let inputCount: number;
+  if (prepared?.length) {
+    for (const c of prepared) args.push("-i", c.file);
+    filters = prepared.flatMap((_, i) => [`[${i}:v]setpts=PTS-STARTPTS,fps=${fps},setsar=1,format=yuv420p[v${i}]`, `[${i}:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[a${i}]`]);
+    filters.push(`${prepared.map((_, i) => `[v${i}][a${i}]`).join("")}concat=n=${prepared.length}:v=1:a=1[vc][ac]`);
+    durationMs = prepared.reduce((s, c) => s + c.ms, 0);
+    inputCount = prepared.length;
+  } else {
+    const g = pieceGraph(input, pieces);
+    args.push(...g.inputs);
+    filters = g.filters;
+    durationMs = g.durationMs;
+    inputCount = pieces.length;
+  }
+  for (const v of input.voice) args.push("-i", v.file);
+  if (input.mix) args.push(...mixInputs(input.mix.plan));
   // Effects first, captions after: the text stays still while the picture punches and shakes.
   const loop = input.loopFadeMs && durationMs > input.loopFadeMs * 4 ? input.loopFadeMs : 0;
   if (loop) {
@@ -228,8 +283,8 @@ export function renderArgs(input: RenderInput): RenderPlan {
         plan,
         settings: input.mix.settings,
         durationMs,
-        voices: input.voice.map((v, k) => ({ index: pieces.length + k, atMs: v.atMs })),
-        firstExtra: pieces.length + input.voice.length,
+        voices: input.voice.map((v, k) => ({ index: inputCount + k, atMs: v.atMs })),
+        firstExtra: inputCount + input.voice.length,
         loudnorm: LOUDNORM,
       }),
     );
@@ -237,7 +292,7 @@ export function renderArgs(input: RenderInput): RenderPlan {
     filters.push(`[ac]volume=${input.muteGame ? "0" : volume(input.gameVolume)}[game]`);
     input.voice.forEach((v, k) => {
       const delay = Math.max(0, Math.round(v.atMs));
-      filters.push(`[${pieces.length + k}:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${delay}|${delay}[n${k}]`);
+      filters.push(`[${inputCount + k}:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${delay}|${delay}[n${k}]`);
     });
     filters.push(`[game]${input.voice.map((_, k) => `[n${k}]`).join("")}amix=inputs=${input.voice.length + 1}:duration=first:normalize=0[amix]`);
   } else filters.push(input.muteGame ? "[ac]volume=0[amix]" : "[ac]anull[amix]");

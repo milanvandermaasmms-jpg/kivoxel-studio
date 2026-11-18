@@ -43,7 +43,11 @@ function fakeDb(rows: Record<string, unknown>, claims: unknown[][] = []) {
     from,
     rpc: async (fn: string, args: Record<string, unknown>) => {
       rpcs.push({ fn, args });
-      return { data: fn === "claim_yt_job" ? (queue.shift() ?? []) : null, error: null };
+      if (fn !== "claim_yt_job") return { data: null, error: null };
+      // Like the real claim: a lane only gets the steps it handles.
+      const next = queue[0] as { step?: string }[] | undefined;
+      if (next?.length && Array.isArray(args.p_steps) && !next.every((j) => (args.p_steps as string[]).includes(String(j.step)))) return { data: [], error: null };
+      return { data: queue.shift() ?? [], error: null };
     },
   } as unknown as SupabaseClient;
   return { db, calls, rpcs };
@@ -61,7 +65,8 @@ describe("KIVOXEL smoke test", () => {
     await q.tickFast();
     const steps = rpcs.filter((r) => r.fn === "claim_yt_job").map((r) => r.args.p_steps as string[]);
     expect(steps).toEqual([
-      ["intake", "analyse", "script", "render", "upload", "publish"],
+      ["intake", "analyse", "script", "render"],
+      ["upload", "publish"],
       ["suggest", "viral", "reference"],
     ]);
     expect(steps.flat().some((s) => s.startsWith("dn_"))).toBe(false);

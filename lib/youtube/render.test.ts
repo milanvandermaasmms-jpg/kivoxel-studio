@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Segment } from "./analysis";
-import { assText, assTime, buildAss, captions, cleanRegions, segmentOverlays, DEFAULT_BLUR_REGIONS, isRenderFileName, narration, renderArgs, renderFileName, renderSize } from "./render";
+import { assText, assTime, buildAss, captions, cleanRegions, segmentOverlays, DEFAULT_BLUR_REGIONS, isRenderFileName, narration, renderArgs, renderChunks, renderFileName, renderSize, MAX_PIECES_PER_RUN } from "./render";
 
 const seg = (src_start_ms: number, src_end_ms: number, speed = 1): Segment => ({ part: "build", src_start_ms, src_end_ms, out_start_ms: 0, speed, effects: [], note: "" });
 const base = { recording: "C:\\Users\\x\\FamilieMK-YouTube\\recordings\\abc.mp4", recordingMs: 60_000, hasAudio: true, assFile: "subs.ass", voice: [], gameVolume: 0.25, output: "out.mp4" };
@@ -158,5 +158,24 @@ describe("caption file for YouTube (fase D4b)", () => {
     const srt = buildSrt([{ at_ms: 0, text: "No way out." }, { at_ms: 2000, text: "Four zombies,\nhalf a heart." }], 10_000);
     expect(srt).toBe("1\n00:00:00,000 --> 00:00:01,200\nNo way out.\n\n2\n00:00:02,000 --> 00:00:04,000\nFour zombies, half a heart.\n");
     expect(srtFileName("abc-v1-12345678.mp4")).toBe("abc-v1-12345678.srt");
+  });
+});
+
+describe("long montages in chunks (18-11-2026)", () => {
+  const seg = (i: number) => ({ part: "chapter" as const, src_start_ms: i * 10_000, src_end_ms: i * 10_000 + 6_000, out_start_ms: i * 6_000, speed: 1, effects: [], note: "" });
+  const base = { recording: "rec.webm", recordingMs: 3_600_000, hasAudio: true, size: { width: 1920, height: 1080 }, assFile: "subs.ass", voice: [], gameVolume: 1, output: "out.mp4" };
+  it("a Short-sized plan needs no chunks", () => {
+    expect(renderChunks({ ...base, segments: Array.from({ length: MAX_PIECES_PER_RUN }, (_, i) => seg(i)) }, (k) => `c${k}.mkv`)).toEqual([]);
+  });
+  it("a long part is split; every chunk opens at most MAX_PIECES_PER_RUN pieces and the final render opens only the chunks", () => {
+    const input = { ...base, segments: Array.from({ length: 200 }, (_, i) => seg(i)) };
+    const chunks = renderChunks(input, (k) => `c${k}.mkv`);
+    expect(chunks).toHaveLength(Math.ceil(200 / MAX_PIECES_PER_RUN));
+    for (const c of chunks) expect(c.args.filter((a) => a === "-i").length).toBeLessThanOrEqual(MAX_PIECES_PER_RUN);
+    expect(chunks.reduce((s, c) => s + c.ms, 0)).toBe(200 * 6_000);
+    const plan = renderArgs(input, chunks.map((c) => ({ file: c.file, ms: c.ms })));
+    expect(plan.args.filter((a) => a === "-i")).toHaveLength(chunks.length);
+    expect(plan.durationMs).toBe(200 * 6_000);
+    expect(plan.args.join(" ").length).toBeLessThan(8_000); // far below the Windows command-line limit of 32k
   });
 });

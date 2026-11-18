@@ -47,7 +47,12 @@ function fakeDb(answers: { running?: unknown[]; claim?: unknown[][]; rows?: Reco
   };
   const db = {
     from: (table: string) => builder(table),
-    rpc: async () => ({ data: claims.shift() ?? [], error: null }),
+    // Like the real claim_yt_job: uploads go only to the upload lane (18-11-2026); other steps as before.
+    rpc: async (_fn: string, args?: { p_steps?: string[] }) => {
+      const next = claims[0] as { step?: string }[] | undefined;
+      if (next?.length && args?.p_steps && next.some((j) => ["upload", "publish"].includes(String(j.step)) && !args.p_steps!.includes(String(j.step)))) return { data: [], error: null };
+      return { data: claims.shift() ?? [], error: null };
+    },
   } as unknown as SupabaseClient;
   return { db, calls };
 }

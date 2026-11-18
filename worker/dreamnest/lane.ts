@@ -51,13 +51,28 @@ export function createDreamnestLane(opts: { db: SupabaseClient; workerName: stri
     return data?.length ?? 0;
   }
 
+  /**
+   * Uploading to YouTube always goes first (Milan, 18-11-2026): dn_publish has its own little lane that never waits for
+   * KIVOXEL montages or for a long Dreamnest render. Everything else keeps waiting until KIVOXEL is idle.
+   */
+  const PRIORITY: DnStep[] = ["dn_publish"];
+  const prioritySteps = PRIORITY.filter((s) => handlers[s]);
+  const otherSteps = (Object.keys(handlers) as DnStep[]).filter((s) => !PRIORITY.includes(s));
+  let priorityBusy = false;
+
   async function tick() {
-    if (busy) return;
-    busy = true;
+    await Promise.all([run("priority"), run("rest")]);
+  }
+
+  async function run(kind: "priority" | "rest") {
+    const steps = kind === "priority" ? prioritySteps : otherSteps;
+    if (!steps.length || (kind === "priority" ? priorityBusy : busy)) return;
+    if (kind === "priority") priorityBusy = true;
+    else busy = true;
     try {
       for (;;) {
-        if (!dreamnestMayStart({ mainBusy: kivoxelBusy() })) return;
-        const { data, error } = await db.rpc("claim_dn_job", { p_worker: workerName, p_steps: Object.keys(handlers) });
+        if (kind === "rest" && !dreamnestMayStart({ mainBusy: kivoxelBusy() })) return;
+        const { data, error } = await db.rpc("claim_dn_job", { p_worker: workerName, p_steps: steps });
         if (error) {
           // Before migration 052 the function does not exist: stay quiet, KIVOXEL is not affected.
           if (!/claim_dn_job|does not exist|schema cache/i.test(error.message)) log(`Dreamnest-wachtrij niet bereikbaar: ${error.message}`);
@@ -78,7 +93,8 @@ export function createDreamnestLane(opts: { db: SupabaseClient; workerName: stri
         }
       }
     } finally {
-      busy = false;
+      if (kind === "priority") priorityBusy = false;
+      else busy = false;
     }
   }
 
