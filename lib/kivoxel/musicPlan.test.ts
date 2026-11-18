@@ -34,6 +34,9 @@ describe("music follows the content (Milan, 16-11-2026)", () => {
     expect(busy[0].kind).toBe("action");
     const calm = planMusicParts({ durationMs: 20_000, events: [{ atMs: 9000, payoff: 60, type: "bouw", kind: "ai_moment" }], library, recent: [], rnd, short: true });
     expect(calm.map((p) => p.kind)).toEqual(["calm"]);
+    // 18-11-2026: a Short with a long build-up still gets one track, never a switch halfway.
+    const long = planMusicParts({ durationMs: 40_000, events: [{ atMs: 35_000, payoff: 95, type: "fail", kind: "death" }], library, recent: [], rnd, short: true });
+    expect(long.map((p) => p.kind)).toEqual(["action"]);
   });
   it("a downbeat lands exactly on the peak", () => {
     const s = downbeatStart({ bpm: 120, beat_offset_ms: 0 }, 5000, 3000);

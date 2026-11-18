@@ -87,6 +87,15 @@ export function planMusicParts(input: MusicPlanInput): MusicPart[] {
   const action = pickTrack(lib.filter((t) => t.energy >= 4), "fail", 5, input.recent, input.rnd, input.noRepeatWithin, input.allowTest) ?? pickTrack(lib, "fail", 5, input.recent, input.rnd, input.noRepeatWithin, input.allowTest);
   const calm = pickTrack(lib.filter((t) => t.energy <= 3), "bouw", 1, input.recent, input.rnd, input.noRepeatWithin, input.allowTest) ?? pickTrack(lib, "bouw", 1, input.recent, input.rnd, input.noRepeatWithin, input.allowTest);
   if (!action || !calm) return [];
+  // Shorts (Milan, 18-11-2026): one track for the whole Short, never a switch halfway (that sounded like a mess). Busy when
+  // something happens, calm otherwise; it starts after the game-sound opening, with a downbeat on the main peak.
+  if (short) {
+    const lead = Math.min(SHORT_GAME_ONLY_MS, durationMs);
+    const main = input.events.filter(isAction).sort((a, b) => b.payoff - a.payoff)[0] ?? null;
+    const track = main ? action : calm;
+    const startMs = main && main.atMs > lead ? downbeatStart(track, 0, main.atMs - lead) : (track.beat_offset_ms ?? 0);
+    return durationMs > lead ? [{ file: track.file, title: `${track.title}${track.artist ? ` – ${track.artist}` : ""}`, atMs: lead, durMs: durationMs - lead, startMs, kind: main ? "action" : "calm" }] : [];
+  }
   // The timeline of the video as alternating calm/action stretches.
   type Stretch = { kind: "action" | "calm"; from: number; to: number; peak: number | null };
   const stretches: Stretch[] = [];
