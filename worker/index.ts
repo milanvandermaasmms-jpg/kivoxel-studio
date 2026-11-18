@@ -206,7 +206,7 @@ const dreamnest =
   queue && dreamnestEnabled(env)
     ? (() => {
         const db = createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false, autoRefreshToken: false } });
-        return createDreamnestLane({ db, workerName, log, kivoxelBusy: queue.mainBusy, handlers: createDnHandlers({ db, dataDir, log, envFile, publish: youtube.configured ? createDnPublish({ db, dataDir, log, youtubeFor: youtubeLink.youtubeFor, makeUploader: (yt) => createUploader({ yt, sessionDir: join(dataDir, "youtube-uploads") }) }) : undefined }) });
+        return createDreamnestLane({ db, workerName, log, kivoxelBusy: queue.mainBusy, uploadsPending: queue.uploadsPending, handlers: createDnHandlers({ db, dataDir, log, envFile, publish: youtube.configured ? createDnPublish({ db, dataDir, log, youtubeFor: youtubeLink.youtubeFor, makeUploader: (yt) => createUploader({ yt, sessionDir: join(dataDir, "youtube-uploads") }) }) : undefined }) });
       })()
     : null;
 

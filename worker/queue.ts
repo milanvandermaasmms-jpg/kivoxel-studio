@@ -1260,7 +1260,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // for zooms, captions, music and SFX). Still red after that: to the review, where the red checks block approval
       // until Milan ticks that he saw them.
       const qcRetry = Number(job.payload?.qc_retry ?? 0);
-      if (fase1 && !video.data.is_test && (qcSummary?.red ?? 0) > 0 && qcRetry < 1) {
+      // 18-11-2026: only for Shorts. A long part takes 25 minutes and its red checks (first frame, a peak of -0.8 dB)
+      // come out the same the second time; it goes straight to the review instead.
+      if (fase1 && isShort && !video.data.is_test && (qcSummary?.red ?? 0) > 0 && qcRetry < 1) {
         await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${scriptId}:qc:${job.id}`, payload: { ...job.payload, qc_retry: qcRetry + 1 } });
         await lv.event("note", `Kwaliteitscontrole niet gehaald (${qcSummary!.red} rood): de montage wordt automatisch nog één keer gemaakt`);
         return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, qcRetry: true, audioMode: kSettings.audio_mode };
@@ -1788,6 +1790,19 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   let fastBusy = false;
   let uploadBusy = false;
 
+  /**
+   * Milan, 18-11-2026: "eerst uploads, als die allemaal naar YouTube zijn (alle kanalen), dan verder met montage, analyse
+   * enzo". True while any upload or publish step waits or runs, for KIVOXEL (yt_jobs) or Dreamnest (dn_publish). A step
+   * that is already running is never interrupted; only new montages, analyses and scripts wait. Unknown = not pending.
+   */
+  async function uploadsPending(): Promise<boolean> {
+    const k = await db.from("yt_jobs").select("id").in("step", ["upload", "publish"]).in("status", ["queued", "running"]).limit(1).returns<{ id: string }[]>();
+    if (!k.error && k.data?.length) return true;
+    const d = await db.from("dn_render_jobs").select("id").eq("step", "dn_publish").in("status", ["queued", "running"]).limit(1).returns<{ id: string }[]>();
+    return !d.error && !!d.data?.length;
+  }
+  let lastUploadWaitLog = 0;
+
   async function runLane(handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>>, lane: "main" | "fast" | "upload") {
     if (lane === "main" ? busy : lane === "fast" ? fastBusy : uploadBusy) return;
     if (lane === "main") busy = true;
@@ -1795,6 +1810,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     else uploadBusy = true;
     try {
       for (;;) {
+        if (lane === "main" && (await uploadsPending().catch(() => false))) {
+          if (Date.now() - lastUploadWaitLog > 5 * 60_000) {
+            lastUploadWaitLog = Date.now();
+            log("Eerst de uploads naar YouTube; montage en analyse gaan daarna verder");
+          }
+          return;
+        }
         const { data, error } = await db.rpc("claim_yt_job", { p_worker: workerName, p_steps: Object.keys(handlers) });
         if (error) {
           log(`Wachtrij niet bereikbaar: ${error.message}`);
@@ -1860,5 +1882,6 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     poke: () => void Promise.all([tickMain(), tickFast(), tickUpload()]),
     /** Dreamnest (only with FEATURE_DREAMNEST=true) asks this before each step: KIVOXEL goes first. Read-only. */
     mainBusy: () => busy,
+    uploadsPending,
   };
 }

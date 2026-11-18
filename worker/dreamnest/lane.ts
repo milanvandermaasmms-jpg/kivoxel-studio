@@ -12,7 +12,7 @@ export const DN_HANDLERS: Partial<Record<DnStep, DnHandler>> = {
   dn_ping: async () => ({ pong: true }),
 };
 
-export function createDreamnestLane(opts: { db: SupabaseClient; workerName: string; log: (msg: string) => void; kivoxelBusy: () => boolean; handlers?: Partial<Record<DnStep, DnHandler>> }) {
+export function createDreamnestLane(opts: { db: SupabaseClient; workerName: string; log: (msg: string) => void; kivoxelBusy: () => boolean; /** 18-11-2026: uploads of any channel go first; the other Dreamnest steps wait for them. */ uploadsPending?: () => Promise<boolean>; handlers?: Partial<Record<DnStep, DnHandler>> }) {
   const { db, workerName, log, kivoxelBusy } = opts;
   const handlers = opts.handlers ?? DN_HANDLERS;
   let busy = false;
@@ -72,6 +72,7 @@ export function createDreamnestLane(opts: { db: SupabaseClient; workerName: stri
     try {
       for (;;) {
         if (kind === "rest" && !dreamnestMayStart({ mainBusy: kivoxelBusy() })) return;
+        if (kind === "rest" && opts.uploadsPending && (await opts.uploadsPending().catch(() => false))) return;
         const { data, error } = await db.rpc("claim_dn_job", { p_worker: workerName, p_steps: steps });
         if (error) {
           // Before migration 052 the function does not exist: stay quiet, KIVOXEL is not affected.

@@ -38,6 +38,7 @@ function fakeDb(answers: { running?: unknown[]; claim?: unknown[][]; rows?: Reco
         call.filters.push(["in", col, v]);
         return chain;
       },
+      limit: () => chain,
       returns: () => chain,
       then(resolve: (r: unknown) => void) {
         resolve(call.op === "select" && table === "yt_jobs" ? { data: answers.running ?? [], error: null } : call.op === "select" && answers.rows?.[table] ? { data: answers.rows[table], error: null } : { data: null, error: null });
@@ -285,5 +286,19 @@ describe("opschonen: one video, one place (13-11-2026)", () => {
     const failed = calls.filter((c) => c.op === "update" && c.table === "yt_jobs" && c.values?.status === "failed");
     expect(failed.map((c) => filter(c, "id"))).toEqual(["old"]);
     expect(failed[0].values).toMatchObject({ error: "Vastgelopen: 2 uur geen voortgang" });
+  });
+});
+
+describe("uploads first (Milan, 18-11-2026)", () => {
+  const render = { id: "r9", studio_id: "h", recording_id: null, video_id: "v1", step: "render", attempts: 1, max_attempts: 3, payload: {} };
+  it("starts no new montage while an upload waits or runs", async () => {
+    const { db, calls } = fakeDb({ running: [{ id: "u1" }], claim: [[render]] });
+    await make(db).tick();
+    expect(calls.some((c) => c.op === "update" && c.table === "yt_jobs")).toBe(false);
+  });
+  it("goes on with the montage once no upload is left", async () => {
+    const { db, calls } = fakeDb({ running: [], claim: [[render]] });
+    await make(db).tick();
+    expect(calls.some((c) => c.op === "update" && c.table === "yt_jobs")).toBe(true);
   });
 });
