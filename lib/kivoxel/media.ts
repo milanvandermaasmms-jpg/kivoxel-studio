@@ -75,11 +75,9 @@ export function pickTrack(library: Track[], type: EventType, energy: number, rec
  * belongs to the action, a known tune at the start makes viewers swipe), and at the start and the end of a long video. Not in "Alleen gamegeluid" (no music and no voice). Softer under a voice than in the music mode.
  */
 export function motifCues(o: { short: boolean; durationMs: number; motifMs: number; music: boolean; voice: boolean }): { atMs: number; db: number }[] {
-  if (!o.music && !o.voice) return [];
-  const db = o.voice ? -14 : -8;
-  if (o.short) return []; // Milan, 18-11-2026 23:00: no motif in Shorts at all
-  if (o.durationMs < o.motifMs * 3) return [{ atMs: 0, db }];
-  return [{ atMs: 0, db }, { atMs: Math.max(0, o.durationMs - o.motifMs), db }];
+  // Milan, 18-11-2026 23:15: no KIVOXEL motif at all, not in Shorts and not in long videos.
+  void o;
+  return [];
 }
 
 /** Where to start in the track so a downbeat (start of a bar of 4 beats) lands exactly on `peakMs` in the video. */
