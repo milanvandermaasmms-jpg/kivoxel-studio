@@ -4,7 +4,7 @@ import { renderArgs } from "../youtube/render";
 import { captionEvents, captionLayout, chunks, timedFromSpoken, wordTimes } from "./captions";
 import { resolveSettings } from "./config";
 import type { EventTimeline, GameEvent } from "./events";
-import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts } from "./interrupts";
+import { balancedSum, freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts } from "./interrupts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "./longPlan";
 import { planShort } from "./shortPlan";
 import { freeScript, seeded, sourceToOut } from "./voiceScript";
@@ -174,5 +174,16 @@ describe("captions follow the real voice (16-11-2026)", () => {
   it("tightens every spoken line (no long pauses inside)", async () => {
     const { tightenArgs } = await import("../../worker/ffmpeg");
     expect(tightenArgs("a.wav", "b.wav").join(" ")).toContain("stop_duration=0.35");
+  });
+  it("long parts with many peaks keep the effect formulas shallow (18-11-2026: FFmpeg 'Cannot allocate memory')", () => {
+    const depth = (e: string) => { let d = 0, max = 0; for (const c of e) { if (c === "(") max = Math.max(max, ++d); if (c === ")") d--; } return max; };
+    expect(balancedSum([])).toBe("0");
+    expect(balancedSum(["a"])).toBe("a");
+    expect(balancedSum(["a", "b", "c"])).toBe("(a+(b+c))");
+    const list = Array.from({ length: 300 }, (_, i) => ({ atMs: 1000 + i * 4000, kind: (i % 2 ? "shake" : "zoom_punch") as "shake" | "zoom_punch", ms: 300, strength: 0.12 }));
+    const fx = interruptFilter(list, { width: 1920, height: 1080 });
+    // A flat chain failed above ~50 terms; balanced, 300 interrupts stay about 20 levels deep.
+    expect(depth(fx)).toBeLessThan(25);
+    expect(fx.match(/between\(t,/g)?.length).toBe(300 + 150 + 150);
   });
 });

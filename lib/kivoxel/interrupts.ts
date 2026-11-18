@@ -38,6 +38,17 @@ export function planInterrupts(input: { durationMs: number; peaks: { atMs: numbe
 
 const s = (ms: number) => (ms / 1000).toFixed(3);
 
+/**
+ * a+b+c+... as a balanced tree ((a+b)+(c+d)). FFmpeg parses a flat chain of ~50+ terms so deeply that it gives up with
+ * "Cannot allocate memory" (18-11-2026: six long parts with 50+ peaks failed at once). Balanced, 600 terms work fine.
+ */
+export function balancedSum(terms: string[]): string {
+  if (!terms.length) return "0";
+  if (terms.length === 1) return terms[0];
+  const mid = terms.length >> 1;
+  return `(${balancedSum(terms.slice(0, mid))}+${balancedSum(terms.slice(mid))})`;
+}
+
 /** Zoom amount over time: a sum of short envelopes (punch = jump in and ease out; push = slow ramp). */
 function zoomExpr(list: Interrupt[]): string {
   const terms = list.flatMap((x) => {
@@ -48,7 +59,7 @@ function zoomExpr(list: Interrupt[]): string {
     // Whip and shake need room to move: a little zoom while they run.
     return [`${x.kind === "whip" ? x.strength : 0.04}*between(t,${T},${T}+${d})`];
   });
-  return terms.length ? terms.join("+") : "0";
+  return balancedSum(terms);
 }
 
 function offsetExpr(list: Interrupt[], axis: "x" | "y", width: number): string {
@@ -59,7 +70,7 @@ function offsetExpr(list: Interrupt[], axis: "x" | "y", width: number): string {
     if (x.kind === "whip" && axis === "x") return [`${Math.round(width * x.strength * 0.45)}*sin(PI*(t-${T})/${d})*between(t,${T},${T}+${d})`];
     return [];
   });
-  return terms.length ? terms.join("+") : "0";
+  return balancedSum(terms);
 }
 
 /** The video filter for the joined picture of size W x H (empty when there is nothing to do). */
