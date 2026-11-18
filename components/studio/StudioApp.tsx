@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button, Dialog } from "@/components/ui/Dialog";
 import { AnalysisSection, AnalysisSettings, useAnalysis } from "@/components/youtube/AnalysisSection";
 import { LiveCenter } from "@/components/youtube/LiveCenter";
+import { ProductionOverview } from "@/components/youtube/ProductionOverview";
 import { ChannelCard } from "@/components/youtube/ChannelCard";
 import { StatsCenter } from "@/components/youtube/StatsCenter";
 import { Notices } from "@/components/youtube/Notices";
@@ -420,6 +421,16 @@ export function StudioApp({ route }: { route?: string } = {}) {
 
           {tab === "production" && (
             <>
+              {/* 18-11-2026: the overview first: what runs now (with %), what waits, per recording from analysis to montage. */}
+              {flowReady && (
+                <ProductionOverview
+                  studioId={studio.id}
+                  workerOnline={workerOnline !== false}
+                  titleOf={(id) => flowReady.items.find((i) => i.videoId === id)?.title ?? null}
+                  recordings={flowReady.board.input.recordings}
+                  videos={flowReady.board.input.videos}
+                />
+              )}
               {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
               <Fold title="Live meekijken" intro="Preview, stappen en logboek van wat de werker nu doet.">
                 <LiveCenter studioId={studio.id} analysis={analysis.state?.ready ? analysis.state : null} workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
