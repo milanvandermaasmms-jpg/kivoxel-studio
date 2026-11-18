@@ -1054,7 +1054,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (parts.length) {
             const titles = [...new Set(parts.map((p) => p.title))];
             const own = parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("eigen"));
-            music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (${own ? "eigen KIVOXEL-muziek" : "Pixabay"})`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
+            music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (${own ? "eigen KIVOXEL-muziek" : parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("Uppbeat")) ? "Uppbeat" : "Pixabay"})`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
             void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
             mixNote = parts.length > 1 ? `Muziek wisselt mee: ${parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)} s`).join(", ")}` : null;
           } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
