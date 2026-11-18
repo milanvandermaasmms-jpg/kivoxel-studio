@@ -70,7 +70,7 @@ import { anticipationPrompt, parseAnticipation } from "../lib/kivoxel/scriptProm
 import type { PhraseLog } from "./phraseLog.ts";
 import type { LocalTts } from "./localTts.ts";
 import { AUDIO_MODES, type AudioMode } from "../lib/kivoxel/config.ts";
-import { modeCheck, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
+import { modeCheck, sfxBeds, type MixPlan, type MusicChoice, type SfxCue } from "../lib/kivoxel/mix.ts";
 import { beatStart, motifCues, pickTrack, planSfx, type Sfx, type Track } from "../lib/kivoxel/media.ts";
 import { storyAss, textOverlays, type StoryText } from "../lib/kivoxel/textStory.ts";
 import { momentsFromTimeline } from "../lib/kivoxel/freeMoments.ts";
@@ -1065,6 +1065,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       };
       // 18-11-2026: a long part with hundreds of cuts is first made in chunks (each at most MAX_PIECES_PER_RUN pieces),
       // otherwise FFmpeg runs out of memory or over the Windows command-line limit. Shorts need no chunks.
+      // 18-11-2026: many sound effects (a whoosh on every cut of a long part) are first mixed into a few tracks.
+      if (mixPlan) {
+        const beds = sfxBeds(mixPlan.sfx, montageMs, (k) => join(tmp, `sfx-bed-${k}.flac`));
+        if (beds.length) {
+          await lv.phase(`Geluidseffecten samenvoegen (${mixPlan.sfx.length} in ${beds.length} sporen)`, 0);
+          for (const b of beds) await montage.run(b.args, tmp, 10 * 60_000, { signal: lv.signal });
+          mixPlan = { ...mixPlan, sfx: beds.map((b) => b.cue) };
+          renderInput.mix = { plan: mixPlan, settings: kSettings };
+        }
+      }
       const chunks = renderChunks(renderInput, (k) => join(tmp, `chunk-${String(k).padStart(3, "0")}.mkv`));
       if (chunks.length) {
         await lv.phase(`Montage in ${chunks.length} delen voorbereiden`, 0);

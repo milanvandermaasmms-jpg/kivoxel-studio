@@ -12,6 +12,30 @@ export type MusicChoice = { file: string; startMs: number; title: string; /** Wh
 /** Cross-fade between two music stretches. */
 export const MUSIC_XFADE_MS = 1600;
 export type SfxCue = { file: string; atMs: number; db: number; kind: string };
+
+/**
+ * At most this many sound effects as separate inputs of the final render (18-11-2026). A long part has a whoosh on every
+ * cut: 100+ little files opened at once ran FFmpeg out of memory. Above this, sfxBeds mixes them first, in portions.
+ */
+export const MAX_SFX_INPUTS = 16;
+
+/**
+ * Mixes many SFX cues into a few full-length tracks ("beds"), MAX_SFX_INPUTS cues per FFmpeg run. Each bed is a lossless
+ * FLAC track of the whole video (mostly silence, so a few MB) with the effects at their place and level; the final render
+ * then uses the beds as cues at 0 ms and 0 dB. Few cues: no beds needed (empty result).
+ */
+export function sfxBeds(cues: SfxCue[], durationMs: number, fileFor: (k: number) => string): { args: string[]; cue: SfxCue }[] {
+  if (cues.length <= MAX_SFX_INPUTS) return [];
+  const out: { args: string[]; cue: SfxCue }[] = [];
+  for (let k = 0; k * MAX_SFX_INPUTS < cues.length; k++) {
+    const part = cues.slice(k * MAX_SFX_INPUTS, (k + 1) * MAX_SFX_INPUTS);
+    const file = fileFor(k);
+    const f = part.map((c, i) => `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${db(c.db)},adelay=${Math.round(c.atMs)}|${Math.round(c.atMs)}[b${i}]`);
+    f.push(`${part.map((_, i) => `[b${i}]`).join("")}amix=inputs=${part.length}:normalize=0:duration=longest,apad=whole_dur=${ms(durationMs)},atrim=0:${ms(durationMs)}[bed]`);
+    out.push({ args: ["-hide_banner", "-loglevel", "error", "-y", ...part.flatMap((c) => ["-i", c.file]), "-filter_complex", f.join(";"), "-map", "[bed]", "-c:a", "flac", file], cue: { file, atMs: 0, db: 0, kind: "bed" } });
+  }
+  return out;
+}
 export type MixPlan = { mode: AudioMode; spec: AudioModeSpec; music: MusicChoice | null; sfx: SfxCue[]; voiceChain: boolean };
 
 const db = (v: number) => `${v.toFixed(1)}dB`;

@@ -31,6 +31,7 @@ import {
 } from "@/lib/youtube/publication";
 import { CaptionsChoice, ExtrasAfterUpload, SlotSuggestion, ThumbnailPicker } from "@/components/youtube/PublishExtras";
 import { SelfUpload } from "@/components/youtube/SelfUpload";
+import { standardDescription, standardTags, standardTitle } from "@/lib/youtube/standardMeta";
 import { type publicationGate } from "@/lib/youtube/gatekeeper";
 import { loadClonedVoice, loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
@@ -302,7 +303,8 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         } else if (p === null) {
           // A new draft starts with the working title of the video, if there is one (also one applied from Ivar).
           void supabase.from("yt_videos").select("title").eq("id", videoId).maybeSingle<{ title: string | null }>().then(({ data }) => {
-            if (live && data?.title) setDraft((d) => (d.title ? d : { ...d, title: data.title!.slice(0, 100) }));
+            // The working title wins over the standard title the panel may have filled in already.
+            if (live && data?.title) setDraft((d) => (d.title && d.title !== autoTitle.current ? d : { ...d, title: data.title!.slice(0, 100) }));
           });
         }
       })
@@ -311,6 +313,29 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       live = false;
     };
   }, [videoId]);
+
+  // 18-11-2026 ("1x bouwen, onbeperkt gebruiken"): a new draft starts with a free standard title (from the script),
+  // description and tags, so nothing has to be typed and no paid AI suggestion is needed. Only empty fields are filled.
+  const autoTitle = useRef<string | null>(null);
+  const standardDone = useRef(false);
+  useEffect(() => {
+    // New drafts and saved drafts that are still editable (not on their way to YouTube); only empty fields are filled.
+    const editable = row === null || (!!row && row !== "migration" && !row.youtube_video_id && (row.status === "draft" || row.status === "failed"));
+    if (row === undefined || !editable || !gateCtx || standardDone.current) return;
+    standardDone.current = true;
+    const hookLine = hook?.first_line ?? gateCtx.script?.hook ?? null;
+    setDraft((d) => {
+      const title = d.title || standardTitle({ scriptTitles: gateCtx.script?.titles, hookLine });
+      if (!d.title) autoTitle.current = title;
+      const texts = [title, hookLine ?? "", gateCtx.script?.top_line ?? "", ...(gateCtx.script?.titles ?? [])];
+      return {
+        ...d,
+        title,
+        description: d.description || standardDescription({ kind, title, hookLine }),
+        tags: [...new Set([...d.tags, ...standardTags({ kind, texts })])].slice(0, 15),
+      };
+    });
+  }, [row, gateCtx, hook, kind]);
 
   // Fase 2.2: a new draft starts with what Milan made standard via a Studio-tip (tags and a publish time). Privé stays
   // the default: a time only plans the video, sending it to YouTube is still his click.
@@ -326,7 +351,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         const slot = isTestVideo(gateCtx) ? null : defaultSlot(l.prefs, channelId, kind);
         const at = slot ? nextSlot(slot) : null;
         if (!tags.length && !at) return;
-        setDraft((d) => ({ ...d, tags: d.tags.length ? d.tags : tags, ...(at && !d.publish_at && d.visibility === "private" ? { publish_at: at } : {}) }));
+        setDraft((d) => ({ ...d, tags: [...new Set([...tags, ...d.tags])].slice(0, 15), ...(at && !d.publish_at && d.visibility === "private" ? { publish_at: at } : {}) }));
         setFromTip([tags.length ? `standaardtags (${tags.join(", ")})` : "", at ? `inplannen om ${slot}` : ""].filter(Boolean).join(" en "));
       })
       .catch(() => undefined);
