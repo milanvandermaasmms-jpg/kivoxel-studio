@@ -71,8 +71,8 @@ export function pickTrack(library: Track[], type: EventType, energy: number, rec
 }
 
 /**
- * The KIVOXEL motif (own music, Milan 18-11-2026): never in a Short (Milan, 18-11-2026 23:00; the first second
- * belongs to the action, a known tune at the start makes viewers swipe), and at the start and the end of a long video. Not in "Alleen gamegeluid" (no music and no voice). Softer under a voice than in the music mode.
+ * The KIVOXEL motif (own music): switched off everywhere since 18-11-2026 23:15 (Milan): not in Shorts, not in long
+ * videos. The function stays so the worker needs no change; it always returns no cues.
  */
 export function motifCues(o: { short: boolean; durationMs: number; motifMs: number; music: boolean; voice: boolean }): { atMs: number; db: number }[] {
   // Milan, 18-11-2026 23:15: no KIVOXEL motif at all, not in Shorts and not in long videos.
