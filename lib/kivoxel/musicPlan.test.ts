@@ -3,7 +3,7 @@ import { presetFile, resolveSettings } from "./config";
 import { longTopEvents } from "./hookText";
 import type { Track } from "./media";
 import { mixFilters, mixInputs } from "./mix";
-import { actionSpans, downbeatStart, planMusicParts, SHORT_GAME_ONLY_MS } from "./musicPlan";
+import { actionSpans, downbeatStart, LONG_MUSIC_GAIN_DB, planMusicParts, SHORT_GAME_ONLY_MS } from "./musicPlan";
 
 const track = (file: string, energy: number, moods: Track["moods"], bpm = 120): Track => ({ file, title: file, source: "test", license: "test", energy, moods, bpm, beat_offset_ms: 0 });
 const library = [track("busy.mp3", 5, ["hype", "funny"], 140), track("busy2.mp3", 4, ["tense"]), track("calm.mp3", 1, ["chill"], 80), track("happy.mp3", 3, ["happy"])];
@@ -14,21 +14,16 @@ describe("music follows the content (Milan, 16-11-2026)", () => {
     const spans = actionSpans([{ atMs: 60_000, payoff: 90, type: "fail", kind: "death" }, { atMs: 200_000, payoff: 80, type: "bouw", kind: "ai_moment" }], 300_000, false);
     expect(spans).toEqual([[51_000, 64_000]]);
   });
-  it("a long video alternates calm and busy music, one track of each", () => {
-    const parts = planMusicParts({ durationMs: 300_000, events: [{ atMs: 60_000, payoff: 90, type: "fail", kind: "death" }, { atMs: 200_000, payoff: 70, type: "bijna_dood", kind: "damage" }], library, recent: [], rnd, short: false });
-    expect(parts.map((p) => p.kind)).toEqual(["calm", "action", "calm", "action", "calm"]);
-    expect(new Set(parts.filter((p) => p.kind === "action").map((p) => p.file)).size).toBe(1);
-    expect(library.find((t) => t.file === parts[1].file)!.energy).toBeGreaterThanOrEqual(4);
-    expect(library.find((t) => t.file === parts[0].file)!.energy).toBeLessThanOrEqual(3);
-    // The pieces cover the whole video without gaps.
+  it("a long video: soft background music, one calm or tense track to its end, then the next (Milan, 18-11-2026)", () => {
+    const lib = [{ ...track("tense.mp3", 4, ["tense"]), duration_ms: 100_000 }, { ...track("calm.mp3", 1, ["chill"], 80), duration_ms: 90_000 }, track("busy.mp3", 5, ["hype", "funny"], 140)];
+    const parts = planMusicParts({ durationMs: 300_000, events: [{ atMs: 60_000, payoff: 90, type: "fail", kind: "death" }], library: lib, recent: [], rnd, short: false });
+    expect(parts.every((p) => p.file !== "busy.mp3" && p.startMs === 0 && p.gainDb === LONG_MUSIC_GAIN_DB)).toBe(true);
     expect(parts[0].atMs).toBe(0);
-    for (let i = 1; i < parts.length; i++) expect(parts[i].atMs).toBe(parts[i - 1].atMs + parts[i - 1].durMs);
-    expect(parts[parts.length - 1].atMs + parts[parts.length - 1].durMs).toBe(300_000);
-  });
-  it("a calm track continues where it stopped instead of starting over", () => {
-    const parts = planMusicParts({ durationMs: 300_000, events: [{ atMs: 100_000, payoff: 90, type: "fail", kind: "death" }], library, recent: [], rnd, short: false });
-    const calm = parts.filter((p) => p.kind === "calm");
-    expect(calm[1].startMs).toBeGreaterThanOrEqual(calm[0].startMs + calm[0].durMs);
+    for (let i = 1; i < parts.length; i++) {
+      expect(parts[i].atMs).toBe(parts[i - 1].atMs + parts[i - 1].durMs);
+      expect(parts[i].file).not.toBe(parts[i - 1].file);
+    }
+    expect(parts.reduce((s, p) => s + p.durMs, 0)).toBe(300_000);
   });
   it("a Short that is all action gets one busy track; a calm Short one calm track", () => {
     const busy = planMusicParts({ durationMs: 15_000, events: [{ atMs: 9000, payoff: 95, type: "fail", kind: "death" }], library, recent: [], rnd, short: true });

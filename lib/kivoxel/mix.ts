@@ -7,7 +7,7 @@
 import type { AudioMode, AudioModeSpec, Settings } from "./config.ts";
 
 /** One stretch of music in the video (Milan, 16-11-2026: busy for action, calm for searching and farming). */
-export type MusicPartIn = { file: string; atMs: number; durMs: number; startMs: number; kind: "action" | "calm"; title: string };
+export type MusicPartIn = { file: string; atMs: number; durMs: number; startMs: number; kind: "action" | "calm"; title: string; gainDb?: number };
 export type MusicChoice = { file: string; startMs: number; title: string; /** When set: several stretches that cross-fade, instead of one track for the whole video. */ parts?: MusicPartIn[] };
 /** Cross-fade between two music stretches. */
 export const MUSIC_XFADE_MS = 1600;
@@ -106,7 +106,7 @@ export function mixFilters(input: { plan: MixPlan; settings: Settings; durationM
       source = "[mpart]";
     }
     f.push(
-      `${source}aresample=48000,aformat=channel_layouts=stereo,atrim=0:${ms(input.durationMs)},asetpts=PTS-STARTPTS,volume=${db(spec.music_db!)},afade=t=in:d=${ms(settings.music.fade_in_ms)},afade=t=out:st=${ms(Math.max(0, input.durationMs - fadeOut))}:d=${ms(fadeOut)}[mus0]`,
+      `${source}aresample=48000,aformat=channel_layouts=stereo,atrim=0:${ms(input.durationMs)},asetpts=PTS-STARTPTS,volume=${db(spec.music_db! + (parts[0]?.gainDb ?? 0))},afade=t=in:d=${ms(settings.music.fade_in_ms)},afade=t=out:st=${ms(Math.max(0, input.durationMs - fadeOut))}:d=${ms(fadeOut)}[mus0]`,
     );
     // With a voice: music ducks under the voice. Without: lightly under the game peaks, so the action hits.
     f.push(voiceOn ? `[mus0][vo_sc_m]sidechaincompress=threshold=0.02:ratio=${duckRatio(spec.duck_db).toFixed(1)}:attack=15:release=350[mus]` : `[mus0][game_sc]sidechaincompress=threshold=0.08:ratio=${duckRatio(spec.duck_db).toFixed(1)}:attack=10:release=250[mus]`);

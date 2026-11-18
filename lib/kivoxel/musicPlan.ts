@@ -6,7 +6,7 @@ import type { EventType } from "./config.ts";
 import { pickTrack, type Track } from "./media.ts";
 
 export type MusicEvent = { atMs: number; payoff: number; type: EventType | null; kind: string };
-export type MusicPart = { file: string; title: string; atMs: number; durMs: number; startMs: number; kind: "action" | "calm" };
+export type MusicPart = { file: string; title: string; atMs: number; durMs: number; startMs: number; kind: "action" | "calm"; /** Extra volume for this music (long videos: softer, in the background). */ gainDb?: number };
 
 /** Events that make the music busy: something dangerous or exciting really happens. */
 export const isAction = (e: MusicEvent) => e.kind === "death" || e.type === "fail" || e.type === "bijna_dood" || e.type === "jumpscare" || (e.payoff >= 70 && e.type !== "bouw");
@@ -48,8 +48,39 @@ export type MusicPlanInput = { durationMs: number; events: MusicEvent[]; library
  * The music parts of one video. Shorts: one track that fits the main moment, or calm then action when there is a
  * real build-up of at least 8 s. Long videos: calm and action alternate with the content.
  */
+/** Long videos (Milan, 18-11-2026): soft background music, quieter than in a Short. */
+export const LONG_MUSIC_GAIN_DB = -8;
+/** Background tracks for long videos: calm or tense, never hype, funny or happy (no hip-hop next to metal). */
+export const isBackgroundTrack = (t: Pick<Track, "energy" | "moods">) => t.energy <= 4 && !t.moods.some((m) => m === "hype" || m === "funny" || m === "happy");
+
+/**
+ * Long videos (Milan, 18-11-2026): one calm or tense track softly in the background, played from its start to its end;
+ * then the next one of the same kind fades in. No switching with the action (that sounded like a mess).
+ */
+export function planBackgroundMusic(input: MusicPlanInput): MusicPart[] {
+  const pool = input.library.filter((t) => (input.allowTest || !t.test) && isBackgroundTrack(t));
+  if (!pool.length || input.durationMs <= 0) return [];
+  const window = input.recent.slice(-(input.noRepeatWithin ?? 6));
+  const fresh = pool.filter((t) => !window.includes(t.file));
+  const order = [...(fresh.length ? fresh : pool)].sort((a, b) => a.file.localeCompare(b.file));
+  const first = Math.floor(input.rnd() * order.length);
+  const rest = pool.filter((t) => !order.includes(t)).concat(order.slice(first + 1), order.slice(0, first));
+  const queue = [order[first], ...rest];
+  const out: MusicPart[] = [];
+  let at = 0;
+  for (let k = 0; at < input.durationMs; k++) {
+    const t = queue[k % queue.length];
+    const len = Math.max(20_000, t.duration_ms ?? 120_000);
+    const dur = Math.min(len, input.durationMs - at);
+    out.push({ file: t.file, title: `${t.title}${t.artist ? ` – ${t.artist}` : ""}`, atMs: at, durMs: dur, startMs: 0, kind: "calm", gainDb: LONG_MUSIC_GAIN_DB });
+    at += dur;
+  }
+  return out;
+}
+
 export function planMusicParts(input: MusicPlanInput): MusicPart[] {
   const { durationMs, short } = input;
+  if (!short) return planBackgroundMusic(input);
   const spans = actionSpans(input.events, durationMs, short);
   const lib = input.library.filter((t) => input.allowTest || !t.test);
   if (!lib.length || durationMs <= 0) return [];

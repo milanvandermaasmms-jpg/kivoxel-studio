@@ -19,6 +19,8 @@ export type Track = {
   energy: number;
   moods: Mood[];
   bpm: number;
+  /** Length of the file (for long videos: one track plays to its end, then the next fades in). */
+  duration_ms?: number;
   /** Where the first downbeat is in the file. */
   beat_offset_ms?: number;
   /** A generated test track: fine for testing the mix, never for a real upload. */
