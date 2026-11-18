@@ -106,6 +106,23 @@ describe("music and SFX library", () => {
     expect(cues[0].file).toBe("w2");
     expect(cues[0].atMs).toBe(4820);
   });
+  it("a long video: no whoosh on every cut, only a softer impact on big moments, 20 s apart (18-11-2026)", () => {
+    const segs: Segment[] = [
+      { part: "chapter", src_start_ms: 0, src_end_ms: 100_000, out_start_ms: 0, speed: 1, effects: [], note: "" },
+      { part: "chapter", src_start_ms: 200_000, src_end_ms: 300_000, out_start_ms: 100_000, speed: 1, effects: [], note: "" },
+    ];
+    const cues = planSfx({ segments: segs, peaks: [{ atMs: 50_000, payoff: 90, death: true }, { atMs: 60_000, payoff: 95, death: false }, { atMs: 150_000, payoff: 60, death: false }], library: [{ file: "w1", kind: "whoosh" }, { file: "i1", kind: "impact" }, { file: "s1", kind: "scratch" }], recent: [], rnd: seeded("z"), withVoice: false, durationMs: 200_000 });
+    expect(cues.map((c) => c.kind)).toEqual(["impact"]);
+    expect(cues[0].db).toBe(-7);
+  });
+  it("a Short that opens on its climax gets an impact on that climax in the first second (18-11-2026)", () => {
+    const segs: Segment[] = [
+      { part: "teaser", src_start_ms: 99_600, src_end_ms: 100_900, out_start_ms: 0, speed: 1, effects: [], note: "" },
+      { part: "build", src_start_ms: 96_000, src_end_ms: 100_900, out_start_ms: 1300, speed: 1, effects: [], note: "" },
+    ];
+    const cues = planSfx({ segments: segs, peaks: [], library: [{ file: "i1", kind: "impact" }], recent: [], rnd: seeded("y"), withVoice: false, durationMs: 6200 });
+    expect(cues[0]).toMatchObject({ kind: "impact", atMs: 370 });
+  });
 });
 
 describe("story as text without a voice", () => {

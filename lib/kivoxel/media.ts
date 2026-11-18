@@ -103,6 +103,9 @@ export const cutTimes = (segments: Segment[]) =>
  * The SFX layer: whoosh on every cut, impact on big peaks, record scratch on a death. Variants rotate (never the same
  * file twice in a row, avoiding the last `noRepeatWithin`). `db` per kind; louder when there is no voice.
  */
+/** From this length a video counts as long for the sound effects (Shorts are at most 45 s). */
+export const LONG_SFX_FROM_MS = 60_000;
+
 export function planSfx(input: { segments: Segment[]; peaks: { atMs: number; payoff: number; death: boolean }[]; library: Sfx[]; recent: string[]; rnd: () => number; withVoice: boolean; noRepeatWithin?: number; durationMs: number }): { file: string; atMs: number; db: number; kind: SfxKind }[] {
   const used = [...input.recent];
   const n = input.noRepeatWithin ?? 3;
@@ -122,6 +125,20 @@ export function planSfx(input: { segments: Segment[]; peaks: { atMs: number; pay
     if (s && atMs >= 0 && atMs < input.durationMs - 150) out.push({ file: s.file, atMs: Math.round(atMs), db: base + (s.db ?? 0) + extraDb, kind });
   };
   // The whoosh starts a little before the cut, so its loudest part lands on the cut.
+  // 18-11-2026: a Short that opens on its climax (teaser) gets a hard impact right on that climax in the first second.
+  const first = input.segments[0];
+  if (first?.part === "teaser") add("impact", Math.min(400, (first.src_end_ms - first.src_start_ms) / 3) - 30, 3);
+  // Long videos (18-11-2026, Milan: effects must add, never clutter): no whoosh on every cut, only a softer impact on the
+  // big moments, at least 20 s apart, so the calm background music and the game stay in front.
+  if (input.durationMs > LONG_SFX_FROM_MS) {
+    let last = -Infinity;
+    for (const p of [...input.peaks].filter((x) => x.payoff >= 80).sort((a, b) => a.atMs - b.atMs)) {
+      if (p.atMs - last < 20_000) continue;
+      add("impact", p.atMs - 30, -4);
+      last = p.atMs;
+    }
+    return out.sort((a, b) => a.atMs - b.atMs);
+  }
   for (const c of cutTimes(input.segments)) add("whoosh", c - 180);
   for (const p of input.peaks.filter((x) => x.payoff >= 50)) {
     add("impact", p.atMs - 30, 2);
