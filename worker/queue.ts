@@ -126,7 +126,9 @@ export type Montage = {
 /** frame: one picture of a montage as JPEG (fase D4b), written to tmpDir. */
 export type Publisher = { uploader: Uploader; rendersDir: string;
   /** The YouTube channel ID the tokens on this pc belong to (free, from the token file). Checked before every new upload. */
-  tokensChannelId?: (channelRowId: string) => Promise<string | null>; tmpDir?: string; frame?: (input: string, atMs: number, output: string) => Promise<void>; pollMs?: number; pollTimes?: number };
+  tokensChannelId?: (channelRowId: string) => Promise<string | null>;
+  /** 19-11-2026: the uploader with the sign-in of this channel (SpawnNado went to KIVOXEL's account before). */
+  uploaderFor?: (channelRowId: string) => Promise<Uploader>; tmpDir?: string; frame?: (input: string, atMs: number, output: string) => Promise<void>; pollMs?: number; pollTimes?: number };
 
 /** The paid analysis service; null while GEMINI_API_KEY is missing from worker/.env.local. */
 export type Ai = {
@@ -1362,6 +1364,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
    * to the publication, so Milan sees what worked and why something did not.
    */
   async function extras(pub: PublicationRow, videoId: string, lv: Live, setPub: (f: Record<string, unknown>) => Promise<void>) {
+  /** The uploader of the channel this video belongs to; KIVOXEL (default) keeps the main sign-in. */
+  async function uploaderOf(videoId: string): Promise<Uploader> {
+    if (!publisher) throw new Error("YouTube is niet gekoppeld op deze pc");
+    if (!publisher.uploaderFor) return publisher.uploader;
+    const v = await db.from("yt_videos").select("channel_id").eq("id", videoId).single<{ channel_id: string | null }>();
+    if (v.error) throw new Error(v.error.message);
+    return v.data.channel_id ? publisher.uploaderFor(v.data.channel_id) : publisher.uploader;
+  }
+
     if (!publisher || pub.captions_enabled === undefined || !pub.render_id) return { captions: null, thumbnail: null };
     // "*": thumbnails only exist after migration 047.
     const render = await db.from("yt_renders").select("*").eq("id", pub.render_id).single<{ file_name: string; thumbnails?: StoredThumb[] }>();
@@ -1374,7 +1385,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const srt = await readFile(join(publisher.rendersDir, srtFileName(render.data.file_name)), "utf8").catch(() => null);
         if (srt === null) captions = "Niet verstuurd: deze montage heeft nog geen ondertitelbestand. Maak de montage opnieuw (werker 57.2 of nieuwer).";
         else if (!srt.trim()) captions = "Niet verstuurd: deze montage heeft geen gesproken tekst.";
-        else captions = `Klaar op ${stamp()} (spoor ${await publisher.uploader.insertCaption(videoId, pub.language, srt)})`;
+        else captions = `Klaar op ${stamp()} (spoor ${await (await uploaderOf(pub.video_id)).insertCaption(videoId, pub.language, srt)})`;
       } catch (e) {
         captions = `Mislukt: ${e instanceof Error ? e.message : String(e)}`;
       }
@@ -1389,10 +1400,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const made = (render.data.thumbnails ?? []).find((t) => t.at_ms === pub.thumbnail_ms);
       try {
         const picture = made ? await readFile(join(publisher.rendersDir, made.file)).catch(() => null) : null;
-        if (picture) await publisher.uploader.setThumbnail(videoId, picture);
+        if (picture) await (await uploaderOf(pub.video_id)).setThumbnail(videoId, picture);
         else {
           await publisher.frame(join(publisher.rendersDir, render.data.file_name), pub.thumbnail_ms, file);
-          await publisher.uploader.setThumbnail(videoId, await readFile(file));
+          await (await uploaderOf(pub.video_id)).setThumbnail(videoId, await readFile(file));
         }
         thumbnail = picture && made ? `Klaar op ${stamp()} (thumbnail "${made.label}")` : `Klaar op ${stamp()} (beeld op ${(pub.thumbnail_ms / 1000).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} s)`;
       } catch (e) {
@@ -1435,7 +1446,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await setPub({ status: "uploading", error: null });
       await lv.phase(`Uploaden naar YouTube (${visibilityWord(pub)})`, 0);
       const started = Date.now();
-      const result = await publisher.uploader
+      const result = await (await uploaderOf(pub.video_id))
         .upload({
         key: pub.id,
         file: join(publisher.rendersDir, render.data.file_name),
@@ -1469,7 +1480,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     await lv.phase("YouTube verwerkt de video");
     const times = publisher.pollTimes ?? 20;
     for (let i = 0; i < times; i++) {
-      const p = await publisher.uploader.processing(videoId);
+      const p = await (await uploaderOf(pub.video_id)).processing(videoId);
       if (p.uploadStatus === "rejected" || p.uploadStatus === "failed" || p.uploadStatus === "deleted" || p.uploadStatus === "missing" || p.processingStatus === "failed" || p.processingStatus === "terminated") {
         await setPub({ status: "failed", error: `YouTube: ${p.uploadStatus}${p.reason ? ` (${p.reason})` : ""}`.slice(0, 500) });
         throw new Error(`YouTube verwerkte de video niet: ${p.uploadStatus}${p.reason ? ` (${p.reason})` : ""}`);
@@ -1501,8 +1512,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       return { youtube_video_id: pub.youtube_video_id, status, publish_at: pub.publish_at, extras: true, ...extra };
     }
     await lv.phase(pub.publish_at ? "Inplannen bij YouTube" : pub.visibility === "private" ? "Op privé zetten bij YouTube" : "Publiceren bij YouTube");
-    await publisher.uploader.setStatus(pub.youtube_video_id, { made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at });
-    const check = await publisher.uploader.processing(pub.youtube_video_id);
+    await (await uploaderOf(pub.video_id)).setStatus(pub.youtube_video_id, { made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at });
+    const check = await (await uploaderOf(pub.video_id)).processing(pub.youtube_video_id);
     if (check.privacyStatus && check.privacyStatus !== pub.visibility) await lv.event("note", `Let op: YouTube meldt zichtbaarheid ${check.privacyStatus}, gevraagd was ${pub.visibility}`);
     const status = await settlePublication(pub, pub.youtube_video_id, setPub);
     return { youtube_video_id: pub.youtube_video_id, status, publish_at: pub.publish_at };
