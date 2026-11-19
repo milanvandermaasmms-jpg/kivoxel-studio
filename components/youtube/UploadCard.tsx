@@ -1,7 +1,7 @@
 "use client";
 
 import { Pause, Play, Upload } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { Notice, Section } from "@/components/settings/Section";
 import { Button, Field, inputClass } from "@/components/ui/Dialog";
 import { formatBytes } from "@/lib/youtube/studio";
@@ -18,6 +18,20 @@ const PHASE_TEXT: Record<UploadPhase, string> = {
 type Progress = { phase: UploadPhase; received: number; total: number };
 type Message = { tone: "ok" | "error"; text: string };
 
+/**
+ * 19-11-2026 (Milan): the upload lives outside the card, so it keeps running AND stays visible when he clicks to
+ * another tab or another channel in the Studio. Only closing or reloading the page stops it (the browser warns first).
+ */
+type UploadState = { file: File | null; label: string; isTest: boolean; game: GameId | ""; progress: Progress | null; paused: boolean; message: Message | null; controller: AbortController | null; channel: string | null };
+let state: UploadState = { file: null, label: "", isTest: false, game: "", progress: null, paused: false, message: null, controller: null, channel: null };
+const listeners = new Set<() => void>();
+const set = (patch: Partial<UploadState>) => {
+  state = { ...state, ...patch };
+  listeners.forEach((l) => l());
+};
+const subscribe = (l: () => void) => (listeners.add(l), () => void listeners.delete(l));
+const snapshot = () => state;
+
 export function UploadCard({
   workerOnline,
   isKnown,
@@ -30,16 +44,14 @@ export function UploadCard({
   isKnown: (fingerprint: string) => Promise<boolean>;
   onReceived: (outcome: UploadOutcome) => Promise<string | null>;
 }) {
-  const [file, setFile] = useState<File | null>(null);
-  // Real gameplay is the normal case now (pakket 52): test data must be chosen on purpose.
-  const [label, setLabel] = useState("");
-  const [isTest, setIsTest] = useState(false);
-  // "" = let the analysis recognise the game.
-  const [game, setGame] = useState<GameId | "">("");
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [paused, setPaused] = useState(false);
-  const [message, setMessage] = useState<Message | null>(null);
-  const controller = useRef<AbortController | null>(null);
+  const { file, label, isTest, game, progress, paused, message } = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const setFile = (file: File | null) => set({ file });
+  const setLabel = (label: string) => set({ label });
+  const setIsTest = (isTest: boolean) => set({ isTest });
+  const setGame = (game: GameId | "") => set({ game });
+  const setProgress = (progress: Progress | null) => set({ progress });
+  const setPaused = (paused: boolean) => set({ paused });
+  const setMessage = (message: Message | null) => set({ message });
   const busy = progress !== null && !paused;
   // Closing or reloading the page would stop the upload: the browser asks first while one is running.
   useEffect(() => {
@@ -55,7 +67,7 @@ export function UploadCard({
   const run = async () => {
     if (!file) return;
     const abort = new AbortController();
-    controller.current = abort;
+    set({ controller: abort, channel: profile.key });
     setPaused(false);
     setMessage(null);
     try {
@@ -84,7 +96,7 @@ export function UploadCard({
     }
   };
 
-  const pause = () => controller.current?.abort();
+  const pause = () => state.controller?.abort();
   const percent = progress && progress.total ? Math.floor((progress.received / progress.total) * 100) : 0;
 
   return (
@@ -125,6 +137,7 @@ export function UploadCard({
           />
         </Field>
 
+        {file && (busy || paused) && <p className="text-sm text-slate-700">Bezig met: <span className="font-medium">{file.name}</span> ({formatBytes(file.size)}){state.channel && state.channel !== profile.key ? ` · voor ${state.channel}` : ""}</p>}
         {progress && (
           <div className="space-y-1" aria-live="polite">
             <div className="flex justify-between text-xs text-slate-600">
