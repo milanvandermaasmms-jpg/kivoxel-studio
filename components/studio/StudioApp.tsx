@@ -368,9 +368,12 @@ export function StudioApp({ route }: { route?: string } = {}) {
           </ul>
         </nav>
         <div className="min-w-0 space-y-4">
+          {/* 19-11-2026: the upload card stays mounted on every tab, so an upload keeps going when Milan clicks away. */}
+          <div hidden={tab !== "upload"}>
+            <UploadCard profile={profileFor(channelsNow.find((c) => c.id === channel))} workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
+          </div>
           {tab === "upload" && (
             <>
-              <UploadCard profile={profileFor(channelsNow.find((c) => c.id === channel))} workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
               <InboxCard health={health} />
               <Fold id="upload.local" title="Opnames op de pc" intro={local ? `${local.length} opnames · wat FFmpeg erover uitlas` : "De ruwe opnames staan alleen op de pc."}>
                 {!health ? (

@@ -1,7 +1,7 @@
 "use client";
 
 import { Pause, Play, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Notice, Section } from "@/components/settings/Section";
 import { Button, Field, inputClass } from "@/components/ui/Dialog";
 import { formatBytes } from "@/lib/youtube/studio";
@@ -41,6 +41,16 @@ export function UploadCard({
   const [message, setMessage] = useState<Message | null>(null);
   const controller = useRef<AbortController | null>(null);
   const busy = progress !== null && !paused;
+  // Closing or reloading the page would stop the upload: the browser asks first while one is running.
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [busy]);
 
   const run = async () => {
     if (!file) return;
