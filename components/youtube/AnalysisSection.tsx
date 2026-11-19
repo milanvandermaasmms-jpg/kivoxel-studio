@@ -51,7 +51,7 @@ export function useAnalysis(studioId: string, enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    const timer = setInterval(() => !missing.current && pollOnce(polling, refresh), 5000);
+    const timer = setInterval(() => !missing.current && pollOnce(polling, refresh), 15_000);
     return () => clearInterval(timer);
   }, [refresh, enabled]);
 

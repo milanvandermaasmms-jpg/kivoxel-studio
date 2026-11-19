@@ -34,7 +34,7 @@ function useProductionJobs(studioId: string) {
   }, [studioId]);
   useEffect(() => {
     void load();
-    const t = setInterval(() => pollOnce(polling, load), 4000);
+    const t = setInterval(() => pollOnce(polling, load), 15_000);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => (clearInterval(t), clearInterval(tick));
   }, [load]);

@@ -178,7 +178,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
   useEffect(() => {
     if (!isAdmin) return;
     void refresh();
-    const timer = setInterval(() => pollOnce(polling, () => refresh(false)), 5000);
+    const timer = setInterval(() => pollOnce(polling, () => refresh(false)), 15_000); // 19-11-2026: was 5 s; the NANO database could not keep up
     // Back on the Studio after a while: fresh numbers at once instead of waiting for the next round.
     const onShow = () => pageVisible() && void Promise.all([refresh(false), analysis.refresh(), flow.refresh()]);
     document.addEventListener("visibilitychange", onShow);

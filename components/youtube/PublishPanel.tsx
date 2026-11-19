@@ -379,7 +379,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         .catch(() => undefined);
     };
     tick();
-    const timer = window.setInterval(tick, 3000);
+    const timer = window.setInterval(tick, 10_000);
     return () => window.clearInterval(timer);
   }, [transit, videoId]);
 
