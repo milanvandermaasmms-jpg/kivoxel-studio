@@ -162,11 +162,13 @@ export async function setVideoStatus(videoId: string, status: string, from: stri
 export async function setVideoReview(videoId: string, decision: "approve" | "reject" | "withdraw", note?: string): Promise<void> {
   if (decision === "approve") return setVideoStatus(videoId, "approved", ["review"]);
   if (decision === "withdraw") return setVideoStatus(videoId, "review", ["approved"]);
-  await setVideoStatus(videoId, "scripted", ["review", "approved"]);
   // The reason is kept from migration 031 on; before that it is simply not stored.
   const reason = note?.trim().slice(0, 500) || null;
   const { error } = await supabase.from("yt_videos").update({ review_note: reason }).eq("id", videoId);
   if (error && !isMissing(error) && error.code !== "PGRST204") throw new Error(friendlyError(error.message));
+  // 20-11-2026 (Milan): rejected after the preview = archived straight away, with the reason kept. It no longer waits
+  // in Productie for a second click; "Terugzetten" in the archive brings it back.
+  await setVideoStatus(videoId, "archived", ["review", "approved"]);
 }
 
 /** Archive: out of every list, never deleted. A video on YouTube is refused by the database (migration 051). */

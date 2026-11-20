@@ -204,7 +204,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
 
             {(rejecting || adjusting) && (
               <label className="grid gap-1">
-                <span className="text-slate-500">{adjusting ? "Wat moet er anders? (bijv. hook sneller, minder uitleg)" : "Waarom afkeuren?"}</span>
+                <span className="text-slate-500">{adjusting ? "Wat moet er anders? (bijv. hook sneller, minder uitleg)" : "Waarom afkeuren? De video gaat daarna naar het archief."}</span>
                 <textarea autoFocus value={note} maxLength={500} rows={2} onChange={(e) => setNote(e.target.value)} placeholder="bijv. hook sneller, gamertag nog zichtbaar" className="rounded-md border border-slate-300 bg-transparent px-2 py-1" />
               </label>
             )}

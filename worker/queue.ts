@@ -48,6 +48,7 @@ import { CancelledError, type RunOptions } from "./ffmpeg.ts";
 import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
 import { isQuotaError, QUOTA_BACK } from "./manualLink.ts";
+import { reviveMontage, type ReviveJob, type ReviveScript, type ReviveVideo } from "./revive.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
@@ -1766,6 +1767,33 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   }
 
   /**
+   * 20-11-2026: every 5 minutes, a montage that failed, was cancelled or got lost is started again once by the worker
+   * itself (see revive.ts), so Milan does not have to click "Opnieuw proberen" for it.
+   */
+  async function reviveMontages(now = Date.now()) {
+    const vids = await db.from("yt_videos").select("id, studio_id, status, review_note").in("status", ["rendering", "scripted"]).limit(500).returns<ReviveVideo[]>();
+    if (vids.error) return log(`Montages niet nagekeken: ${vids.error.message}`);
+    const ids = (vids.data ?? []).map((v) => v.id);
+    if (!ids.length) return;
+    const [jobs, scripts] = await Promise.all([
+      db.from("yt_jobs").select("id, video_id, step, status, payload, created_at, finished_at, error").in("video_id", ids).in("step", ["render", "script"]).returns<(ReviveJob & { video_id: string })[]>(),
+      db.from("yt_scripts").select("id, video_id, version, status").in("video_id", ids).returns<(ReviveScript & { video_id: string })[]>(),
+    ]);
+    if (jobs.error || scripts.error) return log(`Montages niet nagekeken: ${(jobs.error ?? scripts.error)!.message}`);
+    for (const v of vids.data ?? []) {
+      const r = reviveMontage(v, (jobs.data ?? []).filter((j) => j.video_id === v.id), (scripts.data ?? []).filter((s) => s.video_id === v.id), now);
+      if (!r) continue;
+      try {
+        await queueStep(v.studio_id, { video_id: v.id, step: "render", idempotency_key: r.idempotency_key, payload: r.payload });
+        if (v.status !== "rendering") await db.from("yt_videos").update({ status: "rendering" }).eq("id", v.id).eq("status", v.status);
+        log(`Montage van video ${v.id} vanzelf opnieuw gestart (${r.why})`);
+      } catch (e) {
+        log(`Montage van video ${v.id} niet opnieuw gestart: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  /**
    * 17-11-2026: YouTube makes a scheduled video public at its moment by itself; the Studio did not notice that, so the
    * video stayed under Ingepland. Once the moment has passed, publication and video move to Live (no YouTube call needed).
    */
@@ -1946,6 +1974,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // 17-11-2026: a scheduled video moves to Live once its moment has passed (checked at start and every 5 minutes).
       void settleDueSchedules().catch(() => undefined);
       setInterval(() => void settleDueSchedules().catch(() => undefined), 5 * 60_000);
+      // 20-11-2026: failed, cancelled or lost montages start again once by themselves (checked at start and every 5 minutes).
+      void reviveMontages().catch(() => undefined);
+      setInterval(() => void reviveMontages().catch(() => undefined), 5 * 60_000);
     },
     recover,
     tick,
@@ -1953,6 +1984,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     scheduleReference,
     failStuck,
     settleDueSchedules,
+    reviveMontages,
     stop() {
       if (timer) clearInterval(timer);
     },
