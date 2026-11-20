@@ -199,6 +199,8 @@ export function StudioApp({ route }: { route?: string } = {}) {
   const analysisView = useMemo(() => analysisForChannel(analysis.state ?? null, channel), [analysis.state, channel]);
   const dbView = useMemo(() => dbForChannel(db, channel), [db, channel]);
   const viewJobs = dbView?.ready ? dbView.jobs : [];
+  // Tips about another channel (e.g. SpawnNado's tags) stay on that channel's page; tips for all channels show everywhere.
+  const tipsView = learning.tips.filter((t) => !channel || !t.channelId || t.channelId === channel);
   const otherChannel = (fingerprint: string) => !!channel && dbRecordings.some((d) => d.fingerprint === fingerprint && !!d.channel_id && d.channel_id !== channel);
 
   // 20-11-2026: a recording goes to the channel that was open when its upload STARTED (not the one open when it ends),
@@ -362,7 +364,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
           <ul role="tablist" className="flex gap-1 lg:sticky lg:top-24 lg:flex-col">
             {TABS.map((t) => {
               const active = tab === t.key;
-              const count = t.key === "insights" ? learning.tips.length : flowReady && t.key !== "upload" && t.key !== "settings" ? flowReady.items.filter((i) => (!channel || i.channelId === channel) && FLOW_TAB[i.flow] === t.key && (t.key !== "action" || needsAction(i))).length : null;
+              const count = t.key === "insights" ? tipsView.length : flowReady && t.key !== "upload" && t.key !== "settings" ? flowReady.items.filter((i) => (!channel || i.channelId === channel) && FLOW_TAB[i.flow] === t.key && (t.key !== "action" || needsAction(i))).length : null;
               return (
                 <li key={t.key} className={t.key === "settings" ? "lg:mt-4 lg:border-t lg:border-slate-200 lg:pt-4" : ""}>
                   <button
@@ -566,7 +568,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
 
           {tab === "insights" && (
             <>
-              <StudioTips studioId={studio.id} tips={learning.tips} state={learning.state} onChanged={learning.refresh} />
+              <StudioTips studioId={studio.id} tips={tipsView}state={learning.state} onChanged={learning.refresh} />
               <ViralInsights studioId={studio.id} channels={channelsNow} channel={channel} prefs={learning.prefs} onPrefs={learning.refresh} />
               <StatsCenter studioId={studio.id} workerOnline={workerOnline} />
               <Fold id="insights.today" title="Vandaag in de Studio">
