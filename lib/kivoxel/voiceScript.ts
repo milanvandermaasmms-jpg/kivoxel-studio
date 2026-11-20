@@ -298,6 +298,11 @@ export function syncGate(lines: VoLine[], durations: number[], segments: Segment
     } else if (l.kind === "reaction" && peak !== null) {
       start = Math.max(earliest, peak + half);
       if (start > peak + 2500) reason = "reactie komt te laat na de piek";
+    } else if (l.kind === "loop") {
+      // The loop line closes the video: move it earlier so it ends on the last frame. Its at_ms comes from an
+      // estimated length; the real (cloned) voice is often longer, and then it ran over the end and was dropped
+      // every time (20-11-2026: "Watch that ... again!" left out of all four Shorts).
+      start = Math.max(earliest, Math.min(l.at_ms, targetMs - d));
     } else {
       start = Math.max(earliest, l.at_ms);
       if (l.kind === "hook" && start > settings.shorts.first_action_max_ms) reason = "eerste woord pas na 0,5 s";

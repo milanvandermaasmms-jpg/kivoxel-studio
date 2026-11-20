@@ -2,6 +2,7 @@
 
 import { Archive, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Dialog";
+import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwitch";
 import { FlowBadge } from "@/components/youtube/FlowBadges";
 import { archiveVideo, remontage, restoreVideo } from "@/lib/youtube/analysisData";
 import type { FlowState } from "@/lib/youtube/flowData";
@@ -46,15 +47,18 @@ export function ProductionList({ state, channel, onOpenAction, studioId, act }: 
         );
       })}
       {items.map((i) => (
-        <ProductionCard key={i.videoId} item={i} channelName={state.board.channels.find((c) => c.id === i.channelId)?.name ?? ""} studioId={studioId} act={act} />
+        <ProductionCard key={i.videoId} item={i} board={state.board} channelName={state.board.channels.find((c) => c.id === i.channelId)?.name ?? ""} studioId={studioId} act={act} />
       ))}
     </ul>
   );
 }
 
-function ProductionCard({ item, channelName, studioId, act }: { item: FlowItem; channelName: string; studioId: string; act: Act }) {
+function ProductionCard({ item, board, channelName, studioId, act }: { item: FlowItem; board: Ready["board"]; channelName: string; studioId: string; act: Act }) {
   const at = item.sub ? SUBS.indexOf(item.sub) : 0;
   const running = item.queuePos === 1;
+  // A montage that never got into the queue: start it again here, with the sound Milan picks.
+  const stalledScript = item.stalled && !item.queuePos ? board.scripts.find((s) => s.video_id === item.videoId && s.status === "approved") : undefined;
+  const lastRender = stalledScript ? board.renders.find((r) => r.video_id === item.videoId) : undefined;
   return (
     <li className="space-y-2 rounded-xl border border-slate-200 bg-surface p-3 text-sm shadow-[var(--shadow-card)]">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -66,7 +70,7 @@ function ProductionCard({ item, channelName, studioId, act }: { item: FlowItem; 
           </p>
         </div>
         <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${running ? "bg-cyan-50 text-cyan-900" : item.queuePos ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-900"}`}>
-          {running ? "Bezig" : item.queuePos ? `Nr. ${item.queuePos} in de rij` : item.rejected ? "Afgekeurd" : item.sub === "script" ? "Wacht op script" : "Wacht op montage"}
+          {running ? "Bezig" : item.queuePos ? `Nr. ${item.queuePos} in de rij` : item.rejected ? "Afgekeurd" : item.stalled ? "Niet gestart" : item.sub === "script" ? "Wacht op script" : "Wacht op montage"}
         </span>
       </div>
       {/* Three sub steps; the current one fills with the measured progress. Fixed height: nothing jumps. */}
@@ -91,6 +95,19 @@ function ProductionCard({ item, channelName, studioId, act }: { item: FlowItem; 
               <Archive className="h-4 w-4" aria-hidden /> Archiveren
             </Button>
           </span>
+        </div>
+      ) : stalledScript ? (
+        <div className="space-y-1">
+          <p className="text-xs text-amber-900">{item.reason}</p>
+          <AudioModeSwitch
+            studioId={studioId}
+            script={stalledScript}
+            attempt={board.jobs.filter((j) => j.step === "render" && j.payload?.script_id === stalledScript.id).length + 1}
+            current={renderAudio(lastRender)}
+            channel={board.channels.find((c) => c.id === item.channelId) ?? null}
+            nextVersion={item.nextVersion}
+            act={act}
+          />
         </div>
       ) : (
       <p className="h-4 text-xs text-slate-600">{running ? `${item.phase ?? "Bezig"}${item.progress !== null ? ` · ${pct(item.progress)}` : ""}` : item.queuePos ? "Wacht tot de werker klaar is met de vorige stap." : "Nog niet gestart."}</p>

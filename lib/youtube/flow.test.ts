@@ -98,3 +98,15 @@ describe("sent back after the preview (Milan 17-11-2026: they looked stuck on 'W
     expect(placeOf(video(), [script()], null, [jobs[0]]).flow).toBe("failed");
   });
 });
+
+describe("a montage that never got into the queue", () => {
+  it("is shown as not started, so it can be started again", () => {
+    const old = job({ status: "done", created_at: "2026-11-13T09:00:00Z" });
+    expect(placeOf(video({ status: "rendering" }), [script()], null, [old])).toMatchObject({ flow: "production", sub: "montage", stalled: true });
+    expect(placeOf(video({ status: "rendering" }), [script()], null, [])).toMatchObject({ stalled: true });
+  });
+  it("is not stalled while a montage is queued or running", () => {
+    expect(placeOf(video({ status: "rendering" }), [script()], null, [job({ status: "queued" })]).stalled).toBeFalsy();
+    expect(placeOf(video({ status: "rendering" }), [script()], null, [job({ status: "running" })]).stalled).toBeFalsy();
+  });
+});

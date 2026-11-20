@@ -21,14 +21,16 @@ export async function loadBoard(studioId: string): Promise<BoardState> {
     supabase.from("yt_recordings").select("id, label, status, error, is_test, channel_id, created_at").eq("studio_id", studioId).returns<BoardRecording[]>(),
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id)").eq("studio_id", studioId).returns<BoardVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),
-    supabase.from("yt_jobs").select("*").eq("studio_id", studioId).order("created_at").limit(2000).returns<BoardJobWithPayload[]>(),
+    // The NEWEST jobs (Supabase hands out at most 1000 rows), turned back to oldest-first below. Taking the oldest
+    // ones left out recent montages once the studio had more steps than that (20-11-2026).
+    supabase.from("yt_jobs").select("*").eq("studio_id", studioId).order("created_at", { ascending: false }).limit(1000).returns<BoardJobWithPayload[]>(),
     supabase.from("yt_costs").select("video_id, job_id, amount_cents").eq("studio_id", studioId).eq("currency", "EUR").returns<BoardCost[]>(),
     supabase.from("yt_moments").select("id, privacy_flags").eq("studio_id", studioId).returns<BoardMoment[]>(),
     supabase.from("yt_renders").select("*").eq("studio_id", studioId).order("created_at", { ascending: false }).returns<DbRender[]>(),
   ]);
   const error = recordings.error ?? videos.error ?? scripts.error ?? jobs.error ?? costs.error ?? moments.error ?? renders.error;
   if (error) return isMissing(error) ? { ready: false, reason: "migration" } : { ready: false, reason: "error", message: friendlyError(error.message) };
-  const jobRows = jobs.data ?? [];
+  const jobRows = [...(jobs.data ?? [])].reverse();
   return {
     ready: true,
     channels: channels ?? [],

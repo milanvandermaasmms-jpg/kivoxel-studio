@@ -1177,7 +1177,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       );
       if (insert.error) throw new Error(insert.error.message);
       // Quality check with real measurements (fase C1). A failing check never fails the montage itself.
-      let qcSummary: { green: number; orange: number; red: number; lufs: number | null } | null = null;
+      let qcSummary: { green: number; orange: number; red: number; lufs: number | null; /** Reds a new montage cannot change (the voice-over sync). */ voSyncRed?: number } | null = null;
       if (montage.measure) {
         try {
           if (lv.signal.aborted) throw new CancelledError();
@@ -1251,7 +1251,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             for (const c of checks) items.push({ key: c.key, label: c.label, level: c.ok ? "green" : c.key === "hook_fresh" || c.key === "length_varies" ? "orange" : "red", value: c.value, note: c.note });
           }
           const count = (l: string) => items.filter((i) => i.level === l).length;
-          qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs };
+          qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs, voSyncRed: items.filter((i) => i.level === "red" && i.key === "vo_sync").length };
           // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
           const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null, /** Captions on the real word times and the voice version of 16-11-2026 (for re-montage). */ aligned: (spoken as { heard?: unknown[] }[]).some((l) => !!l.heard?.length), voiceVersion: 3 } : null;
           // Chapters of a long video, ready for the description (section 7.7).
@@ -1316,7 +1316,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const qcRetry = Number(job.payload?.qc_retry ?? 0);
       // 18-11-2026: only for Shorts. A long part takes 25 minutes and its red checks (first frame, a peak of -0.8 dB)
       // come out the same the second time; it goes straight to the review instead.
-      if (fase1 && isShort && !video.data.is_test && (qcSummary?.red ?? 0) > 0 && qcRetry < 1) {
+      // 20-11-2026: a new montage only helps for what the new seeds change. The voice-over sync comes out the same
+      // (same script, same voice), so a red that is only "vo_sync" goes straight to the review instead of costing a
+      // second montage with the slow cloned voice.
+      const fixableRed = (qcSummary?.red ?? 0) - (qcSummary?.voSyncRed ?? 0);
+      if (fase1 && isShort && !video.data.is_test && fixableRed > 0 && qcRetry < 1) {
         await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${scriptId}:qc:${job.id}`, payload: { ...job.payload, qc_retry: qcRetry + 1 } });
         await lv.event("note", `Kwaliteitscontrole niet gehaald (${qcSummary!.red} rood): de montage wordt automatisch nog één keer gemaakt`);
         return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, qcRetry: true, audioMode: kSettings.audio_mode };

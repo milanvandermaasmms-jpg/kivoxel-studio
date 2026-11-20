@@ -129,12 +129,24 @@ export async function savePrivacySettings(studioId: string, p: PrivacySettings):
   if (error) throw new Error(friendlyError(error.message));
 }
 
+/**
+ * The key of a montage job. The attempt number alone was not unique: the screens count earlier montages from a
+ * partial job list, so a new click could reuse an existing key and the insert was silently skipped (20-11-2026:
+ * "Opnieuw monteren met dit geluid" did nothing). The 10-second window keeps a double click from queuing two.
+ */
+export const renderKey = (scriptId: string, attempt: number, now = Date.now()) => `render:${scriptId}:${attempt}:${Math.floor(now / 10_000)}`;
+
 /** "Montage maken": queues a montage of an approved script. Each click is a new attempt (render:<script>:<n>). */
 export async function queueRender(studioId: string, script: DbScript, attempt: number, audioMode?: string): Promise<void> {
   if (script.status !== "approved") throw new Error("Keur het script eerst goed.");
   // KIVOXEL fase 1: the audio mode travels with the job (no new column); without it the worker uses the channel default.
   const payload = audioMode ? { script_id: script.id, audio_mode: audioMode } : { script_id: script.id };
-  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: `render:${script.id}:${attempt}`, payload });
+  // One montage at a time per video: a second one would only overwrite the first.
+  const open = await supabase.from("yt_jobs").select("id").eq("video_id", script.video_id).eq("step", "render").in("status", ["queued", "running"]).limit(1).returns<{ id: string }[]>();
+  if (open.error) throw new Error(friendlyError(open.error.message));
+  if (open.data?.length) throw new Error("Er staat al een montage van deze video in de rij. Volg hem in Live.");
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: renderKey(script.id, attempt), payload });
+  // 23505 = the same key again: a double click within the same 10 seconds, the first click already queued it.
   if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
   // A new montage needs a new check: an earlier approval no longer counts. The worker sets "review" when it is done.
   await setVideoStatus(script.video_id, "rendering", ["idea", "scripted", "review", "approved"]);

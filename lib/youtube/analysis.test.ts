@@ -232,3 +232,15 @@ describe("zelf samenstellen (fase C)", () => {
     expect(manualPlanKey("rec", "C", ["a", "b", "c"])).not.toBe(manualPlanKey("rec", "C", ["a", "b"]));
   });
 });
+
+describe("renderKey", () => {
+  it("a new click later gives a new key, even with the same attempt number", async () => {
+    const { renderKey } = await import("./analysisData");
+    expect(renderKey("s1", 2, 1_000_000)).not.toBe(renderKey("s1", 2, 1_020_000));
+  });
+  it("a double click within 10 seconds keeps the same key", async () => {
+    const { renderKey } = await import("./analysisData");
+    expect(renderKey("s1", 2, 1_000_000)).toBe(renderKey("s1", 2, 1_009_000));
+    expect(renderKey("s1", 2, 1_000_000).length).toBeLessThanOrEqual(200);
+  });
+});

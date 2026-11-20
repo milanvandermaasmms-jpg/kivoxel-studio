@@ -40,7 +40,7 @@ const MAIN_STEPS = ["intake", "analyse", "script", "render", "upload", "publish"
 const open = (j: { status: string }) => j.status === "queued" || j.status === "running";
 const newest = <T extends { created_at: string }>(xs: T[]) => [...xs].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
 
-export type Place = { flow: Flow; sub: Sub | null; reviewKind: "concept" | "final" | null; reason: string | null; job: FlowJob | null; /** Sent back by Milan after the preview; waits for his choice. */ rejected?: boolean };
+export type Place = { flow: Flow; sub: Sub | null; reviewKind: "concept" | "final" | null; reason: string | null; job: FlowJob | null; /** Sent back by Milan after the preview; waits for his choice. */ rejected?: boolean; /** Waits for a montage that is not in the queue. */ stalled?: boolean };
 
 /** Where one video belongs, from its status, scripts, publication and jobs. The single source of truth. */
 export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPublication | null, jobs: FlowJob[]): Place {
@@ -78,6 +78,9 @@ export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPubli
   if (!busy && scriptJob && open(scriptJob)) return { ...base, flow: "production", sub: "script", job: scriptJob };
   // Milan sent the montage back after the preview: nothing runs until he chooses (make it again, or archive). Not "waiting".
   if (!busy && video.status === "scripted" && video.review_note) return { ...base, flow: "production", sub: "script", reason: `Afgekeurd na de preview: ${video.review_note}`, rejected: true };
+  // Set to "rendering" but no montage in the queue (20-11-2026: a click whose job was never queued): nothing will
+  // happen by itself, so say so and let Milan start it again.
+  if (!busy && video.status === "rendering") return { ...base, flow: "production", sub: "montage", reason: "De montage is niet gestart. Kies het geluid en start hem opnieuw.", stalled: true };
   const voice = !!busy?.phase && /voice|stem/i.test(busy.phase);
   return { ...base, flow: "production", sub: voice ? "voiceover" : "montage", job: busy };
 }
@@ -121,6 +124,8 @@ export type FlowItem = {
   error: string | null;
   /** Sent back by Milan after the preview (reason holds his note): make it again or archive. */
   rejected: boolean;
+  /** Status says "montage" but no montage is queued: start it again. */
+  stalled: boolean;
   /** Next free script version (for "make it again"). */
   nextVersion: number;
 };
@@ -160,6 +165,7 @@ export function buildFlow(videos: FlowVideo[], scripts: BoardScript[], publicati
         isTest: v.is_test,
         createdAt: v.created_at,
         rejected: !!place.rejected,
+        stalled: !!place.stalled,
         nextVersion: Math.max(0, ...scripts.filter((s) => s.video_id === v.id).map((s) => s.version)) + 1,
         error: place.flow === "ready" ? place.reason : null,
       };

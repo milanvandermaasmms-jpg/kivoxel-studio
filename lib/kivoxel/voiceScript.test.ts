@@ -107,6 +107,15 @@ describe("sync gate", () => {
     expect(syncGate([reaction], [600], segs, timeline([ev(118_000)]), 25_000, settings).items[0]).toMatchObject({ ok: true, atMs: 18_250 });
   });
 
+  it("the loop line moves earlier when the real voice is longer, so it ends on the last frame", () => {
+    // Estimated at 1.2 s (at 23.4 s), really spoken in 2.4 s: before 20-11-2026 it ran over the end and was dropped.
+    const loop: VoLine = { at_ms: 23_400, text: "Watch that again!", kind: "loop" };
+    const item = syncGate([loop], [2400], segs, null, 25_000, settings).items[0];
+    expect(item).toMatchObject({ ok: true, atMs: 22_600 });
+    // Room enough: it stays where the script put it.
+    expect(syncGate([{ ...loop, at_ms: 20_000 }], [2400], segs, null, 25_000, settings).items[0]).toMatchObject({ ok: true, atMs: 20_000 });
+  });
+
   it("the first word comes within 0.5 s", () => {
     expect(syncGate([{ at_ms: 900, text: "laat", kind: "hook" }], [500], segs, null, 25_000, settings).items[0].reason).toMatch(/0,5 s/);
   });
