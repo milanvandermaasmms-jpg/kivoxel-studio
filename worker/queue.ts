@@ -1503,6 +1503,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await setPub({ status: "uploading", error: null });
       await lv.phase(`Uploaden naar YouTube (${visibilityWord(pub)})`, 0);
       const started = Date.now();
+      let quotaWhy = "";
       const result = await (await uploaderOf(pub.video_id))
         .upload({
         key: pub.id,
@@ -1519,13 +1520,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         .catch((e: unknown) => {
           // Quota guard (17-11-2026): the day's YouTube quota is used up. Retrying only fails again, so the video goes
           // straight back to "Klaar voor YouTube" with a clear note instead of ending as Mislukt after five tries.
-          if (e instanceof Error && isQuotaError(e.message)) return null;
+          if (e instanceof Error && isQuotaError(e.message)) {
+            quotaWhy = e.message;
+            return null;
+          }
           throw e;
         });
       if (!result) {
-        await setPub({ status: "draft", error: QUOTA_BACK });
-        await lv.event("note", QUOTA_BACK);
-        return { deferred: "quota" };
+        // 21-11-2026: the exact words (from YouTube or from the studio's own counter) go along, so Milan sees the real reason.
+        const note = (/uploadLimitExceeded/.test(quotaWhy)
+          ? `YouTube laat dit kanaal nu niet via de studio uploaden (uploadlimiet via de API). Met de hand in YouTube Studio uploaden kan wel; koppel hem daarna hier met "Zelf uploaden". Reden van YouTube: ${quotaWhy}`
+          : `${QUOTA_BACK} Reden: ${quotaWhy}`
+        ).slice(0, 900);
+        await setPub({ status: "draft", error: note });
+        await lv.event("note", note);
+        return { deferred: "quota", reason: quotaWhy.slice(0, 500) };
       }
       videoId = result.videoId;
       bytes = result.bytes;

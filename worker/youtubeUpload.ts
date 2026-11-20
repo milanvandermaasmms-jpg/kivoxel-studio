@@ -106,7 +106,9 @@ export function createUploader(o: { yt: YouTube; sessionDir: string; fetch?: Fet
     if (!res.ok || !uri) {
       const body = (await res.json().catch(() => ({}))) as { error?: { message?: string; errors?: { reason?: string }[] } };
       const reason = body.error?.errors?.[0]?.reason;
-      if (reason === "quotaExceeded" || reason === "uploadLimitExceeded") throw new Error("YouTube-quotum of uploadlimiet voor vandaag is op; morgen weer.");
+      // 21-11-2026: keep YouTube's own reason and words, so the studio can show what YouTube really said.
+      if (reason === "quotaExceeded") throw new Error(`YouTube-quotum van het Google-project is op (YouTube: ${reason}: ${body.error?.message ?? res.status}); morgen weer.`);
+      if (reason === "uploadLimitExceeded") throw new Error(`YouTube-uploadlimiet van dit kanaal via de API is bereikt (YouTube: ${reason}: ${body.error?.message ?? res.status}).`);
       throw new Error(`YouTube weigerde de upload te starten: ${body.error?.message ?? res.status}`);
     }
     const s: Session = { uri, size, startedAt: new Date(now()).toISOString(), metaHash };
