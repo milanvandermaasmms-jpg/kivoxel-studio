@@ -83,6 +83,17 @@ describe("planVideos", () => {
     expect(shorts[0].moments[0].score).toBe(99);
     expect(shorts.every((p) => p.moments[0].score >= MIN_SHORT_SCORE)).toBe(true);
   });
+  it("weighs what viewers really watched: a well-watched kind can win from a slightly higher score", () => {
+    const a = ok({ kind: "rare_find", start_ms: 0, end_ms: 20_000, peak_ms: 10_000, score: 92 }, 700_000);
+    const b = ok({ start_ms: 200_000, end_ms: 220_000, peak_ms: 210_000, score: 88 }, 700_000);
+    const c = ok({ start_ms: 400_000, end_ms: 420_000, peak_ms: 410_000, score: 86 }, 700_000);
+    const d = ok({ start_ms: 600_000, end_ms: 620_000, peak_ms: 610_000, score: 84 }, 700_000);
+    const shorts = (p: ReturnType<typeof planVideos>) => p.filter((x) => x.format !== "C").map((x) => x.moments[0].kind);
+    expect(shorts(planVideos([a, b, c, d], 700_000, key))[0]).toBe("rare_find");
+    // near_death watched better (+6), rare_find swiped away (-6): three near_death Shorts, rare_find falls off (max 3).
+    const learned = planVideos([a, b, c, d], 700_000, key, (m) => (m.kind === "near_death" ? 6 : m.kind === "rare_find" ? -6 : 0));
+    expect(shorts(learned)).toEqual(["near_death", "near_death", "near_death"]);
+  });
   it("makes one Short per usable moment and skips unusable ones", () => {
     const plans = planVideos([ok(), ok({ kind: "rare_find", start_ms: 100_000, end_ms: 125_000, peak_ms: 110_000 }), ok({ start_ms: 300_000, end_ms: 301_000, peak_ms: 300_500, has_payoff: false })], 600_000, key);
     expect(plans.map((p) => p.planKey)).toEqual(["A:10000", "B:100000"]);

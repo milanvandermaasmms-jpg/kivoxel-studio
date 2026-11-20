@@ -216,7 +216,8 @@ export const SERIES_PART_MS = 7.5 * 60_000;
 /** At most this many long videos per recording (Milan, 17-11-2026: "maximaal 2 lange video's per upload"). */
 export const MAX_LONG_VIDEOS = 2;
 /** Shorts per recording (Milan, 18-11-2026: selective, only the strongest moments; all channels). */
-export const MAX_SHORTS_PER_RECORDING = 4;
+// 20-11-2026: 4 -> 3 (clipping research and the reach report of 18-11: near-duplicate Shorts from one recording lose reach).
+export const MAX_SHORTS_PER_RECORDING = 3;
 export const MIN_SHORT_SCORE = 80;
 export const MIN_SHORT_GAP_MS = 45_000;
 export const MIN_PART_MS = 3 * 60_000;
@@ -301,16 +302,17 @@ const PROMISE: Record<Format, string> = {
  * only planned when the recording is long enough and has at least three usable moments.
  * `key` makes the plan stable: analysing the same recording again yields the same plan keys.
  */
-export function planVideos(moments: Moment[], durationMs: number, key: (m: Moment) => string): PlannedVideo[] {
+export function planVideos(moments: Moment[], durationMs: number, key: (m: Moment) => string, /** Points from what viewers really watched (learnedKinds.ts); 0 without data. */ boost: (m: Moment) => number = () => 0): PlannedVideo[] {
   // Milan (18-11-2026, replaces "no maximum"): "wees selectiever, we willen viraal gaan". Near-duplicate Shorts from one
   // recording cost reach on YouTube, so only the strongest few: at most MAX_SHORTS_PER_RECORDING, each at least
   // MIN_SHORT_SCORE (the best one always), and at least MIN_SHORT_GAP_MS apart so every Short is its own scene.
   const usable = moments.filter(isUsable);
   const plans: PlannedVideo[] = [];
   const taken: Moment[] = [];
-  for (const m of [...usable].sort((a, b) => b.score - a.score || a.startMs - b.startMs)) {
+  const value = (m: Moment) => m.score + boost(m);
+  for (const m of [...usable].sort((a, b) => value(b) - value(a) || a.startMs - b.startMs)) {
     if (m.suggestedFormat === "C" || m.endMs - m.startMs > MAX_SHORT_SOURCE_MS) continue;
-    if (taken.length >= MAX_SHORTS_PER_RECORDING || (taken.length && m.score < MIN_SHORT_SCORE)) continue;
+    if (taken.length >= MAX_SHORTS_PER_RECORDING || (taken.length && value(m) < MIN_SHORT_SCORE)) continue;
     const clash = taken.some((t) => (t.suggestedFormat === m.suggestedFormat && overlap(t, m) > 0.5 * Math.min(t.endMs - t.startMs, m.endMs - m.startMs)) || Math.abs(t.peakMs - m.peakMs) < MIN_SHORT_GAP_MS);
     if (clash) continue;
     taken.push(m);

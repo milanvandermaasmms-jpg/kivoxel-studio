@@ -94,6 +94,9 @@ De werker luistert met Whisper (lokaal, gratis) rond de sterkste momenten. Een k
 ## Leren van wat je goedkeurt
 Scripts die je goedkeurt, zijn voorbeelden. Hun algemene zinnen (zonder mob, item, getal of naam van één video) komen in de pools van de gratis engine, met dubbel gewicht.
 
+## Leren van wat kijkers uitkijken (20-11-2026)
+Bij elke nieuwe opname kijkt de werker hoe goed de Shorts van hetzelfde kanaal zijn uitgekeken (YouTube Analytics: gemiddeld percentage bekeken), per soort moment (bijna dood, redding, fout, vondst …). Soorten die beter worden uitgekeken dan gemiddeld krijgen tot 15 punten extra bij de keuze welke momenten Shorts worden; soorten waar kijkers wegvegen krijgen punten minder. Alleen Shorts met minstens 300 views tellen mee, en een soort pas vanaf 3 Shorts. Kost geen AI-tegoed (de cijfers haalt de werker al op). Wat hij leerde staat in het logboek van de werker ("Keuze van Shorts weegt mee …"). Per opname worden hoogstens **3** Shorts gemaakt (was 4).
+
 ## Kwaliteitscontrole
 Een montage met een rode check gaat niet meteen naar Te keuren: de werker maakt hem eerst automatisch nog één keer. Is hij dan nog rood, dan komt hij wel in de review, maar kun je pas goedkeuren als je aanvinkt dat je de rode checks hebt gezien.
 

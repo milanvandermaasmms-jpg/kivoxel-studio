@@ -49,6 +49,7 @@ import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, 
 import type { Uploader } from "./youtubeUpload.ts";
 import { isQuotaError, QUOTA_BACK } from "./manualLink.ts";
 import { reviveMontage, type ReviveJob, type ReviveScript, type ReviveVideo } from "./revive.ts";
+import { boostOf, boostsSummary, kindBoosts, type KindBoost, type KindSample } from "../lib/youtube/learnedKinds.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
 import { BOOST_LIMITS } from "./ffmpeg.ts";
@@ -550,9 +551,46 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
   }
 
+  /**
+   * 20-11-2026: what viewers really watched, per kind of moment, for the channel of this recording (see learnedKinds.ts).
+   * Uses the stats the worker already collects (no AI, no extra YouTube calls). Never stops an analysis: no data = no boost.
+   */
+  async function learnedBoosts(studioId: string, recordingId: string): Promise<KindBoost[]> {
+    try {
+      const rec = await db.from("yt_recordings").select("channel_id").eq("id", recordingId).maybeSingle<{ channel_id: string | null }>();
+      const snaps = await db.from("yt_video_snapshots").select("video_id, views, avg_view_pct, taken_at").eq("studio_id", studioId).not("video_id", "is", null).not("avg_view_pct", "is", null).order("taken_at", { ascending: false }).limit(3000).returns<{ video_id: string; views: number; avg_view_pct: number }[]>();
+      if (snaps.error || !snaps.data?.length) return [];
+      const latest = new Map<string, { views: number; pct: number }>();
+      for (const r of snaps.data) if (!latest.has(r.video_id)) latest.set(r.video_id, { views: r.views, pct: Number(r.avg_view_pct) });
+      const ids = [...latest.keys()];
+      type ShortRow = { id: string; channel_id: string | null; format: string; yt_video_moments: { yt_moments: { kind: Moment["kind"] } | null }[] };
+      const rows: ShortRow[] = [];
+      // In portions of 150 ids, so the request stays short.
+      for (let i = 0; i < ids.length; i += 150) {
+        const part = await db.from("yt_videos").select("id, channel_id, format, yt_video_moments(yt_moments(kind))").in("id", ids.slice(i, i + 150)).in("format", ["A", "B"]).returns<ShortRow[]>();
+        if (part.error) return [];
+        rows.push(...(part.data ?? []));
+      }
+      // Only Shorts of the same channel: KIVOXEL and SpawnNado viewers watch differently.
+      const samples: KindSample[] = [];
+      for (const v of rows) {
+        if (rec.data?.channel_id && v.channel_id !== rec.data.channel_id) continue;
+        const kind = v.yt_video_moments?.map((x) => x.yt_moments?.kind).find(Boolean);
+        const s = latest.get(v.id);
+        if (kind && s) samples.push({ kind, avgViewPct: s.pct, views: s.views });
+      }
+      return kindBoosts(samples);
+    } catch {
+      return [];
+    }
+  }
+
   /** Plans the videos of a recording and queues a script per video; returns how many videos were planned. */
   async function planAndQueue(job: Job, recordingId: string, isTest: boolean, durationMs: number, moments: Moment[]): Promise<number> {
-    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`);
+    const boosts = isTest ? [] : await learnedBoosts(job.studio_id, recordingId);
+    const learned = boostsSummary(boosts);
+    if (learned) log(`Keuze van Shorts weegt mee wat kijkers uitkeken: ${learned}`);
+    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`, (m) => boostOf(boosts, m.kind));
     // Parts that already exist stay as they are: a new analysis must not start a second, differently cut series.
     if (plans.some((p) => p.part)) {
       const parts = await db.from("yt_videos").select("id").eq("studio_id", job.studio_id).eq("recording_id", recordingId).like("plan_key", `${recordingId}:C:part:%`).neq("status", "archived").limit(1).returns<{ id: string }[]>();
