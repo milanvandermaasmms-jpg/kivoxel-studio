@@ -286,3 +286,16 @@ export function wrongChannelProblem(profile: ChannelProfile, label: string | nul
   if (!key || key === profile.key) return null;
   return `Niets geüpload: "${label}" is geen Minecraft en hoort bij ${PROFILES[key].name}, niet bij ${profile.name}. Zet de opname eerst bij het juiste kanaal.`;
 }
+
+/**
+ * 20-11-2026 (Milan: Fortnite videos on SpawnNado were called "Minecraft ..."): in a video of another game the word
+ * Minecraft never appears in titles, hooks, descriptions or tags; it becomes that game's name. Minecraft stays as it is.
+ */
+export function fixGameName<T extends string | null | undefined>(text: T, game: GameId): T {
+  if (!text || game === "minecraft") return text;
+  const name = GAMES[game].name;
+  return text
+    .replace(/\bminecraft\b/g, name.toLowerCase())
+    .replace(/\bMINECRAFT\b/g, name.toUpperCase())
+    .replace(/\bminecraft\b/gi, name) as T;
+}

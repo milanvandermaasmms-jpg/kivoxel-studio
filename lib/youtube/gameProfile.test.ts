@@ -156,3 +156,14 @@ describe("Fortnite and Roblox never land on KIVOXEL (Milan, 20-11-2026)", () => 
     expect(wrongChannelProblem(PROFILES.spawnnado, "Roblox · obby")).toBeNull();
   });
 });
+
+describe("no Minecraft in a Fortnite or Roblox video (Milan, 20-11-2026)", () => {
+  it("becomes the game's name; Minecraft videos stay as they are", async () => {
+    const { fixGameName } = await import("./gameProfile");
+    expect(fixGameName("Minecraft Sudden Elimination From Behind", "fortnite")).toBe("Fortnite Sudden Elimination From Behind");
+    expect(fixGameName("MINECRAFT EPIC FAIL", "roblox")).toBe("ROBLOX EPIC FAIL");
+    expect(fixGameName("minecraft shorts", "gta")).toBe("gta shorts");
+    expect(fixGameName("Minecraft Desert Battle", "minecraft")).toBe("Minecraft Desert Battle");
+    expect(fixGameName(null, "fortnite")).toBeNull();
+  });
+});

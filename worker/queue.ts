@@ -40,7 +40,7 @@ import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
 import { nicheQueries } from "../lib/ivar/insights.ts";
-import { channelAudioMode, gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, wrongChannelProblem, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
+import { channelAudioMode, gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, wrongChannelProblem, fixGameName, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderChunks, renderFileName, renderSize, segmentOverlays, srtFileName, type RenderInput, type VoiceClip } from "../lib/youtube/render.ts";
@@ -773,6 +773,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (video.data.format !== "C") draft = { ...draft, hooks: rankShortHooks(draft.hooks) };
     // Spoken English for the TTS voice: contractions instead of stiff written forms.
     draft = { ...draft, hook: naturalize(draft.hook), lines: draft.lines.map((l) => ({ ...l, text: naturalize(l.text) })), loopLine: draft.loopLine ? naturalize(draft.loopLine) : draft.loopLine, hooks: draft.hooks.map((h) => ({ ...h, first_line: naturalize(h.first_line) })) };
+    // 20-11-2026: a Fortnite/Roblox/GTA/CoD video never says "Minecraft" (titles, hooks, overlay, lines).
+    const fx = (t: string) => fixGameName(t, game);
+    draft = { ...draft, topLine: fixGameName(draft.topLine, game), hook: fx(draft.hook), loopLine: fixGameName(draft.loopLine, game), titles: draft.titles?.map(fx), lines: draft.lines.map((l) => ({ ...l, text: fx(l.text) })), hooks: draft.hooks.map((h) => ({ ...h, first_line: fx(h.first_line), overlay: fixGameName(h.overlay, game) })) };
     const row = {
       studio_id: job.studio_id,
       video_id: video.data.id,
@@ -1574,7 +1577,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const { json } = await paid(job, () => ai.gemini.generateText(suggestPrompt(input)));
     const parsed = parseSuggestions(json, forbidden, learned.disliked);
     if ("error" in parsed) throw new Error(`Suggesties van de analysedienst onbruikbaar: ${parsed.error}`);
-    return parsed;
+    // 20-11-2026: no "Minecraft" in titles, tags or description of a Fortnite/Roblox/GTA/CoD video.
+    const g = input.game ?? "minecraft";
+    return { ...parsed, titles: parsed.titles.map((t) => fixGameName(t, g)), tags: [...new Set(parsed.tags.map((t) => fixGameName(t, g)))], description: fixGameName(parsed.description, g) };
   }
 
   /**

@@ -302,7 +302,7 @@ export function silentGaps(lines: ScriptLine[], durationMs: number, minMs: numbe
 export function expandPrompt(lines: ScriptLine[], e: Evidence, frames: FramePick[], gaps: [number, number][], extraWords: number, game?: GameId): string {
   const at = new Map(frames.map((f) => [f.index, f.outMs]));
   return [
-    "Add narration lines to fill silent gaps in a Minecraft video, in the same energetic narrator voice (English). Only say what the evidence supports near that time; reactions, tension and humour are welcome.",
+    `Add narration lines to fill silent gaps in a ${gameOf(game).name} video, in the same energetic narrator voice (English). Only say what the evidence supports near that time; reactions, tension and humour are welcome.`,
     "Evidence:",
     ...e.frames.map((f) => `- ${mmss(at.get(f.i) ?? 0)}: light ${f.light}; health ${f.health}; mobs ${f.mobs.join(", ") || "-"}; action ${f.action || "-"}; events ${f.events.join(", ") || "-"}`),
     "Current lines:",
