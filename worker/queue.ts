@@ -40,7 +40,7 @@ import { tmpdir } from "node:os";
 import { polishPlan } from "../lib/youtube/editPolish.ts";
 import { totalMs } from "../lib/youtube/editor.ts";
 import { nicheQueries } from "../lib/ivar/insights.ts";
-import { channelAudioMode, gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
+import { channelAudioMode, gameInText, GAMES, labelWithGame, PROFILES, profileFor, recordingGame, wrongChannelProblem, type ChannelProfile, type GameId } from "../lib/youtube/gameProfile.ts";
 import { isDreamnestChannel } from "../lib/studioRoutes.ts";
 import { ANALYSIS_STAGES, expectedThinkingMs, renderProgress, stageProgress, thinkingShare } from "../lib/youtube/progress.ts";
 import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderChunks, renderFileName, renderSize, segmentOverlays, srtFileName, type RenderInput, type VoiceClip } from "../lib/youtube/render.ts";
@@ -264,9 +264,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return (await recordingGameInfo(recordingId, studioId)).game === "minecraft" ? "minecraft" : "none";
   }
 
-  async function videoGame(videoId: string, studioId: string): Promise<GameId> {
+  async function videoGameInfo(videoId: string, studioId: string) {
     const v = await db.from("yt_videos").select("recording_id").eq("id", videoId).maybeSingle<{ recording_id: string | null }>();
-    return (await recordingGameInfo(v.data?.recording_id ?? null, studioId)).game;
+    return recordingGameInfo(v.data?.recording_id ?? null, studioId);
+  }
+
+  async function videoGame(videoId: string, studioId: string): Promise<GameId> {
+    return (await videoGameInfo(videoId, studioId)).game;
   }
 
   async function recordingRow(job: Job) {
@@ -461,8 +465,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const freeAnalysis = async (why: string) => {
       const local = await store.get(row.fingerprint);
       if (!local || !montage?.events) throw new Error(`${why}; de gratis analyse kan hier niet (geen FFmpeg of bestand)`);
-      await lv.phase("Gratis analyse: hartjes, doodscherm, klappen en harde geluiden", 0);
-      const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { hud: await hudOf(row.id, job.studio_id), signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
+      const hud = await hudOf(row.id, job.studio_id);
+      await lv.phase(hud === "minecraft" ? "Gratis analyse: hartjes, doodscherm, klappen en harde geluiden" : "Gratis analyse: beweging, klappen en harde geluiden", 0);
+      const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { hud, signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
       used.engine = "free";
       used.note = why;
       await lv.event("note", `${why}: momenten uit de gratis analyse (${t.events.length} events)`);
@@ -1363,7 +1368,6 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
    * Fase D4b: captions as a separate track and the chosen thumbnail. Never fails the step: the result is written
    * to the publication, so Milan sees what worked and why something did not.
    */
-  async function extras(pub: PublicationRow, videoId: string, lv: Live, setPub: (f: Record<string, unknown>) => Promise<void>) {
   /** The uploader of the channel this video belongs to; KIVOXEL (default) keeps the main sign-in. */
   async function uploaderOf(videoId: string): Promise<Uploader> {
     if (!publisher) throw new Error("YouTube is niet gekoppeld op deze pc");
@@ -1373,6 +1377,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return v.data.channel_id ? publisher.uploaderFor(v.data.channel_id) : publisher.uploader;
   }
 
+  async function extras(pub: PublicationRow, videoId: string, lv: Live, setPub: (f: Record<string, unknown>) => Promise<void>) {
     if (!publisher || pub.captions_enabled === undefined || !pub.render_id) return { captions: null, thumbnail: null };
     // "*": thumbnails only exist after migration 047.
     const render = await db.from("yt_renders").select("*").eq("id", pub.render_id).single<{ file_name: string; thumbnails?: StoredThumb[] }>();
@@ -1442,6 +1447,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           : await db.from("yt_channels").select("id, name, youtube_channel_id, is_default").eq("studio_id", job.studio_id).eq("is_default", true).maybeSingle<{ id: string; name: string; youtube_channel_id: string | null; is_default: boolean }>();
         const problem = uploadChannelProblem(ch.data ? { name: ch.data.name, youtubeChannelId: ch.data.youtube_channel_id, isDefault: ch.data.is_default } : null, ch.data ? await publisher.tokensChannelId(ch.data.id) : null);
         if (problem) throw new Error(problem);
+      }
+      {
+        // 20-11-2026: never a Fortnite/Roblox/GTA/CoD recording on KIVOXEL (or Minecraft-only channel), whatever went wrong before.
+        const gi = await videoGameInfo(pub.video_id, job.studio_id);
+        const wrong = wrongChannelProblem(gi.profile, gi.label);
+        if (wrong) throw new Error(wrong);
       }
       await setPub({ status: "uploading", error: null });
       await lv.phase(`Uploaden naar YouTube (${visibilityWord(pub)})`, 0);

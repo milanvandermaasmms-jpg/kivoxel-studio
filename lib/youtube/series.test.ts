@@ -53,13 +53,22 @@ describe("a long recording told in parts", () => {
     expect(planVideos(spread, twoHours, (m) => m.id!).filter((p) => p.format === "C")).toHaveLength(MAX_LONG_VIDEOS);
   });
 
-  it("each part's edit plan shows its whole stretch of footage, in order", () => {
+  it("a part that fits in 10 minutes shows its whole stretch of footage, in order", () => {
+    const small = { index: 0, count: 2, startMs: 0, endMs: 8 * 60_000 };
+    const plan = buildEditPlan("C", moments, DURATION, small);
+    const chapters = plan.segments.filter((s) => s.part === "chapter");
+    expect(chapters[0].src_start_ms).toBe(0);
+    expect(chapters.at(-1)!.src_end_ms).toBe(small.endMs);
+    for (let i = 1; i < chapters.length; i++) expect(chapters[i].src_start_ms).toBe(chapters[i - 1].src_end_ms);
+  });
+
+  it("a longer part keeps its best moments as chapters, in story order, at most 10 minutes (Milan, 18-11-2026)", () => {
     for (const p of parts) {
       const plan = buildEditPlan("C", moments, DURATION, p);
       const chapters = plan.segments.filter((s) => s.part === "chapter");
-      expect(chapters[0].src_start_ms).toBe(p.startMs);
-      expect(chapters.at(-1)!.src_end_ms).toBe(p.endMs);
-      for (let i = 1; i < chapters.length; i++) expect(chapters[i].src_start_ms).toBe(chapters[i - 1].src_end_ms);
+      expect(chapters.length).toBeGreaterThanOrEqual(3);
+      for (const c of chapters) expect(c.src_start_ms >= p.startMs && c.src_end_ms <= p.endMs).toBe(true);
+      for (let i = 1; i < chapters.length; i++) expect(chapters[i].src_start_ms).toBeGreaterThanOrEqual(chapters[i - 1].src_end_ms);
       expect(plan.segments[0].part).toBe("cold_open");
       expect(plan.segments.some((s) => s.part === "goals")).toBe(false);
       expect(plan.targetMs).toBeGreaterThanOrEqual(PART_TARGET.minMs);

@@ -22,8 +22,8 @@ type Message = { tone: "ok" | "error"; text: string };
  * 19-11-2026 (Milan): the upload lives outside the card, so it keeps running AND stays visible when he clicks to
  * another tab or another channel in the Studio. Only closing or reloading the page stops it (the browser warns first).
  */
-type UploadState = { file: File | null; label: string; isTest: boolean; game: GameId | ""; progress: Progress | null; paused: boolean; message: Message | null; controller: AbortController | null; channel: string | null };
-let state: UploadState = { file: null, label: "", isTest: false, game: "", progress: null, paused: false, message: null, controller: null, channel: null };
+type UploadState = { file: File | null; label: string; isTest: boolean; game: GameId | ""; progress: Progress | null; paused: boolean; message: Message | null; controller: AbortController | null; channel: string | null; channelId: string | null };
+let state: UploadState = { file: null, label: "", isTest: false, game: "", progress: null, paused: false, message: null, controller: null, channel: null, channelId: null };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<UploadState>) => {
   state = { ...state, ...patch };
@@ -37,12 +37,15 @@ export function UploadCard({
   isKnown,
   onReceived,
   profile = PROFILES.kivoxel,
+  channelId = null,
 }: {
+  /** The channel open when the upload starts: the recording goes there even if Milan switches channel meanwhile. */
+  channelId?: string | null;
   /** The channel the recording is for: on SpawnNado Milan picks the game (KIVOXEL is always Minecraft). */
   profile?: ChannelProfile;
   workerOnline: boolean;
   isKnown: (fingerprint: string) => Promise<boolean>;
-  onReceived: (outcome: UploadOutcome) => Promise<string | null>;
+  onReceived: (outcome: UploadOutcome, channelId: string | null) => Promise<string | null>;
 }) {
   const { file, label, isTest, game, progress, paused, message } = useSyncExternalStore(subscribe, snapshot, snapshot);
   const setFile = (file: File | null) => set({ file });
@@ -67,7 +70,7 @@ export function UploadCard({
   const run = async () => {
     if (!file) return;
     const abort = new AbortController();
-    set({ controller: abort, channel: profile.key });
+    set({ controller: abort, channel: profile.key, channelId });
     setPaused(false);
     setMessage(null);
     try {
@@ -79,7 +82,7 @@ export function UploadCard({
         onProgress: (phase, received, total) => setProgress({ phase, received, total }),
       });
       setProgress(null);
-      const note = await onReceived(outcome);
+      const note = await onReceived(outcome, state.channelId);
       setMessage(
         outcome.kind === "duplicate"
           ? { tone: "error", text: `Deze opname staat al op de pc als “${outcome.recording.label}”. Er is niets dubbel opgeslagen.` }

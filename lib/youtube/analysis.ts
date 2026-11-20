@@ -352,8 +352,9 @@ export const TARGET: Record<Format, { minMs: number; maxMs: number }> = {
 };
 /** One part of a recording told in full: about 7.5 minutes of footage plus the cold open. After the editor cuts menus and
  * idle stretches a part may end up shorter: better 3:30 that is all story than 5:00 with menus in it. */
-// Up to 30 minutes since 17-11-2026: with at most two long videos per upload, a part covers more footage.
-export const PART_TARGET = { minMs: 3 * 60_000, maxMs: 30 * 60_000 };
+// Up to 10 minutes since 18-11-2026 (Milan: 17-25 minute parts took too long to make). When the whole part is longer,
+// it keeps only its best moments as chapters of about 1:45 each, in story order.
+export const PART_TARGET = { minMs: 3 * 60_000, maxMs: 10 * 60_000 };
 /** The target length of a video: a part of a story told in parts has its own. */
 export const targetFor = (format: Format, planKey?: string | null) => (format === "C" && parseSeriesKey(planKey) ? PART_TARGET : TARGET[format]);
 /** "Deel 2 van 5" for a part, null for any other video. */
@@ -409,10 +410,28 @@ export function buildEditPlan(format: Format, moments: Moment[], durationMs = Nu
       ? ordered.map((m, i) => ({ part: "chapter" as const, src_start_ms: starts[i], src_end_ms: i === ordered.length - 1 ? part.endMs : starts[i + 1], effects: ["captions", "day_label"], note: `Hoofdstuk ${i + 1}: ${KIND_LABEL[m.kind]}` }))
       : [{ part: "chapter" as const, src_start_ms: part.startMs, src_end_ms: part.endMs, effects: ["captions"], note: "Het verhaal gaat verder" }];
     const recap = part.index > 0 ? ", daarna in één zin wat er in het vorige deel gebeurde" : "";
-    segments = assemble([
-      ...(best ? [{ part: "cold_open" as const, src_start_ms: Math.max(part.startMs, best.peakMs - 7500), src_end_ms: Math.min(part.endMs, best.peakMs + 7500), effects: ["captions"], note: `Het spannendste moment van deel ${part.index + 1}${recap}` }] : []),
-      ...chapters,
-    ]);
+    const coldOpen = best ? [{ part: "cold_open" as const, src_start_ms: Math.max(part.startMs, best.peakMs - 7500), src_end_ms: Math.min(part.endMs, best.peakMs + 7500), effects: ["captions"], note: `Het spannendste moment van deel ${part.index + 1}${recap}` }] : [];
+    segments = assemble([...coldOpen, ...chapters]);
+    if (outLength(segments) > PART_TARGET.maxMs && ordered.length) {
+      // Too long to tell in full: the best moments (usable first, then score) as chapters of about 1:45, in story order,
+      // as many as fit in PART_TARGET.maxMs. Always at least the best one.
+      const windows = (picked: Moment[]) => {
+        let previousEnd = part.startMs;
+        return [...picked].sort((a, b) => a.startMs - b.startMs).map((m, i) => {
+          const start = Math.max(previousEnd, m.peakMs - CHAPTER_BEFORE_MS, part.startMs);
+          const end = Math.max(start, Math.min(part.endMs, m.peakMs + CHAPTER_AFTER_MS));
+          previousEnd = end;
+          return { part: "chapter" as const, src_start_ms: start, src_end_ms: end, effects: ["captions", "day_label"], note: `Hoofdstuk ${i + 1}: ${KIND_LABEL[m.kind]}` };
+        });
+      };
+      const ranked = [...ordered].sort((a, b) => Number(isUsable(b)) - Number(isUsable(a)) || b.score - a.score);
+      const picked: Moment[] = [];
+      for (const m of ranked) {
+        if (picked.length && outLength(assemble([...coldOpen, ...windows([...picked, m])])) > PART_TARGET.maxMs) continue;
+        picked.push(m);
+      }
+      segments = assemble([...coldOpen, ...windows(picked)]);
+    }
     const targetMs = outLength(segments);
     if (segments.length && targetMs < PART_TARGET.minMs) warnings.push(`Korter dan de richtlengte van een deel (${formatTimecode(targetMs)}, richtlengte ${formatTimecode(PART_TARGET.minMs)}-${formatTimecode(PART_TARGET.maxMs)}).`);
     if (targetMs > PART_TARGET.maxMs) warnings.push(`Langer dan de richtlengte van een deel (${formatTimecode(targetMs)}).`);

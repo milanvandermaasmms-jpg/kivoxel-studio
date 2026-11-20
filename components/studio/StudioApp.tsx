@@ -1,7 +1,8 @@
 "use client";
 
 import { CheckCircle2, Loader2, RefreshCw, Settings, Upload } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { analysisForChannel, dbForChannel } from "@/lib/youtube/channelView";
 import { Fold, Notice, Section } from "@/components/settings/Section";
 import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button, Dialog } from "@/components/ui/Dialog";
@@ -32,7 +33,7 @@ import { ChannelSwitcher, StudioTopBar } from "@/components/youtube/StudioTopBar
 import { DreamnestStudio } from "@/components/dreamnest/DreamnestStudio";
 import { IVAR_OPEN_EVENT, usePublishPageContext } from "@/lib/ivar/pageContext";
 import { findChannel, isDreamnestChannel } from "@/lib/studioRoutes";
-import { profileFor } from "@/lib/youtube/gameProfile";
+import { profileFor, routeRecording } from "@/lib/youtube/gameProfile";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
 import { reviewQueue } from "@/lib/youtube/board";
 import { needsAction, type Flow } from "@/lib/youtube/flow";
@@ -194,14 +195,27 @@ export function StudioApp({ route }: { route?: string } = {}) {
   const workerOnline = health === undefined ? undefined : !!health;
   const flowReady = flow.state && "board" in flow.state ? flow.state : null;
   const queue = flowReady ? reviewQueue(flowReady.board.input.videos, flowReady.board.input.scripts, channel) : [];
+  // 20-11-2026: on a channel's page only that channel (Roblox/Fortnite showed up on KIVOXEL's page). "Alle kanalen" shows all.
+  const analysisView = useMemo(() => analysisForChannel(analysis.state ?? null, channel), [analysis.state, channel]);
+  const dbView = useMemo(() => dbForChannel(db, channel), [db, channel]);
+  const viewJobs = dbView?.ready ? dbView.jobs : [];
+  const otherChannel = (fingerprint: string) => !!channel && dbRecordings.some((d) => d.fingerprint === fingerprint && !!d.channel_id && d.channel_id !== channel);
 
-  const onReceived = async (outcome: UploadOutcome): Promise<string | null> => {
+  // 20-11-2026: a recording goes to the channel that was open when its upload STARTED (not the one open when it ends),
+  // and a Fortnite/Roblox/GTA/CoD recording always goes to SpawnNado, never to KIVOXEL (Minecraft only).
+  const register = async (rec: LocalRecording, chosen: string | null): Promise<string | null> => {
+    const { channelId, moved } = routeRecording(channelsNow, chosen, rec.label, rec.originalName);
+    await registerRecording(studio.id, rec, channelId);
+    return moved ? `Geen Minecraft: deze opname staat bij ${moved.name}.` : null;
+  };
+
+  const onReceived = async (outcome: UploadOutcome, startedOn: string | null): Promise<string | null> => {
     let note: string | null = null;
     // Also for a duplicate: the file may already be on the pc but not in this studio's database. Registering is safe to repeat.
     if (dbReady) {
       try {
-        await registerRecording(studio.id, outcome.recording, channel);
-        if (outcome.kind === "done") note = "De intake staat in de wachtrij.";
+        const moved = await register(outcome.recording, startedOn);
+        if (outcome.kind === "done") note = ["De intake staat in de wachtrij.", moved].filter(Boolean).join(" ");
       } catch (e) {
         setError(`De opname staat op de pc, maar kon niet in de database worden gezet: ${e instanceof Error ? e.message : e}`);
       }
@@ -370,7 +384,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
         <div className="min-w-0 space-y-4">
           {/* 19-11-2026: the upload card stays mounted on every tab, so an upload keeps going when Milan clicks away. */}
           <div hidden={tab !== "upload"}>
-            <UploadCard profile={profileFor(channelsNow.find((c) => c.id === channel))} workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
+            <UploadCard profile={profileFor(channelsNow.find((c) => c.id === channel))} channelId={channel} workerOnline={!!health} isKnown={(fp) => (dbReady ? isKnownRecording(studio.id, fp) : Promise.resolve(false))} onReceived={onReceived} />
           </div>
           {tab === "upload" && (
             <>
@@ -384,7 +398,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   <p className="text-sm text-slate-500">Nog geen opnames.</p>
                 ) : (
                   <ul className="divide-y divide-slate-100">
-                    {local.map((r) => {
+                    {local.filter((r) => !otherChannel(r.fingerprint)).map((r) => {
                       const row = dbRecordings.find((d) => d.fingerprint === r.fingerprint);
                       const status = row ? RECORDING_STATUS[row.status] : r.intakeError ? "Mislukt" : r.probe ? "Klaar" : "Intake bezig";
                       return (
@@ -405,7 +419,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                             {status}
                             {/* On the pc but not (yet) in this studio's database, e.g. after moving to a new Supabase project. */}
                             {!row && dbReady && r.probe && !r.intakeError && (
-                              <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => void act(() => registerRecording(studio.id, r, channel))}>
+                              <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => void act(() => register(r, channel))}>
                                 Aanmelden
                               </Button>
                             )}
@@ -416,9 +430,9 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   </ul>
                 )}
               </Fold>
-              <AnalysisSection mode="recordings" state={analysis.state} studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />
+              <AnalysisSection mode="recordings" state={analysisView}studioId={studio.id} act={act} analysisService={health ? (health.analysis ?? null) : undefined} onWatch={() => chooseTab("production")} />
               <Fold id="upload.maker" title="AI Video Maker" intro="Stap voor stap van gameplay naar een video, met dezelfde stappen als de rest van de Studio.">
-                <VideoMaker state={analysis.state} studioId={studio.id} act={act} refresh={analysis.refresh} onOpen={chooseTab} />
+                <VideoMaker state={analysisView}studioId={studio.id} act={act} refresh={analysis.refresh} onOpen={chooseTab} />
               </Fold>
             </>
           )}
@@ -431,24 +445,24 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   studioId={studio.id}
                   workerOnline={workerOnline !== false}
                   titleOf={(id) => flowReady.items.find((i) => i.videoId === id)?.title ?? null}
-                  recordings={flowReady.board.input.recordings}
+                  recordings={flowReady.board.input.recordings.filter((r) => !channel || (r as { channel_id?: string | null }).channel_id === channel)}
                   videos={flowReady.board.input.videos}
                 />
               )}
               {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
               <Fold title="Live meekijken" intro="Preview, stappen en logboek van wat de werker nu doet.">
-                <LiveCenter studioId={studio.id} analysis={analysis.state?.ready ? analysis.state : null} workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
+                <LiveCenter studioId={studio.id} analysis={analysisView?.ready ? analysisView : null}workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
               </Fold>
-              <Fold id="production.queue" title="Wachtrij van de werker" intro={db?.ready ? `${db.jobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig · geschiedenis van de laatste stappen` : undefined}>
+              <Fold id="production.queue" title="Wachtrij van de werker" intro={db?.ready ? `${viewJobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig · geschiedenis van de laatste stappen` : undefined}>
                 {db === null ? (
                   <p className="text-sm text-slate-500">Laden…</p>
                 ) : !db.ready ? (
                   db.reason === "migration" ? <p className="text-sm text-slate-600">De tabellen in Supabase komen er met migratie 007 (nog niet uitgevoerd).</p> : <Notice tone="error">{db.message}</Notice>
                 ) : (
                   <>
-                  {db.jobs.filter((j) => j.status === "queued" || j.status === "running").length === 0 && <p className="text-sm text-slate-500">Er wacht niets: de werker heeft niets te doen.</p>}
+                  {viewJobs.filter((j) => j.status === "queued" || j.status === "running").length === 0 && <p className="text-sm text-slate-500">Er wacht niets: de werker heeft niets te doen.</p>}
                   {/* Only what is open; finished steps are history, one click away. */}
-                  {[{ title: null, list: db.jobs.filter((j) => j.status === "queued" || j.status === "running") }, { title: "Geschiedenis", list: db.jobs.filter((j) => j.status !== "queued" && j.status !== "running") }].map(({ title, list }) => list.length === 0 ? null : (
+                  {[{ title: null, list: viewJobs.filter((j) => j.status === "queued" || j.status === "running") }, { title: "Geschiedenis", list: viewJobs.filter((j) => j.status !== "queued" && j.status !== "running") }].map(({ title, list }) => list.length === 0 ? null : (
                   <details key={title ?? "open"} open={!title} className={title ? "mt-2" : ""}>
                   {title && <summary className="cursor-pointer text-xs text-slate-600">{title} ({list.length} afgeronde stappen)</summary>}
                   <ul className="divide-y divide-slate-100">
@@ -556,7 +570,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
               <ViralInsights studioId={studio.id} channels={channelsNow} channel={channel} prefs={learning.prefs} onPrefs={learning.refresh} />
               <StatsCenter studioId={studio.id} workerOnline={workerOnline} />
               <Fold id="insights.today" title="Vandaag in de Studio">
-                <TodayOverview overview={overviewFrom(db, analysis.state, workerOnline)} onOpen={chooseTab} />
+                <TodayOverview overview={overviewFrom(dbView, analysisView, workerOnline)} onOpen={chooseTab} />
               </Fold>
               <Fold id="insights.steps" title="Stand van de productielijn" intro="Per stap: werkt, nog te verbinden of later.">
                 <ol className="divide-y divide-slate-100">

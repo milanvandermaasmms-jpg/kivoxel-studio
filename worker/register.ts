@@ -2,7 +2,7 @@
 // a row in yt_recordings (never twice: the fingerprint is unique) and an intake step in the queue.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LocalRecording } from "../lib/youtube/protocol.ts";
-import { profileFor } from "../lib/youtube/gameProfile.ts";
+import { channelKeyForText, profileFor } from "../lib/youtube/gameProfile.ts";
 
 export function createRegistrar(db: SupabaseClient) {
   let studioId: string | null = null;
@@ -18,11 +18,13 @@ export function createRegistrar(db: SupabaseClient) {
 
   return async function register(local: LocalRecording): Promise<void> {
     const sid = await studio();
-    // "13-11 spawnnado fortnite.mp4" goes to SpawnNado; every other file to the default channel (KIVOXEL), as before.
+    // "13-11 spawnnado.mp4", "roblox obby.mp4" or "fortnite clip.mp4" go to SpawnNado; only Minecraft (or no game in the
+    // name) goes to the default channel (KIVOXEL). 20-11-2026: before, only "spawnnado" in the name counted.
     let channelId: string | null = null;
-    if (/spawn-?nado/i.test(local.label)) {
+    if (channelKeyForText(`${local.label} ${local.originalName}`) === "spawnnado") {
       const chs = await db.from("yt_channels").select("id, name, slug").eq("studio_id", sid).returns<{ id: string; name: string; slug: string | null }[]>();
       channelId = (chs.data ?? []).find((c) => profileFor(c).key === "spawnnado")?.id ?? null;
+      if (!channelId) throw new Error(`"${local.label}" is geen Minecraft, maar er is geen SpawnNado-kanaal: niet bij KIVOXEL gezet`);
     }
     const insert = await db
       .from("yt_recordings")

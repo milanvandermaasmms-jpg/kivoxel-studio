@@ -110,3 +110,49 @@ describe("SpawnNado: no voice, no captions, no blur", () => {
     }
   });
 });
+
+describe("free mode on SpawnNado finds moments", () => {
+  it("loud moments become typed events without the Minecraft HUD, never in Minecraft", async () => {
+    const { buildEvents } = await import("../kivoxel/events");
+    const { momentsFromTimeline } = await import("../kivoxel/freeMoments");
+    const frames = Array.from({ length: 4 * 120 }, () => ({ motion: 8, red: 0, luma: 90, sharp: 20, ui: 0, tint: 0, health: -1 }));
+    const loud = Array.from({ length: 120 }, (_, i) => (i === 60 ? -2 : -30));
+    const signals = { version: 1, durationMs: 120_000, loudness: loud, freezes: [], blacks: [], scenes: [] } as unknown as Parameters<typeof buildEvents>[0]["signals"];
+    const visual = { version: 3 as const, fps: 4, width: 96, height: 54, durationMs: 120_000, frames };
+    const other = buildEvents({ visual, signals, hud: "none" });
+    const mc = buildEvents({ visual, signals });
+    expect(other.events.filter((e) => e.kind === "audio_peak").every((e) => e.type)).toBe(true);
+    expect(mc.events.filter((e) => e.kind === "audio_peak").every((e) => !e.type)).toBe(true);
+    expect(momentsFromTimeline(other, 120_000).length).toBeGreaterThanOrEqual(other.events.some((e) => e.payoff >= 40) ? 1 : 0);
+  });
+});
+
+describe("Fortnite and Roblox never land on KIVOXEL (Milan, 20-11-2026)", () => {
+  const channels = [
+    { id: "k", name: "KIVOXEL", slug: "kivoxel" },
+    { id: "s", name: "SpawnNado", slug: "spawnnado" },
+  ];
+
+  it("a name with another game or SpawnNado belongs to SpawnNado; Minecraft or no game says nothing", async () => {
+    const { channelKeyForText } = await import("./gameProfile");
+    for (const t of ["Roblox obby.mp4", "fortnite storm 13-11", "GTA heist", "warzone win", "13-11 spawnnado.mp4", "Fortnite · clip"]) expect(channelKeyForText(t)).toBe("spawnnado");
+    for (const t of ["13-11 minecraft survival", "opname 19-11.mp4", "", null]) expect(channelKeyForText(t)).toBeNull();
+  });
+
+  it("an upload started on KIVOXEL with a Roblox file goes to SpawnNado; Minecraft stays on the chosen channel", async () => {
+    const { routeRecording } = await import("./gameProfile");
+    expect(routeRecording(channels, "k", "Roblox obby", "roblox.mp4")).toEqual({ channelId: "s", moved: channels[1] });
+    expect(routeRecording(channels, null, "fortnite clip")).toEqual({ channelId: "s", moved: channels[1] });
+    expect(routeRecording(channels, "k", "minecraft cave", "cave.mp4")).toEqual({ channelId: "k", moved: null });
+    expect(routeRecording(channels, "s", "Roblox obby")).toEqual({ channelId: "s", moved: null });
+    expect(routeRecording(channels, "s", "minecraft on spawnnado")).toEqual({ channelId: "s", moved: null });
+  });
+
+  it("the worker refuses to upload a Fortnite or Roblox video to KIVOXEL", async () => {
+    const { wrongChannelProblem, PROFILES } = await import("./gameProfile");
+    expect(wrongChannelProblem(PROFILES.kivoxel, "Roblox · obby")).toMatch(/SpawnNado/);
+    expect(wrongChannelProblem(PROFILES.kivoxel, "fortnite win")).toMatch(/Niets geüpload/);
+    expect(wrongChannelProblem(PROFILES.kivoxel, "minecraft cave")).toBeNull();
+    expect(wrongChannelProblem(PROFILES.spawnnado, "Roblox · obby")).toBeNull();
+  });
+});

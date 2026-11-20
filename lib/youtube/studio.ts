@@ -3,8 +3,8 @@
 import { friendlyError, supabase } from "../supabase";
 import type { LocalRecording } from "./protocol";
 
-export type DbRecording = { id: string; fingerprint: string; status: "uploading" | "received" | "ready" | "failed"; error: string | null };
-export type DbJob = { id: string; step: string; status: "queued" | "running" | "done" | "failed" | "cancelled"; attempts: number; error: string | null; created_at: string; recording_id: string | null; video_id: string | null };
+export type DbRecording = { id: string; fingerprint: string; status: "uploading" | "received" | "ready" | "failed"; error: string | null; channel_id?: string | null };
+export type DbJob = { id: string; step: string; status: "queued" | "running" | "done" | "failed" | "cancelled"; attempts: number; error: string | null; created_at: string; recording_id: string | null; video_id: string | null; channel_id?: string | null };
 
 /** Supabase answers like this when a table does not exist (yet). */
 const isMissingTable = (error: { code?: string; message: string }) => error.code === "42P01" || error.code === "PGRST205" || /does not exist|could not find the table/i.test(error.message);
@@ -13,8 +13,8 @@ export type DbState = { ready: true; recordings: DbRecording[]; jobs: DbJob[] } 
 
 export async function loadStudio(studioId: string): Promise<DbState> {
   const [rec, jobs] = await Promise.all([
-    supabase.from("yt_recordings").select("id, fingerprint, status, error").eq("studio_id", studioId).order("created_at", { ascending: false }).returns<DbRecording[]>(),
-    supabase.from("yt_jobs").select("id, step, status, attempts, error, created_at, recording_id, video_id").eq("studio_id", studioId).order("created_at", { ascending: false }).limit(20).returns<DbJob[]>(),
+    supabase.from("yt_recordings").select("id, fingerprint, status, error, channel_id").eq("studio_id", studioId).order("created_at", { ascending: false }).returns<DbRecording[]>(),
+    supabase.from("yt_jobs").select("id, step, status, attempts, error, created_at, recording_id, video_id, channel_id").eq("studio_id", studioId).order("created_at", { ascending: false }).limit(20).returns<DbJob[]>(),
   ]);
   const error = rec.error ?? jobs.error;
   if (error) return isMissingTable(error) ? { ready: false, reason: "migration" } : { ready: false, reason: "error", message: friendlyError(error.message) };

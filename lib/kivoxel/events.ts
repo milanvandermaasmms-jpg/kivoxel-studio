@@ -247,8 +247,11 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
   if (signals) {
     for (const p of buildTimeline(signals).peaks) {
       const intensity = clamp(p.rise / 25);
-      // A loud sound alone gets no hook type: a pig is loud too, and a hook must match what really happens.
-      add({ kind: "audio_peak", type: null, t_start: p.atMs - 3000, t_peak: p.atMs, t_end: p.atMs + 2000, intensity, payoff: Math.round(20 + intensity * 35), description: `Hard geluid (+${Math.round(p.rise)} LU)`, sources: ["geluid:piek"] });
+      // A loud sound alone gets no hook type in Minecraft: a pig is loud too, and a hook must match what really happens.
+      // In another game (SpawnNado, no HUD signals) the loud moments are all the free analysis has: a very loud one is a
+      // "jumpscare" (turn your sound up), the rest a "grap" (surprise), so the free mode still makes Shorts.
+      const noHud = input.hud === "none";
+      add({ kind: "audio_peak", type: noHud ? (p.rise >= 18 ? "jumpscare" : "grap") : null, t_start: p.atMs - 3000, t_peak: p.atMs, t_end: p.atMs + 2000, intensity, payoff: Math.round(20 + intensity * 35), description: `Hard geluid (+${Math.round(p.rise)} LU)`, sources: ["geluid:piek"] });
     }
   }
   for (const m of input.ai ?? []) {

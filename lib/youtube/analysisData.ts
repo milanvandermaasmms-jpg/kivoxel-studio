@@ -25,9 +25,9 @@ export type DbMoment = {
   source: "ai" | "test" | "manual";
   is_test: boolean;
 };
-export type DbVideo = { id: string; recording_id: string | null; format: Format; /** Migration 009; "<recording>:C:part:2/5:<start>-<end>" for a part. */ plan_key?: string | null; status: string; language: "en" | "nl"; promise: string | null; is_test: boolean; created_at: string; yt_video_moments: { moment_id: string; position: number }[]; /** Migration 031. */ review_note?: string | null };
+export type DbVideo = { id: string; recording_id: string | null; format: Format; /** Migration 009; "<recording>:C:part:2/5:<start>-<end>" for a part. */ plan_key?: string | null; status: string; language: "en" | "nl"; promise: string | null; is_test: boolean; created_at: string; yt_video_moments: { moment_id: string; position: number }[]; /** Migration 031. */ review_note?: string | null; /** Migration 032. */ channel_id?: string | null };
 export type DbScript = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; source: string; status: "draft" | "approved" | "rejected"; is_test: boolean; created_at: string; /** Migration 035. */ hooks?: Hook[]; loop_line?: string | null; chosen_hook?: number | null; /** Migration 047. */ titles?: string[]; feedback?: string | null };
-export type DbRecordingInfo = { id: string; label: string; status: string; is_test: boolean; duration_ms: number | null };
+export type DbRecordingInfo = { id: string; label: string; status: string; is_test: boolean; duration_ms: number | null; /** Migration 032. */ channel_id?: string | null };
 
 export type DbRender = { id: string; video_id: string; script_id: string; file_name: string; duration_ms: number; width: number; height: number; voice_name: string | null; is_test: boolean; created_at: string; /** Migration 031; absent before. */ privacy_blur?: boolean; game_muted?: boolean; /** Migration 034: real measurements and checklist. */ qc?: { measured_at: string; items: QcItem[] } | null };
 export type RenderJob = { script_id: string; status: string; error: string | null; created_at: string };
@@ -68,7 +68,7 @@ export async function loadAnalysis(studioId: string): Promise<AnalysisState> {
   const [settings, costs, recordings, moments, videos, scripts, jobs, montage] = await Promise.all([
     supabase.from("yt_settings").select("paid_processing_enabled, monthly_cap_cents, warn_at_percent, approved_at").eq("studio_id", studioId).maybeSingle<DbSettings>(),
     supabase.from("yt_costs").select("amount_cents").eq("studio_id", studioId).eq("currency", "EUR").gte("incurred_on", monthStart()).returns<{ amount_cents: number }[]>(),
-    supabase.from("yt_recordings").select("id, label, status, is_test, duration_ms").eq("studio_id", studioId).order("created_at", { ascending: false }).returns<DbRecordingInfo[]>(),
+    supabase.from("yt_recordings").select("id, label, status, is_test, duration_ms, channel_id").eq("studio_id", studioId).order("created_at", { ascending: false }).returns<DbRecordingInfo[]>(),
     supabase.from("yt_moments").select("id, recording_id, kind, start_ms, end_ms, peak_ms, reason, score, has_context, context_note, has_payoff, payoff_note, privacy_flags, suggested_format, usable, source, is_test").eq("studio_id", studioId).order("start_ms").returns<DbMoment[]>(),
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id, position)").eq("studio_id", studioId).order("created_at").returns<DbVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),

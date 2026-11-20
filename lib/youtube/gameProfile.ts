@@ -255,3 +255,34 @@ export const gameOf = (id: GameId | null | undefined): Game => GAMES[id ?? "mine
 export function channelAudioMode<M extends string>(asked: M, profile: ChannelProfile): M {
   return !profile.audioModes || profile.audioModes.includes(asked) ? asked : (profile.audioModes[0] as M);
 }
+
+/**
+ * 20-11-2026 (Milan: "Roblox en Fortnite staan in KIVOXEL, dit is niet oké"): KIVOXEL is only Minecraft. A recording whose
+ * label or file name says SpawnNado or names another game (Fortnite, Roblox, GTA, Call of Duty) always belongs to SpawnNado,
+ * whatever channel was open when it came in. Null = the text says nothing, keep the chosen channel.
+ */
+export function channelKeyForText(text: string | null | undefined): ChannelProfileKey | null {
+  if (!text) return null;
+  if (/spawn-?nado/i.test(text)) return "spawnnado";
+  return GAME_IDS.some((g) => g !== "minecraft" && GAMES[g].match.test(text)) ? "spawnnado" : null;
+}
+
+/** The channel a new recording goes to: the chosen one, unless its name says it is SpawnNado's (see channelKeyForText). */
+export function routeRecording<C extends { id: string; slug?: string | null; name?: string | null }>(
+  channels: C[],
+  chosenId: string | null | undefined,
+  ...texts: (string | null | undefined)[]
+): { channelId: string | null; moved: C | null } {
+  const key = channelKeyForText(texts.filter(Boolean).join(" "));
+  const chosen = channels.find((c) => c.id === chosenId) ?? null;
+  if (!key || (chosen && profileFor(chosen).key === key)) return { channelId: chosenId ?? null, moved: null };
+  const target = channels.find((c) => profileFor(c).key === key) ?? null;
+  return target ? { channelId: target.id, moved: target } : { channelId: chosenId ?? null, moved: null };
+}
+
+/** Last check before anything goes to YouTube: a Fortnite/Roblox/GTA/CoD recording never goes out on KIVOXEL. */
+export function wrongChannelProblem(profile: ChannelProfile, label: string | null | undefined): string | null {
+  const key = channelKeyForText(label);
+  if (!key || key === profile.key) return null;
+  return `Niets geüpload: "${label}" is geen Minecraft en hoort bij ${PROFILES[key].name}, niet bij ${profile.name}. Zet de opname eerst bij het juiste kanaal.`;
+}
