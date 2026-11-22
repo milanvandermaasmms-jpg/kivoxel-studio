@@ -9,8 +9,14 @@ import type { DeadSpan, EventTimeline, GameEvent } from "./events.ts";
 
 /** Seconds of build-up before the peak that a Short needs at the very least (hook + one anticipation line). */
 export const MIN_BUILD_MS = 4500;
-/** After the peak: the payoff and its reaction (a death shows the GAME OVER screen a bit longer). */
-export const aftermathMs = (e: GameEvent) => (e.kind === "death" ? 2600 : 2000);
+/**
+ * After the peak: the payoff and its reaction. 22-11-2026 (afgekeurde Shorts: the outcome was cut off 2.0 s after the
+ * peak, the open chest or the landing was barely visible): at least 3.5 s, longer while the moment itself lasts, at most
+ * 6 s; a death shows the GAME OVER screen 3 s.
+ */
+export const MIN_AFTER_PEAK_MS = 3500;
+export const MAX_AFTER_PEAK_MS = 6000;
+export const aftermathMs = (e: GameEvent) => (e.kind === "death" ? 3000 : Math.max(MIN_AFTER_PEAK_MS, Math.min(MAX_AFTER_PEAK_MS, e.t_end - e.t_peak + 800)));
 /** 18-11-2026: every Short opens on its climax. The teaser shows this much before and after the peak (1.3 s in all). */
 export const TEASER_BEFORE_MS = 400;
 export const TEASER_AFTER_MS = 900;

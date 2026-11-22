@@ -21,6 +21,7 @@ import { oldScript } from "@/components/youtube/AudioModeSwitch";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
 import { WaitingList } from "@/components/youtube/WaitingList";
+import { RejectedList } from "@/components/youtube/RejectedList";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -533,6 +534,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                     <ReviewTiles state={flowReady} channel={channel} workerOnline={!!health} onReview={(id) => (setReviewStart(id), setReviewing(true))} onDetails={setDetails} />
                     {flowReady.items.some((i) => i.flow === "failed") && <h2 className="text-sm font-semibold">❌ Mislukt ({flowReady.items.filter((i) => i.flow === "failed" && (!channel || i.channelId === channel)).length})</h2>}
                     <FailedList state={flowReady} channel={channel} act={act} />
+                    <RejectedList state={flowReady} channel={channel} studioId={studio.id} workerOnline={!!health} act={act} />
                   </>
                 ))}
               {/* Details of one tile: preview, Viral-score, script and montage, in a window over the tiles. */}

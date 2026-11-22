@@ -25,7 +25,8 @@ export type GameEvent = {
 };
 export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" | "black" | "quiet" };
 /** `rules`: version of the detection rules; a stored timeline with older rules is built again. */
-export const EVENT_RULES = 3;
+// 4 (22-11-2026): moments that are mostly menu/inventory lose 35 points (see menuShare).
+export const EVENT_RULES = 4;
 export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game). */ hud?: "minecraft" | "none"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
@@ -203,6 +204,23 @@ export function mergeEvents(events: GameEvent[], gapMs = 3000): GameEvent[] {
   return out;
 }
 
+/**
+ * 22-11-2026 (afgekeurd: "Netherite Trim Armor Box", "geen goede content"): the share of the frames around a peak
+ * (5 s before to 3 s after) that show a menu or inventory instead of gameplay: no hearts in the HUD, or the grey panel.
+ * Moving the cursor over items makes the picture move, so findDead did not count those as menus.
+ */
+export function menuShare(v: VisualSignals, peakMs: number): number {
+  const a = Math.max(0, Math.floor(((peakMs - 5000) / 1000) * v.fps));
+  const b = Math.min(v.frames.length - 1, Math.ceil(((peakMs + 3000) / 1000) * v.fps));
+  if (b < a) return 0;
+  let n = 0;
+  for (let i = a; i <= b; i++) if (v.frames[i].health < 0 || v.frames[i].ui >= 120) n++;
+  return n / (b - a + 1);
+}
+/** Above this share a moment is mostly menu: it loses MENU_PENALTY points (it can still win when nothing better exists). */
+export const MENU_SHARE_MAX = 0.5;
+export const MENU_PENALTY = 35;
+
 /** The whole timeline for one recording. `ai` and `reactions` are optional: without them it is the free engine. */
 /**
  * The hearts, the grey menu panel and the red death screen are Minecraft's HUD (measured on Milan's PS5 recordings).
@@ -267,7 +285,13 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
   const events = mergeEvents(raw)
     // A peak inside a menu or a still picture is no moment (the death screen itself is still: keep deaths).
     .filter((e) => e.kind === "death" || !inDead(e.t_peak))
-    .map((e) => (e.sources.length >= 3 ? { ...e, payoff: Math.min(100, e.payoff + 5) } : e));
+    .map((e) => (e.sources.length >= 3 ? { ...e, payoff: Math.min(100, e.payoff + 5) } : e))
+    // Mostly menu or inventory around the peak: little for a viewer to see (deaths keep their screen).
+    .map((e) => {
+      if (e.kind === "death") return e;
+      const share = menuShare(v, e.t_peak);
+      return share > MENU_SHARE_MAX ? { ...e, payoff: Math.max(0, e.payoff - MENU_PENALTY), description: `${e.description} (grotendeels menu/inventaris: ${Math.round(share * 100)}%)`.slice(0, 200) } : e;
+    });
 
   const health: EventTimeline["health"] = [];
   for (let i = 0; i < v.frames.length; i += v.fps) if (v.frames[i].health >= 0) health.push({ atMs: Math.round((i * 1000) / v.fps), hearts: v.frames[i].health / 100 });

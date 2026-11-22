@@ -18,7 +18,7 @@ export async function loadBoard(studioId: string): Promise<BoardState> {
   const [channels, privateTerms, recordings, videos, scripts, jobs, costs, moments, renders] = await Promise.all([
     loadChannels(studioId).catch(() => null),
     loadPrivateTerms(studioId).catch(() => null),
-    supabase.from("yt_recordings").select("id, label, status, error, is_test, channel_id, created_at").eq("studio_id", studioId).returns<BoardRecording[]>(),
+    supabase.from("yt_recordings").select("id, label, status, error, is_test, channel_id, created_at, fingerprint").eq("studio_id", studioId).returns<BoardRecording[]>(),
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id)").eq("studio_id", studioId).returns<BoardVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),
     // The NEWEST jobs (Supabase hands out at most 1000 rows), turned back to oldest-first below. Taking the oldest

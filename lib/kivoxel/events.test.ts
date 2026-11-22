@@ -135,3 +135,13 @@ describe("menus found by the missing hearts", () => {
     expect(dead.map((d) => [d.startMs, d.endMs, d.why])).toEqual([[2000, 5000, "menu"]]);
   });
 });
+
+describe("menu en inventaris rond een moment (22-11-2026)", () => {
+  it("counts frames without hearts or with the grey panel around the peak", async () => {
+    const { menuShare } = await import("./events");
+    const frame = (health: number, ui = 0) => ({ luma: 100, motion: 5, sharp: 10, ui, health, tint: 0 });
+    const v = { fps: 1, durationMs: 20_000, frames: [...Array(10)].map(() => frame(1000)).concat([...Array(10)].map(() => frame(-1))) } as unknown as Parameters<typeof menuShare>[0];
+    expect(menuShare(v, 4000)).toBe(0);
+    expect(menuShare(v, 15_000)).toBeGreaterThan(0.5);
+  });
+});

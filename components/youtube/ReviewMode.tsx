@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Dialog";
 import { formatTimecode } from "@/lib/youtube/analysis";
@@ -11,6 +11,9 @@ import { MiniReport } from "@/components/youtube/MiniReport";
 import { changedCount, scriptDiff } from "@/lib/youtube/scriptDiff";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers } from "@/lib/youtube/review";
+import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
+import { rejectWithFeedback, remountWithFeedback } from "@/lib/youtube/remountData";
+import { clock, type FeedbackItem, type RemountMode } from "@/lib/youtube/reviewFeedback";
 
 import { FORMATS } from "@/lib/youtube/studio";
 
@@ -30,6 +33,12 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const touchX = useRef<number | null>(null);
+  // 23-11-2026: feedback on moments of the final version, and the version before it next to it.
+  const player = useRef<HTMLVideoElement | null>(null);
+  const before = useRef<HTMLVideoElement | null>(null);
+  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+  const [mode, setMode] = useState<RemountMode>("gericht");
+  const [done, setDone] = useState<string | null>(null);
 
   const item = items[Math.min(index, items.length - 1)] as ReviewItem | undefined;
   const go = (step: number) => {
@@ -38,6 +47,8 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
     setAdjusting(false);
     setNote("");
     setError(null);
+    setFeedback([]);
+    setDone(null);
   };
 
   useEffect(() => {
@@ -86,7 +97,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   };
   const reject = () => {
     if (!item || !script) return;
-    void act(() => (item.kind === "concept" ? rejectConcept(script, note) : rejectFinal(item.videoId, note)));
+    void act(() => (item.kind === "concept" ? rejectConcept(script, note) : rejectWithFeedback(item.videoId, [], script.version, note)));
   };
 
   const adjust = () => {
@@ -99,6 +110,30 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
 
   const hook = script ? (script.hooks?.[script.chosen_hook ?? -1]?.first_line ?? script.hook) : "";
   const render = renders[0];
+  // The version before this one (an earlier render of the same video) and what changed, from the montage step itself.
+  const older = renders[1];
+  const renderJob = render ? (board.jobs.find((j) => j.id === (render as { job_id?: string | null }).job_id) as { result?: { changes?: string[]; feedback?: FeedbackItem[] } | null; payload?: { mode?: string; feedback?: FeedbackItem[] } | null } | undefined) : undefined;
+  const lastFeedback = renderJob?.payload?.feedback ?? renderJob?.result?.feedback ?? [];
+  const compareFrom = (ms: number) => {
+    for (const v of [player.current, before.current]) if (v) {
+      v.currentTime = ms / 1000;
+      void v.play().catch(() => undefined);
+    }
+  };
+  const rejectOnly = () => {
+    if (!item || item.kind !== "final") return;
+    void act(async () => {
+      await rejectWithFeedback(item.videoId, feedback, script?.version ?? null, note);
+      setDone("Afgekeurd. De versie staat onder Afgekeurd; er start geen nieuwe montage.");
+    });
+  };
+  const rejectAndRemount = () => {
+    if (!item || item.kind !== "final" || !script || !video) return;
+    void act(async () => {
+      const r = await remountWithFeedback({ studioId, videoId: video.id, script, scriptsOfVideo: scripts, previousRenderId: render?.id ?? null, items: feedback, mode });
+      setDone(`Opnieuw monteren gestart (${r.mode === "gericht" ? "gerichte correctie" : "volledig nieuwe montage"}): ${r.changes.join(" · ")}. De nieuwe versie komt terug bij Te keuren.`);
+    });
+  };
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Keur-modus" className="fixed inset-0 z-50 flex flex-col bg-surface">
@@ -141,10 +176,38 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
 
             {item.kind === "final" &&
               (render && workerOnline ? (
-                <video key={render.id} src={`${WORKER_URL}/renders/${encodeURIComponent(render.file_name)}`} crossOrigin="anonymous" controls playsInline preload="metadata" style={{ aspectRatio: `${render.width} / ${render.height}` }} className={`mx-auto rounded-md bg-black ${render.height > render.width ? "h-[min(60vh,36rem)] w-auto max-w-full" : "w-full"}`} />
+                <div className={older ? "grid grid-cols-2 gap-2" : ""}>
+                {older && (
+                  <figure className="space-y-1">
+                    <video ref={before} key={older.id} src={`${WORKER_URL}/renders/${encodeURIComponent(older.file_name)}`} crossOrigin="anonymous" controls playsInline preload="metadata" muted className="mx-auto max-h-[50vh] w-auto max-w-full rounded-md bg-black" />
+                    <figcaption className="text-center text-xs text-slate-500">Vorige versie</figcaption>
+                  </figure>
+                )}
+                <figure className="space-y-1">
+                <video ref={player} key={render.id} src={`${WORKER_URL}/renders/${encodeURIComponent(render.file_name)}`} crossOrigin="anonymous" controls playsInline preload="metadata" style={{ aspectRatio: `${render.width} / ${render.height}` }} className={`mx-auto rounded-md bg-black ${older ? "max-h-[50vh] w-auto max-w-full" : render.height > render.width ? "h-[min(60vh,36rem)] w-auto max-w-full" : "w-full"}`} />
+                {older && <figcaption className="text-center text-xs text-slate-500">Nieuwe versie</figcaption>}
+                </figure>
+                </div>
               ) : (
                 <p className="rounded-md border border-slate-200 px-3 py-2 text-slate-600">{render ? "De video staat op de pc. Start de werker om hem hier te bekijken." : "Er is nog geen montage."}</p>
               ))}
+            {item.kind === "final" && older && (
+              <section className="space-y-1 rounded-md border border-cyan-200 p-3 text-xs">
+                <p className="font-medium">Wat is er veranderd</p>
+                {(renderJob?.result?.changes ?? []).length ? <p>{renderJob!.result!.changes!.join(" · ")}</p> : <p className="text-slate-500">{renderJob?.payload?.mode === "volledig" ? "Volledig nieuwe montage (nieuw script)." : "Geen wijzigingen vastgelegd bij deze versie."}</p>}
+                {lastFeedback.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {lastFeedback.map((f, k) => (
+                      <button key={k} type="button" onClick={() => compareFrom(f.atMs)} className="rounded border border-slate-300 px-2 py-0.5">
+                        ▶ beide vanaf {clock(f.atMs)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+            {item.kind === "final" && render && workerOnline && <FeedbackPanel player={() => player.current} items={feedback} onChange={setFeedback} mode={mode} onMode={setMode} />}
+            {done && <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">{done}</p>}
             {item.kind === "final" && render && script?.status === "approved" && !renderBusy && (
               <AudioModeSwitch
                 studioId={studioId}
@@ -229,6 +292,18 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               </Button>
               <Button variant="secondary" onClick={() => { setRejecting(false); setAdjusting(false); }} className="justify-center py-3">
                 Annuleren
+              </Button>
+            </>
+          ) : item?.kind === "final" ? (
+            <>
+              <Button disabled={busy || !canApprove} onClick={approve} className="justify-center py-3">
+                <Check className="h-4 w-4" aria-hidden /> Goedkeuren
+              </Button>
+              <Button variant="secondary" disabled={busy || !script} onClick={() => (feedback.length ? rejectOnly() : setRejecting(true))} className="justify-center py-3 text-red-700" title="Bewaren onder Afgekeurd, geen nieuwe montage">
+                <X className="h-4 w-4" aria-hidden /> Afkeuren
+              </Button>
+              <Button variant="secondary" disabled={busy || !script || feedback.length === 0} onClick={rejectAndRemount} className="justify-center py-3" title={feedback.length ? "Bewaren en één nieuwe montage maken met jouw feedback" : "Geef eerst feedback op een moment"}>
+                <RotateCcw className="h-4 w-4" aria-hidden /> Afkeuren en opnieuw monteren
               </Button>
             </>
           ) : (

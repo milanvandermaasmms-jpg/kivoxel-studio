@@ -86,7 +86,8 @@ describe("Short length", () => {
     expect(p.bucket).toBe("loop");
     expect(p.targetMs).toBeGreaterThanOrEqual(7000);
     expect(p.targetMs).toBeLessThanOrEqual(14_500);
-    expect(p.segments.at(-1)!.src_end_ms).toBe(202_000);
+    // 22-11-2026: the outcome gets at least 3.5 s after the peak (here the moment lasts 3 s, +0.8 s = 3.8 s).
+    expect(p.segments.at(-1)!.src_end_ms).toBe(203_800);
     expect(p.segments.some((s) => s.part === "payoff")).toBe(true);
   });
 
@@ -103,7 +104,7 @@ describe("Short length", () => {
     const lonely = ev("a", 200_000);
     const s = settings.shorts.length_buckets.find((b) => b.key === "verhaal")!;
     const forced = { ...settings, shorts: { ...settings.shorts, length_buckets: [s] } };
-    expect(planShort(lonely, tl([lonely]), forced, seeded("1")).reason).toBe("kortste complete lengte (6.5 s)");
+    expect(planShort(lonely, tl([lonely]), forced, seeded("1")).reason).toBe("kortste complete lengte (8.3 s)");
     const withBuildUp = [ev("x", 170_000, 40, "fail"), lonely];
     expect(planShort(lonely, tl(withBuildUp), settings, seeded("1"), "loop").bucket).not.toBe("loop");
   });
@@ -120,7 +121,8 @@ describe("Short length", () => {
     const p = planShort(early, tl([early]), settings, seeded("3"));
     expect(p.targetMs).toBeGreaterThanOrEqual(6500);
     expect(bucketOf(p.targetMs, settings.shorts.length_buckets)).not.toBeNull();
-    expect(p.reason).toMatch(/na de piek erbij/);
+    // With at least 3.5 s after the peak (22-11-2026) the Short is complete without running on further.
+    expect(p.segments.at(-1)!.src_end_ms - early.t_peak).toBeGreaterThanOrEqual(3500);
   });
 
   it("a moment that cannot fill any bucket is left out of the batch", () => {
@@ -154,5 +156,16 @@ describe("honest hooks", () => {
     }
     expect(hookChecks("GAME OVER 💀", "fail", [], settings, false).find((c) => c.key === "hook_type")!.ok).toBe(false);
     expect(hookChecks("GAME OVER 💀", "fail", [], settings, true).find((c) => c.key === "hook_type")!.ok).toBe(true);
+  });
+});
+
+describe("de uitkomst krijgt ruimte (22-11-2026)", () => {
+  it("at least 3.5 s after the peak, longer while the moment lasts, at most 6 s", async () => {
+    const { aftermathMs } = await import("./shortPlan");
+    const base = { id: "x", kind: "ai_moment", type: "zeldzaam", t_start: 0, t_peak: 10_000, intensity: 1, payoff: 80, description: "", t_thumb: 0, sources: [] } as unknown as Parameters<typeof aftermathMs>[0];
+    expect(aftermathMs({ ...base, t_end: 10_500 })).toBe(3500);
+    expect(aftermathMs({ ...base, t_end: 14_000 })).toBe(4800);
+    expect(aftermathMs({ ...base, t_end: 30_000 })).toBe(6000);
+    expect(aftermathMs({ ...base, kind: "death", t_end: 12_000 })).toBe(3000);
   });
 });

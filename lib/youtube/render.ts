@@ -171,7 +171,8 @@ export function usableSegments(segments: Segment[], recordingMs: number) {
       const end = Math.max(start, Math.min(s.src_end_ms, recordingMs));
       const speed = Math.min(2, Math.max(0.5, Number.isFinite(s.speed) && s.speed > 0 ? s.speed : 1));
       const zoom = s.effects?.includes("zoom_strong") ? 0.65 : s.effects?.includes("zoom") ? 0.8 : null;
-      return { start, end, speed, zoom: zoom !== null, crop: zoom, text: s.text?.trim() || null };
+      const cropX = Number.isFinite(s.crop_x) ? Math.max(-1, Math.min(1, s.crop_x!)) : 0;
+      return { start, end, speed, zoom: zoom !== null, crop: zoom, text: s.text?.trim() || null, cropX };
     })
     .filter((s) => s.end - s.start >= 100);
 }
@@ -186,14 +187,14 @@ export const MAX_PIECES_PER_RUN = 16;
 export type PreparedPiece = { file: string; ms: number };
 type Piece = ReturnType<typeof usableSegments>[number];
 
-const fitFor = (width: number, height: number) =>
-  height > width ? `scale=-2:${height},crop=${width}:${height}` : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
+/** cropX (vertical only): where the 9:16 window sits in the wide picture, −1 = left edge, 0 = middle, 1 = right edge. */
+const fitFor = (width: number, height: number, cropX = 0) =>
+  height > width ? `scale=-2:${height},crop=${width}:${height}${cropX ? `:x=(iw-${width})*${((1 + cropX) / 2).toFixed(3)}:y=0` : ""}` : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`;
 
 /** Inputs and filters that turn recording pieces into [vc][ac]: blur, speed, zoom, size, frame rate, then concat. */
 function pieceGraph(input: RenderInput, pieces: Piece[]): { inputs: string[]; filters: string[]; durationMs: number } {
   const { width, height } = input.size;
   const fps = input.fps ?? 30;
-  const fit = fitFor(width, height);
   const inputs: string[] = [];
   for (const p of pieces) inputs.push("-ss", sec(p.start), "-t", sec(p.end - p.start), "-i", input.recording);
   const filters: string[] = [];
@@ -205,7 +206,7 @@ function pieceGraph(input: RenderInput, pieces: Piece[]): { inputs: string[]; fi
     // Blur first, on the full recording, so the corners are covered before a Short is cut from the middle.
     if (blur.length) filters.push(...blurFilter(`[${i}:v]`, `[p${i}]`, blur, `s${i}`));
     // Zoom (editor, fase C3): the middle 80% of the picture, so the cut is a visible change in the shot rhythm.
-    filters.push(`${blur.length ? `[p${i}]` : `[${i}:v]`}setpts=(PTS-STARTPTS)/${p.speed},${p.crop ? `crop=iw*${p.crop}:ih*${p.crop},` : ""}${fit},fps=${fps},setsar=1,format=yuv420p[v${i}]`);
+    filters.push(`${blur.length ? `[p${i}]` : `[${i}:v]`}setpts=(PTS-STARTPTS)/${p.speed},${p.crop ? `crop=iw*${p.crop}:ih*${p.crop},` : ""}${fitFor(width, height, p.cropX)},fps=${fps},setsar=1,format=yuv420p[v${i}]`);
     filters.push(
       input.hasAudio
         ? `[${i}:a]asetpts=PTS-STARTPTS,${p.speed === 1 ? "" : `atempo=${p.speed},`}aresample=48000,aformat=channel_layouts=stereo[a${i}]`

@@ -16,7 +16,7 @@ export const STAGES: { key: Stage; label: string; note: string }[] = [
 ];
 const RANK: Record<Stage, number> = Object.fromEntries(STAGES.map((s, i) => [s.key, i])) as Record<Stage, number>;
 
-export type BoardRecording = { id: string; label: string; status: string; error?: string | null; is_test: boolean; channel_id: string; created_at: string };
+export type BoardRecording = { id: string; label: string; status: string; error?: string | null; is_test: boolean; channel_id: string; created_at: string; /** The file on the pc (worker /recordings), for "is the source still there?" (23-11-2026). */ fingerprint?: string };
 export type BoardVideo = { id: string; recording_id: string | null; format: Format; status: string; is_test: boolean; channel_id: string; created_at: string; promise?: string | null; review_note?: string | null; yt_video_moments?: { moment_id: string }[] };
 export type BoardScript = { id: string; video_id: string; version: number; status: "draft" | "approved" | "rejected" };
 export type BoardJob = { id: string; recording_id: string | null; video_id: string | null; step: string; status: string; error: string | null; created_at: string };

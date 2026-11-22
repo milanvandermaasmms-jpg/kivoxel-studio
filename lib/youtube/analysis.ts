@@ -342,6 +342,8 @@ export type Segment = {
   note: string;
   /** Text shown in the picture during this segment (editor, fase C3). */
   text?: string;
+  /** Vertical crop of a Short: −1 = left edge of the picture, 0 = middle (default), 1 = right edge (review fix, 23-11-2026). */
+  crop_x?: number;
 };
 export type EditPlan = { segments: Segment[]; targetMs: number; warnings: string[] };
 
