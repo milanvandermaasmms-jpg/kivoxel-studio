@@ -214,7 +214,9 @@ export const PROFILES: Record<ChannelProfileKey, ChannelProfile> = {
     games: ["fortnite", "roblox", "gta", "cod", "minecraft"],
     defaultGame: "fortnite",
     // Milan, 18-11-2026: no voice, no captions and no blurred corners on SpawnNado; only music (own tune) or only game sound.
-    audioModes: ["muziek_geen_vo", "alleen_game"],
+    // Milan, 23-11-2026: the voice-over split applies per channel, SpawnNado too: 1 of every 3 Shorts and 1 of every 5 long
+    // videos with an English voice-over (lib/youtube/voicePlan.ts). Music without voice stays the default.
+    audioModes: ["muziek_geen_vo", "alleen_game", "vo_muziek"],
     blur: false,
     block: (g, kind) =>
       kind === "short"

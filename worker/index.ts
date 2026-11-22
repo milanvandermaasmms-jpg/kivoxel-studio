@@ -37,6 +37,7 @@ import { createAligner, createSpeechStore } from "./kidsSpeech.ts";
 import { createPhraseLog } from "./phraseLog.ts";
 import { createMediaLibrary } from "./mediaLibrary.ts";
 import { importTrack, type ImportMeta } from "./musicImport.ts";
+import { createVoiceLedger } from "./voiceLedger.ts";
 import { bestLocalTts, chatterboxTts, findClone } from "./localTts.ts";
 import { configProblems, resolveSettings } from "../lib/kivoxel/config.ts";
 import { brandProblems } from "../lib/kivoxel/brand.ts";
@@ -116,6 +117,7 @@ const montage: Montage | null = version
   ? {
       rendersDir: join(dataDir, "renders"),
       tmpDir: join(dataDir, "tmp"),
+      ffmpeg,
       run: (args, cwd, timeoutMs, options) => runFfmpeg(ffmpeg, args, cwd, timeoutMs, options),
       measure: (file, cwd, options) => measureRender(ffmpeg, ffprobe, file, cwd, options),
       boost: (input, output, cwd, options) => boostLoudness(ffmpeg, input, output, cwd, options),
@@ -253,6 +255,7 @@ const server = createWorkerServer({
   health,
   rendersDir: montage?.rendersDir,
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
+  voicePlan: () => createVoiceLedger(join(dataDir, "voice-plan.json")).summary(),
   // 23-11-2026: the music library and the Uppbeat import (Milan downloads, the studio imports once).
   music: {
     list: async () => (await createMediaLibrary(dataDir, join(import.meta.dirname, "..", "assets", "kivoxel", "sfx"), log).music()).tracks,

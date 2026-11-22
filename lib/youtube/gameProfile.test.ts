@@ -97,13 +97,15 @@ describe("free mode (no credit) works for SpawnNado too", () => {
 describe("SpawnNado: no voice, no captions, no blur", () => {
   it("only music or only game sound; KIVOXEL keeps every mode and its blur", async () => {
     const { channelAudioMode } = await import("./gameProfile");
-    expect(channelAudioMode("vo_muziek", PROFILES.spawnnado)).toBe("muziek_geen_vo");
+    // 23-11-2026: the voice-over split (1 of 3 Shorts, 1 of 5 long videos) applies to SpawnNado too.
+    expect(channelAudioMode("vo_muziek", PROFILES.spawnnado)).toBe("vo_muziek");
     expect(channelAudioMode("alleen_game", PROFILES.spawnnado)).toBe("alleen_game");
     expect(channelAudioMode("vo_muziek", PROFILES.kivoxel)).toBe("vo_muziek");
     expect(PROFILES.spawnnado.blur).toBe(false);
     expect(PROFILES.kivoxel.blur).toBe(true);
     const { presetFile } = await import("../kivoxel/config");
-    for (const m of PROFILES.spawnnado.audioModes ?? []) {
+    // Without voice (the default 2 of 3): no voice and no text story; the voiced mode is the 1-of-3 voice-over version.
+    for (const m of (PROFILES.spawnnado.audioModes ?? []).filter((x) => x !== "vo_muziek")) {
       const spec = presetFile.base.audio_modes[m as keyof typeof presetFile.base.audio_modes];
       expect(spec.voice).toBe(false);
       expect((spec as { text_story?: boolean }).text_story).toBe(false);

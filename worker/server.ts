@@ -49,6 +49,8 @@ export type ServerOptions = {
   poke?: () => void;
   /** 23-11-2026: the music library (GET /music) and importing a track Milan downloaded from Uppbeat (POST /music/import). */
   music?: { list: () => Promise<unknown>; import: (bytes: Buffer, meta: Record<string, unknown>) => Promise<unknown> };
+  /** 23-11-2026: the voice-over split per channel and format, planned and delivered (GET /voice-plan). */
+  voicePlan?: () => Promise<unknown>;
 };
 
 /** The whole request body, at most `max` bytes. */
@@ -102,7 +104,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -134,6 +136,7 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
       if (req.method === "GET" && url.pathname === "/health") return send(200, health());
       if (req.method === "GET" && url.pathname === "/recordings") return send(200, await store.list());
       if (req.method === "GET" && url.pathname === "/music" && music) return send(200, await music.list());
+      if (req.method === "GET" && url.pathname === "/voice-plan" && voicePlan) return send(200, await voicePlan());
       if (req.method === "POST" && url.pathname === "/music/import" && music) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });
         let meta: Record<string, unknown>;

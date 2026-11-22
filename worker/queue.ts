@@ -1,5 +1,6 @@
 // The queue in Supabase (table yt_jobs, migration 007). The dashboard puts steps in; this worker picks them up.
 // Uses the service key from worker/.env.local; that key never goes into the app or Git.
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -51,6 +52,11 @@ import { isQuotaError } from "./manualLink.ts";
 import { reviveMontage, type ReviveJob, type ReviveScript, type ReviveVideo } from "./revive.ts";
 import { nextInLine, oldRefusal, parseWait, retryAfter, waitNote, type WaitingPub } from "../lib/youtube/uploadWait.ts";
 import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
+import { narrationValue } from "../lib/youtube/voicePlan.ts";
+import { producerGate, type GateResult } from "../lib/kivoxel/producerGate.ts";
+import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
+import { measureExport } from "./editorMeasure.ts";
+import { createVoiceLedger } from "./voiceLedger.ts";
 import { boostOf, boostsSummary, kindBoosts, type KindBoost, type KindSample } from "../lib/youtube/learnedKinds.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
@@ -93,6 +99,8 @@ import { speakWithGate } from "./voiceGate.ts";
 export type Montage = {
   rendersDir: string;
   tmpDir: string;
+  /** Path of FFmpeg (the eindredacteur measures the export with it). */
+  ffmpeg?: string;
   run: (args: string[], cwd: string, timeoutMs: number, options?: RunOptions) => Promise<void>;
   /** Quality pass over a finished montage (fase C1); optional so older setups keep working. */
   measure?: (file: string, cwd: string, options?: RunOptions) => Promise<{ probe: QcProbe; stderr: string }>;
@@ -680,6 +688,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let learnedFrom = 0;
     /** 23-11-2026: set when Milan's feedback asked for another moment (see the Short planning below). */
     let newMoment: { from: number; to: number | null; why: string } | null = null;
+    /** 23-11-2026: the producer gate's verdict on the moment of this Short. */
+    let producer: GateResult | null = null;
     // KIVOXEL fase 1: "ai" = Gemini writes the lines, "free" = the template engine (no credits needed).
     let engine: "test" | "ai" | "free" = "test";
     let engineNote: string | null = null;
@@ -726,13 +736,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (job.payload?.new_moment === true && video.data.recording_id) {
           const others = await db.from("yt_videos").select("id, status, yt_video_moments(yt_moments(peak_ms, start_ms, end_ms))").eq("recording_id", video.data.recording_id).neq("id", video.data.id).neq("status", "archived").returns<{ id: string; status: string; yt_video_moments: { yt_moments: { peak_ms: number | null; start_ms: number; end_ms: number } | null }[] }[]>();
           const used = [main.peakMs, ...(others.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments?.peak_ms ?? (m.yt_moments ? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2) : null)).filter((x): x is number => x !== null))];
-          const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000)).sort((a, b) => b.payoff - a.payoff)[0];
+          // Only a moment the producer gate would not reject (gameplay at the peak and in the outcome).
+          const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000) && producerGate({ event: e, timeline: timeline!, sourceOnPc: true }).status !== "AFGEKEURD").sort((a, b) => b.payoff - a.payoff)[0];
           if (alt) {
             newMoment = { from: main.peakMs, to: alt.t_peak, why: alt.description };
             near = alt;
           } else newMoment = { from: main.peakMs, to: null, why: "Geen ander sterk moment in deze opname: hetzelfde moment, nieuwe montage." };
         }
         shortEvent = near ?? { id: `moment-${main.peakMs}`, kind: "ai_moment", type: eventTypeForMoment(main.kind), t_start: main.startMs, t_peak: main.peakMs, t_end: main.endMs, intensity: main.score / 100, payoff: main.score, description: main.reason, t_thumb: main.peakMs, sources: [`ai:${main.kind}`] };
+        // 23-11-2026, producer gate: does this moment earn a script and a montage? AFGEKEURD = no production time
+        // (archived with the reason); Milan's own re-montage request still goes through, with the warning kept.
+        producer = producerGate({ event: shortEvent, timeline, sourceOnPc: true });
+        if (producer.status === "AFGEKEURD" && job.payload?.remontage !== true && !job.payload?.feedback) {
+          const note = `Producer: AFGEKEURD — ${producer.summary}${producer.directions.length ? ` Richting: ${producer.directions[0]}` : ""}`.slice(0, 500);
+          await db.from("yt_videos").update({ status: "archived", review_note: note }).eq("id", video.data.id).in("status", ["idea", "scripted"]);
+          return { version, producer, archived: true };
+        }
         const previousBucket = await previousShortBucket(job.studio_id, video.data, kSettings);
         const sp = planShort(shortEvent, timeline, kSettings, seeded(`${video.data.id}:len:${version}`), previousBucket);
         plan = { segments: sp.segments, targetMs: sp.targetMs, warnings: [...plan.warnings.filter((w) => !/lengte|duur|seconden/i.test(w))] };
@@ -873,7 +892,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await db.from("yt_videos").update({ status: "rendering" }).eq("id", video.data.id).in("status", ["idea", "scripted", "review", "approved"]);
       remontaged = true;
     }
-    return { version, remontaged, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}), ...(newMoment ? { newMoment } : {}) };
+    return { version, remontaged, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}), ...(newMoment ? { newMoment } : {}), ...(producer ? { producer } : {}) };
   }
 
   /**
@@ -931,8 +950,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     type ScriptRow = { id: string; video_id: string; version: number; top_line: string | null; hook: string; lines: ScriptLine[]; edit_plan: Segment[]; target_ms: number; hooks?: unknown; loop_line?: string | null; chosen_hook?: number | null };
     const s = await db.from("yt_scripts").select("*").eq("id", scriptId).eq("studio_id", job.studio_id).single<ScriptRow>();
     if (s.error) throw new Error(s.error.message);
-    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null; created_at?: string };
-    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key, created_at").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; is_test: boolean; status: string; plan_key?: string | null; created_at?: string; channel_id?: string | null };
+    const video = await db.from("yt_videos").select("id, recording_id, format, is_test, status, plan_key, created_at, channel_id").eq("id", s.data.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     if (!video.data.recording_id) throw new Error("De opname van deze video is verwijderd");
     const rec = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).single<{ fingerprint: string }>();
@@ -947,8 +966,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const privacyReady = !!settings.data && "privacy_regions" in settings.data;
     const channelProfile = (await recordingGameInfo(video.data.recording_id, job.studio_id)).profile;
     const blur = channelProfile.blur && privacyReady && settings.data!.privacy_blur ? cleanRegions(settings.data!.privacy_regions) : [];
-    type FlagRow = { position: number; yt_moments: { privacy_flags: string[]; start_ms: number; end_ms: number; peak_ms: number | null } | null };
-    const flags = await db.from("yt_video_moments").select("position, yt_moments(privacy_flags, start_ms, end_ms, peak_ms)").eq("video_id", video.data.id).order("position").returns<FlagRow[]>();
+    type FlagRow = { position: number; yt_moments: { privacy_flags: string[]; start_ms: number; end_ms: number; peak_ms: number | null; kind?: string | null; reason?: string | null } | null };
+    const flags = await db.from("yt_video_moments").select("position, yt_moments(privacy_flags, start_ms, end_ms, peak_ms, kind, reason)").eq("video_id", video.data.id).order("position").returns<FlagRow[]>();
     if (flags.error) throw new Error(flags.error.message);
     const voiceHeard = (flags.data ?? []).some((f) => f.yt_moments?.privacy_flags.includes("voice"));
     const muteGame = privacyReady && settings.data!.mute_flagged_voice === true && voiceHeard;
@@ -980,8 +999,27 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let localVoiceName: string | null = null;
     // KIVOXEL fase 1, section 3: the audio mode of this montage (chosen in the review, else the channel default).
     const askedMode = typeof job.payload?.audio_mode === "string" && (AUDIO_MODES as readonly string[]).includes(job.payload.audio_mode) ? (job.payload.audio_mode as AudioMode) : null;
-    // SpawnNado: only "music, no voice" or "only game sound" (no voice, no captions).
-    const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, channelAudioMode(askedMode ?? presetFile.channel_default.audio_mode, channelProfile));
+    // 23-11-2026, voice-over split per channel: without a choice in the review, 1 of every 3 Shorts and 1 of every 5 long
+    // videos gets the English voice-over (the one where telling adds most); the choice is kept per video, so a retry or a
+    // version 2 never counts twice. Archived videos give their place back.
+    let voicePlan: { voice: boolean; reason: string } | null = null;
+    if (!askedMode && !video.data.is_test && video.data.channel_id) {
+      try {
+        const ledger = createVoiceLedger(join(montage.rendersDir, "..", "voice-plan.json"));
+        const fmt = video.data.format === "C" ? "long" : "short";
+        const known = await ledger.slots(video.data.channel_id, fmt);
+        const ids = known.filter((x) => !x.released).map((x) => x.videoId);
+        const gone = ids.length ? ((await db.from("yt_videos").select("id").in("id", ids).eq("status", "archived").returns<{ id: string }[]>()).data ?? []).map((x) => x.id) : [];
+        const m0 = flags.data?.[0]?.yt_moments;
+        const slot = await ledger.decide(video.data.channel_id, fmt, video.data.id, narrationValue({ kind: m0?.kind ?? null, description: m0?.reason ?? null }), gone);
+        voicePlan = { voice: slot.voice, reason: slot.reason };
+        await lv.event("note", `Stemverdeling: ${slot.voice ? "met Engelse voice-over" : "zonder voice-over"} (${slot.reason})`);
+      } catch (e) {
+        await lv.event("error", `Stemverdeling niet bepaald: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    const planned = askedMode ?? (voicePlan ? (voicePlan.voice ? "vo_muziek" : presetFile.channel_default.audio_mode) : presetFile.channel_default.audio_mode);
+    const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, channelAudioMode(planned, channelProfile));
     const modeSpec = kSettings.audio_modes[kSettings.audio_mode];
     let storyOverlays: StoryText[] = [];
     let mixPlan: MixPlan | null = null;
@@ -1373,6 +1411,57 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // Section 9: a montage with a red check does not go to the review yet: it is made once more by itself (new seeds
       // for zooms, captions, music and SFX). Still red after that: to the review, where the red checks block approval
       // until Milan ticks that he saw them.
+      // 23-11-2026, eindredacteur: judge the export Milan will get (picture, final sound, captions, and how much of the
+      // footage used is gameplay), store it with this version, and correct the cause once by itself.
+      let editor: EditorReport | null = null;
+      if (!video.data.is_test) {
+        try {
+          const outFile = join(montage.rendersDir, fileName);
+          const srt = outFile.replace(/\.mp4$/i, ".srt");
+          const slow = cut.segments.find((g) => g.effects?.includes("slowmo"));
+          const payoffSeg = cut.segments.find((g) => g.part === "payoff");
+          const peakOutMs = slow ? slow.out_start_ms + Math.round((slow.src_end_ms - slow.src_start_ms) / (slow.speed || 1)) : payoffSeg ? payoffSeg.out_start_ms : null;
+          let gameplayShare: number | null = null;
+          if ((await hudOf(video.data.recording_id!, job.studio_id)) === "minecraft") {
+            const vis = JSON.parse(await readFile(join(montage.rendersDir, "..", "visual", `${rec.data.fingerprint}.json`), "utf8").catch(() => "null")) as { fps: number; frames: { health: number; ui: number }[] } | null;
+            if (vis?.frames?.length) {
+              let tot = 0;
+              let game = 0;
+              for (const g of cut.segments) for (let i = Math.floor((g.src_start_ms / 1000) * vis.fps); i < Math.ceil((g.src_end_ms / 1000) * vis.fps) && i < vis.frames.length; i++) {
+                tot++;
+                if (vis.frames[i].health >= 0 && vis.frames[i].ui < 120) game++;
+              }
+              gameplayShare = tot ? game / tot : null;
+            }
+          }
+          const measuredEvents = timeline ? timeline.events.filter((e) => e.payoff >= 30 && cut.segments.some((g) => e.t_peak >= g.src_start_ms && e.t_peak <= g.src_end_ms)).length : null;
+          const measure = await measureExport(montage.ffmpeg ?? "ffmpeg", outFile, plan.durationMs, existsSync(srt) ? srt : null);
+          editor = reviewExport(measure, { short: isShort, peakOutMs, voiceLines: spoken.map((l) => ({ atMs: l.at_ms, text: l.text })), hasVoice: voice.length > 0, gameplayShare, measuredEvents });
+          const cur = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
+          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor } }).eq("job_id", job.id);
+          await lv.event("note", `Eindredacteur: ${editor.status}. ${editor.main}`.slice(0, 500));
+        } catch (e) {
+          if (e instanceof CancelledError) throw e;
+          await lv.event("error", `Eindredacteur kon de export niet beoordelen: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      // Correct the cause once, never in a loop (editor_fix marks a version that already is a correction).
+      if (editor?.status === "Correctie nodig" && !job.payload?.editor_fix && isShort) {
+        const menu = editor.findings.some((f) => f.severity === "blokkeert" && /gameplay/.test(f.text));
+        const outcome = editor.findings.some((f) => f.severity === "blokkeert" && f.kind === "uitkomst");
+        if (menu) {
+          const next = Math.max(s.data.version + 1, 2);
+          await queueStep(job.studio_id, { video_id: video.data.id, step: "script", idempotency_key: `script:${video.data.id}:v${next}`, payload: { version: next, remontage: true, new_moment: true, editor_fix: 1, note: `Eindredacteur: ${editor.main}`.slice(0, 500) } });
+          await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).in("status", ["rendering"]);
+          await lv.event("note", "Eindredacteur: vooral menu in beeld; nieuwe montage met een ander moment (één keer).");
+          return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, editorFix: "nieuw moment", audioMode: kSettings.audio_mode, voicePlan };
+        }
+        if (outcome) {
+          await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${scriptId}:editor:${job.id}`, payload: { ...job.payload, editor_fix: 1, fixes: { ...((job.payload?.fixes as object) ?? {}), payoffExtraMs: 2500 } } });
+          await lv.event("note", "Eindredacteur: uitkomst te kort in beeld; de montage wordt één keer gemaakt met een langere uitkomst.");
+          return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, editorFix: "langere uitkomst", audioMode: kSettings.audio_mode, voicePlan };
+        }
+      }
       const qcRetry = Number(job.payload?.qc_retry ?? 0);
       // 18-11-2026: only for Shorts. A long part takes 25 minutes and its red checks (first frame, a peak of -0.8 dB)
       // come out the same the second time; it goes straight to the review instead.
@@ -1386,9 +1475,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, qcRetry: true, audioMode: kSettings.audio_mode };
       }
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
+      // Voice-over split: this production is delivered (counts once, whatever versions follow).
+      if (voicePlan && video.data.channel_id) await createVoiceLedger(join(montage.rendersDir, "..", "voice-plan.json")).delivered(video.data.channel_id, video.data.format === "C" ? "long" : "short", video.data.id).catch(() => undefined);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote, changes: fixed.changes, feedback: job.payload?.feedback ?? null, previousRender: job.payload?.previous_render ?? null };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote, changes: fixed.changes, feedback: job.payload?.feedback ?? null, previousRender: job.payload?.previous_render ?? null, voicePlan, editor: editor ? { status: editor.status, main: editor.main } : null };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });

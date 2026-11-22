@@ -12,6 +12,9 @@ import { changedCount, scriptDiff } from "@/lib/youtube/scriptDiff";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers } from "@/lib/youtube/review";
 import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
+import { EditorPanel } from "@/components/youtube/EditorPanel";
+import type { EditorReport } from "@/lib/kivoxel/editorReview";
+import type { GateResult } from "@/lib/kivoxel/producerGate";
 import { rejectWithFeedback, remountWithFeedback } from "@/lib/youtube/remountData";
 import { clock, type FeedbackItem, type RemountMode } from "@/lib/youtube/reviewFeedback";
 
@@ -114,6 +117,18 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const older = renders[1];
   const renderJob = render ? (board.jobs.find((j) => j.id === (render as { job_id?: string | null }).job_id) as { result?: { changes?: string[]; feedback?: FeedbackItem[] } | null; payload?: { mode?: string; feedback?: FeedbackItem[] } | null } | undefined) : undefined;
   const lastFeedback = renderJob?.payload?.feedback ?? renderJob?.result?.feedback ?? [];
+  // 23-11-2026: eindredacteur (stored with this version), voice split and producer gate of this production.
+  const editor = (render?.qc as { editor?: EditorReport } | null | undefined)?.editor ?? null;
+  const voicePlan = (renderJob?.result as { voicePlan?: { voice: boolean; reason: string } | null } | null | undefined)?.voicePlan ?? null;
+  const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult } | null } | undefined) : undefined;
+  const producer = scriptJob?.result?.producer ?? null;
+  const jumpTo = (ms: number) => {
+    const v = player.current;
+    if (v) {
+      v.currentTime = ms / 1000;
+      void v.play().catch(() => undefined);
+    }
+  };
   const compareFrom = (ms: number) => {
     for (const v of [player.current, before.current]) if (v) {
       v.currentTime = ms / 1000;
@@ -206,6 +221,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 )}
               </section>
             )}
+            {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} />}
             {item.kind === "final" && render && workerOnline && <FeedbackPanel player={() => player.current} items={feedback} onChange={setFeedback} mode={mode} onMode={setMode} />}
             {done && <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">{done}</p>}
             {item.kind === "final" && render && script?.status === "approved" && !renderBusy && (

@@ -24,6 +24,7 @@ import { WaitingList } from "@/components/youtube/WaitingList";
 import { RejectedList } from "@/components/youtube/RejectedList";
 import { WorkerQueue } from "@/components/youtube/WorkerQueue";
 import { MusicLibrary } from "@/components/youtube/MusicLibrary";
+import { VoiceSplit } from "@/components/youtube/EditorPanel";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -458,6 +459,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                 />
               )}
               {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
+              <VoiceSplit channels={channelsNow.map((c) => ({ id: c.id, name: c.name }))} workerOnline={!!health} />
               <Fold title="Live meekijken" intro="Preview, stappen en logboek van wat de werker nu doet.">
                 <LiveCenter studioId={studio.id} analysis={analysisView?.ready ? analysisView : null}workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
               </Fold>
