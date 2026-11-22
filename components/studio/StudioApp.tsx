@@ -22,6 +22,7 @@ import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/P
 import { LiveList } from "@/components/youtube/LiveList";
 import { WaitingList } from "@/components/youtube/WaitingList";
 import { RejectedList } from "@/components/youtube/RejectedList";
+import { WorkerQueue } from "@/components/youtube/WorkerQueue";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -460,7 +461,9 @@ export function StudioApp({ route }: { route?: string } = {}) {
                 <LiveCenter studioId={studio.id} analysis={analysisView?.ready ? analysisView : null}workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
               </Fold>
               <Fold id="production.queue" title="Wachtrij van de werker" intro={db?.ready ? `${viewJobs.filter((j) => j.status === "queued" || j.status === "running").length} wachtend of bezig · geschiedenis van de laatste stappen` : undefined}>
-                {db === null ? (
+                {flowReady ? (
+                  <WorkerQueue state={flowReady} channel={channel} act={act} />
+                ) : db === null ? (
                   <p className="text-sm text-slate-500">Laden…</p>
                 ) : !db.ready ? (
                   db.reason === "migration" ? <p className="text-sm text-slate-600">De tabellen in Supabase komen er met migratie 007 (nog niet uitgevoerd).</p> : <Notice tone="error">{db.message}</Notice>
