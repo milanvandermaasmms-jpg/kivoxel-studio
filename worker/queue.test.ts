@@ -1,3 +1,4 @@
+import { parseWait } from "../lib/youtube/uploadWait.ts";
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createQueue, type Publisher } from "./queue.ts";
@@ -38,9 +39,19 @@ function fakeDb(answers: { running?: unknown[]; claim?: unknown[][]; rows?: Reco
         call.filters.push(["in", col, v]);
         return chain;
       },
+      // Filters the code uses but these tests do not check (Wachtrij YouTube, 22-11-2026).
+      is: () => chain,
+      like(col: string, v: unknown) {
+        call.filters.push(["like", col, v]);
+        return chain;
+      },
+      neq: () => chain,
+      not: () => chain,
       limit: () => chain,
       returns: () => chain,
       then(resolve: (r: unknown) => void) {
+        // The "videos of this channel already in line" check: nothing waits in these tests.
+        if (call.op === "select" && call.filters.some((f) => f[0] === "like")) return resolve({ data: [], error: null });
         resolve(call.op === "select" && table === "yt_jobs" ? { data: answers.running ?? [], error: null } : call.op === "select" && answers.rows?.[table] ? { data: answers.rows[table], error: null } : { data: null, error: null });
       },
     };
@@ -139,6 +150,19 @@ describe("a private upload to YouTube", () => {
     const updates = await run({ yt_publications: pub, yt_renders: { file_name: "m.mp4", video_id: "v1" } }, publisher(["uploaded", "processed"], uploads));
     expect(uploads).toEqual(["C:/renders/m.mp4"]);
     expect(updates).toEqual([{ status: "uploading", error: null }, { youtube_video_id: "vid12345678", status: "processing", error: null }, { status: "uploaded", error: null }]);
+  });
+
+  it("a refusal by YouTube's day limit puts the video in the Wachtrij YouTube, not back to concept", async () => {
+    const refusing: Publisher = {
+      ...publisher([]),
+      uploader: { ...publisher([]).uploader, upload: async () => Promise.reject(new Error("YouTube-uploadlimiet van dit kanaal via de API is bereikt (YouTube: uploadLimitExceeded: The user has exceeded the number of videos they may upload.).")) } as unknown as Publisher["uploader"],
+    };
+    const updates = await run({ yt_publications: pub, yt_renders: { file_name: "m.mp4", video_id: "v1" } }, refusing);
+    const last = updates.at(-1) as { status: string; error: string };
+    expect(last.status).toBe("queued");
+    const w = parseWait(last.error)!;
+    expect(w.reason).toMatch(/uploadLimitExceeded/);
+    expect(Date.parse(w.retryAt) - Date.parse(w.since)).toBeGreaterThan(23 * 3_600_000);
   });
 
   it("does not upload again when the video ID is already known", async () => {

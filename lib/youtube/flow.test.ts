@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoardScript } from "./board";
-import { buildFlow, countFlow, needsAction, placeOf, privacyOf, type FlowJob, type FlowPublication, type FlowVideo } from "./flow";
+import { waitNote } from "./uploadWait";
+import { buildFlow, countFlow, FLOW, needsAction, placeOf, privacyOf, type FlowJob, type FlowPublication, type FlowVideo } from "./flow";
 
 const video = (over: Partial<FlowVideo> = {}): FlowVideo => ({ id: "v1", recording_id: "r1", format: "A", status: "scripted", is_test: false, channel_id: "c1", created_at: "2026-11-13T10:00:00Z", ...over });
 const script = (over: Partial<BoardScript> = {}): BoardScript => ({ id: "s1", video_id: "v1", version: 1, status: "approved", ...over });
@@ -108,5 +109,18 @@ describe("a montage that never got into the queue", () => {
   it("is not stalled while a montage is queued or running", () => {
     expect(placeOf(video({ status: "rendering" }), [script()], null, [job({ status: "queued" })]).stalled).toBeFalsy();
     expect(placeOf(video({ status: "rendering" }), [script()], null, [job({ status: "running" })]).stalled).toBeFalsy();
+  });
+});
+
+describe("Wachtrij YouTube (22-11-2026)", () => {
+  it("a video that waits for YouTube has its own step between Klaar voor YouTube and Live", () => {
+    const note = waitNote({ since: "2026-11-22T10:00:00.000Z", retryAt: "2026-11-23T10:00:00.000Z", reason: "uploadLimitExceeded" });
+    expect(placeOf(video({ status: "approved" }), [script()], pub({ status: "queued", error: note }), []).flow).toBe("waiting");
+    // Sent by Milan and waiting for the worker, without a wait note: still "uploading".
+    expect(placeOf(video({ status: "approved" }), [script()], pub({ status: "queued" }), []).flow).toBe("uploading");
+    const order = FLOW.map((f) => f.key);
+    expect(order.indexOf("waiting")).toBeGreaterThan(order.indexOf("ready"));
+    expect(order.indexOf("waiting")).toBeLessThan(order.indexOf("live"));
+    expect(buildFlow([video({ status: "approved" })], [script()], [pub({ status: "queued", error: note })], () => "t")[0].wait?.reason).toBe("uploadLimitExceeded");
   });
 });

@@ -4,14 +4,17 @@
 //   ingepland -> live, plus the end states mislukt (with the reason) and gearchiveerd (concept afgewezen).
 // As soon as a video is on YouTube it is "live" (or "ingepland") and shows up nowhere else. Pure functions, tested.
 import { videoStage, type BoardJob, type BoardScript, type BoardVideo } from "./board";
+import { parseWait, type Wait } from "./uploadWait";
 
-export type Flow = "production" | "review" | "ready" | "uploading" | "scheduled" | "live" | "failed" | "archived";
+export type Flow = "production" | "review" | "ready" | "waiting" | "uploading" | "scheduled" | "live" | "failed" | "archived";
 export type Sub = "script" | "voiceover" | "montage";
 
 export const FLOW: { key: Flow; label: string; icon: string; tone: string; dot: string }[] = [
   { key: "production", label: "In productie", icon: "⚙️", tone: "bg-slate-100 text-slate-700", dot: "bg-slate-400" },
   { key: "review", label: "Te keuren", icon: "👀", tone: "bg-violet-100 text-violet-800", dot: "bg-violet-500" },
   { key: "ready", label: "Klaar voor YouTube", icon: "🚀", tone: "bg-amber-100 text-amber-900", dot: "bg-amber-500" },
+  // 22-11-2026: YouTube does not take it now (channel day limit or quota); the worker uploads it by itself, in order.
+  { key: "waiting", label: "Wachtrij YouTube", icon: "⏳", tone: "bg-orange-100 text-orange-800", dot: "bg-orange-500" },
   { key: "uploading", label: "Bezig met uploaden", icon: "⏫", tone: "bg-cyan-50 text-cyan-900", dot: "bg-cyan-500" },
   { key: "scheduled", label: "Ingepland", icon: "🗓️", tone: "bg-sky-100 text-sky-800", dot: "bg-sky-500" },
   { key: "live", label: "Live", icon: "✅", tone: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-500" },
@@ -46,7 +49,8 @@ export type Place = { flow: Flow; sub: Sub | null; reviewKind: "concept" | "fina
 export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPublication | null, jobs: FlowJob[]): Place {
   const base = { sub: null, reviewKind: null, reason: null, job: null };
   if (video.status === "archived") return { ...base, flow: "archived" };
-  // On YouTube (or on its way there) wins over everything else.
+  // On YouTube (or on its way there) wins over everything else. Waiting in line for YouTube is its own step (22-11-2026).
+  if (pub?.status === "queued" && !pub.youtube_video_id && parseWait(pub.error)) return { ...base, flow: "waiting" };
   if (pub && UPLOADING.includes(pub.status)) return { ...base, flow: "uploading" };
   if (pub?.status === "scheduled" || (video.status === "scheduled" && video.youtube_video_id)) return { ...base, flow: "scheduled" };
   if (video.youtube_video_id || pub?.youtube_video_id || video.status === "published" || pub?.status === "uploaded" || pub?.status === "published") return { ...base, flow: "live" };
@@ -126,6 +130,8 @@ export type FlowItem = {
   rejected: boolean;
   /** Status says "montage" but no montage is queued: start it again. */
   stalled: boolean;
+  /** Wachtrij YouTube: since when it waits, from when it is tried again and why (null when it does not wait). */
+  wait: Wait | null;
   /** Next free script version (for "make it again"). */
   nextVersion: number;
 };
@@ -166,6 +172,7 @@ export function buildFlow(videos: FlowVideo[], scripts: BoardScript[], publicati
         createdAt: v.created_at,
         rejected: !!place.rejected,
         stalled: !!place.stalled,
+        wait: place.flow === "waiting" ? parseWait(p?.error) : null,
         nextVersion: Math.max(0, ...scripts.filter((s) => s.video_id === v.id).map((s) => s.version)) + 1,
         error: place.flow === "ready" ? place.reason : null,
       };

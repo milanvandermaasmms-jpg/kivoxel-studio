@@ -27,6 +27,10 @@ function fakeDb(rows: Record<string, unknown>, claims: unknown[][] = []) {
       neq: () => chain,
       in: () => chain,
       lt: () => chain,
+      is: () => chain,
+      not: () => chain,
+      // Wachtrij YouTube (22-11-2026): "videos of this channel already in line"; nothing waits in the smoke test.
+      like: () => ((call.op = "select"), (chain.waitCheck = true), chain),
       order: () => chain,
       limit: () => chain,
       returns: () => chain,
@@ -34,7 +38,7 @@ function fakeDb(rows: Record<string, unknown>, claims: unknown[][] = []) {
       maybeSingle: () => chain,
       then: (resolve: (r: unknown) => void) => {
         calls.push(call);
-        resolve(call.op === "select" ? { data: rows[table] ?? null, error: null } : { data: null, error: null });
+        resolve(call.op === "select" ? { data: chain.waitCheck ? [] : (rows[table] ?? null), error: null } : { data: null, error: null });
       },
     };
     return chain;

@@ -47,8 +47,9 @@ import { buildAss, buildSrt, cleanRegions, narration, renderArgs, renderChunks, 
 import { CancelledError, type RunOptions } from "./ffmpeg.ts";
 import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, type Timeline } from "../lib/youtube/footage.ts";
 import type { Uploader } from "./youtubeUpload.ts";
-import { isQuotaError, QUOTA_BACK } from "./manualLink.ts";
+import { isQuotaError } from "./manualLink.ts";
 import { reviveMontage, type ReviveJob, type ReviveScript, type ReviveVideo } from "./revive.ts";
+import { nextInLine, oldRefusal, parseWait, retryAfter, waitNote, type WaitingPub } from "../lib/youtube/uploadWait.ts";
 import { boostOf, boostsSummary, kindBoosts, type KindBoost, type KindSample } from "../lib/youtube/learnedKinds.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
 import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
@@ -1374,7 +1375,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
   }
 
-  type PublicationRow = { id: string; video_id: string; render_id: string | null; title: string; description: string; tags: string[]; category_id: string; language: "en" | "nl"; made_for_kids: boolean | null; contains_synthetic_media: boolean | null; visibility: "private" | "unlisted" | "public"; publish_at: string | null; status: string; youtube_video_id: string | null; is_test: boolean;
+  type PublicationRow = { id: string; channel_id: string; error: string | null; video_id: string; render_id: string | null; title: string; description: string; tags: string[]; category_id: string; language: "en" | "nl"; made_for_kids: boolean | null; contains_synthetic_media: boolean | null; visibility: "private" | "unlisted" | "public"; publish_at: string | null; status: string; youtube_video_id: string | null; is_test: boolean;
     /** Migration 040 (fase D4b); absent before. */
     captions_enabled?: boolean; thumbnail_ms?: number | null; captions_status?: string | null; thumbnail_status?: string | null };
   // All columns, so the worker keeps working before and after migration 040.
@@ -1500,6 +1501,19 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const wrong = wrongChannelProblem(gi.profile, gi.label);
         if (wrong) throw new Error(wrong);
       }
+      // 22-11-2026, Wachtrij YouTube: when videos of this channel already wait in line, a new one joins at the back
+      // instead of jumping ahead, so the order Milan sent them in stays the order they go to YouTube.
+      const myWait = parseWait(pub.error);
+      if (!myWait) {
+        const ahead = await db.from("yt_publications").select("id").eq("channel_id", pub.channel_id).eq("status", "queued").is("youtube_video_id", null).like("error", "Wachtrij YouTube%").neq("id", pub.id).limit(1).returns<{ id: string }[]>();
+        if (!ahead.error && ahead.data?.length) {
+          const at = new Date().toISOString();
+          const note = waitNote({ since: at, retryAt: at, reason: "Achter in de wachtrij: er wachten al video's van dit kanaal." });
+          await setPub({ status: "queued", error: note });
+          await lv.event("note", "In de Wachtrij YouTube gezet, achter de video's die er al staan.");
+          return { deferred: "line" };
+        }
+      }
       await setPub({ status: "uploading", error: null });
       await lv.phase(`Uploaden naar YouTube (${visibilityWord(pub)})`, 0);
       const started = Date.now();
@@ -1527,14 +1541,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           throw e;
         });
       if (!result) {
-        // 21-11-2026: the exact words (from YouTube or from the studio's own counter) go along, so Milan sees the real reason.
-        const note = (/uploadLimitExceeded/.test(quotaWhy)
-          ? `YouTube laat dit kanaal nu niet via de studio uploaden (uploadlimiet via de API). Met de hand in YouTube Studio uploaden kan wel; koppel hem daarna hier met "Zelf uploaden". Reden van YouTube: ${quotaWhy}`
-          : `${QUOTA_BACK} Reden: ${quotaWhy}`
-        ).slice(0, 900);
-        await setPub({ status: "draft", error: note });
-        await lv.event("note", note);
-        return { deferred: "quota", reason: quotaWhy.slice(0, 500) };
+        // 22-11-2026, Wachtrij YouTube: not back to "concept" but in line. It keeps its place (since) and the worker
+        // tries again by itself (24 hours after a refusal by the channel limit, after midnight Pacific for the quota).
+        const now = Date.now();
+        const note = waitNote({ since: myWait?.since ?? new Date(now).toISOString(), retryAt: new Date(retryAfter(quotaWhy, now)).toISOString(), reason: quotaWhy });
+        await setPub({ status: "queued", error: note });
+        await lv.event("note", `In de Wachtrij YouTube: ${quotaWhy}`.slice(0, 500));
+        return { deferred: "quota", waiting: true, reason: quotaWhy.slice(0, 500) };
       }
       videoId = result.videoId;
       bytes = result.bytes;
@@ -1814,6 +1827,59 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   }
 
   /**
+   * 22-11-2026, Wachtrij YouTube: every 2 minutes the worker sends the first video in line of each channel to YouTube,
+   * once its time has come and nothing else uploads for that channel. One at a time per channel, oldest first, so the
+   * order stays as Milan sent them. Videos refused before the queue existed (back in "concept" with a quota or limit
+   * note) join the line once, in the order they were refused. Archived videos and videos already on YouTube drop out.
+   */
+  async function drainWaiting(now = Date.now()) {
+    type Row = { id: string; studio_id: string; channel_id: string; video_id: string; status: string; error: string | null; updated_at: string; yt_videos: { status: string } | null };
+    const cols = "id, studio_id, channel_id, video_id, status, error, updated_at, yt_videos(status)";
+    const [waiting, refused] = await Promise.all([
+      db.from("yt_publications").select(cols).eq("status", "queued").is("youtube_video_id", null).like("error", "Wachtrij YouTube%").limit(500).returns<Row[]>(),
+      db.from("yt_publications").select(cols).eq("status", "draft").is("youtube_video_id", null).not("error", "is", null).limit(500).returns<Row[]>(),
+    ]);
+    if (waiting.error || refused.error) return log(`Wachtrij YouTube niet nagekeken: ${(waiting.error ?? refused.error)!.message}`);
+    // Refusals from before the queue: into the line, oldest refusal first (they keep that moment as "since").
+    for (const r of (refused.data ?? []).filter((x) => oldRefusal(x.error) && x.yt_videos?.status !== "archived").sort((a, b) => a.updated_at.localeCompare(b.updated_at))) {
+      const at = new Date(r.updated_at).toISOString();
+      const upd = await db.from("yt_publications").update({ status: "queued", error: waitNote({ since: at, retryAt: new Date(now).toISOString(), reason: (r.error ?? "").slice(0, 300) }) }).eq("id", r.id).eq("status", "draft");
+      if (upd.error) log(`Publicatie ${r.id} niet in de wachtrij gezet: ${upd.error.message}`);
+    }
+    if ((refused.data ?? []).some((x) => oldRefusal(x.error))) return; // the next round sees them in line
+    const list: (WaitingPub & { studioId: string; videoId: string })[] = [];
+    for (const r of waiting.data ?? []) {
+      const wait = parseWait(r.error);
+      if (!wait) continue;
+      if (r.yt_videos?.status === "archived") {
+        // Archived while waiting: out of the line (back to concept, so nothing is sent).
+        await db.from("yt_publications").update({ status: "draft", error: null }).eq("id", r.id).eq("status", "queued");
+        continue;
+      }
+      list.push({ id: r.id, channelId: r.channel_id, wait, studioId: r.studio_id, videoId: r.video_id });
+    }
+    if (!list.length) return;
+    // A channel with an upload that waits or runs goes on with that one first.
+    const open = await db.from("yt_jobs").select("payload").eq("step", "upload").in("status", ["queued", "running"]).returns<{ payload: { publication_id?: string } | null }[]>();
+    if (open.error) return log(`Wachtrij YouTube: lopende uploads niet nagekeken: ${open.error.message}`);
+    const openIds = (open.data ?? []).map((j) => j.payload?.publication_id).filter((x): x is string => !!x);
+    const busy = new Set<string>();
+    if (openIds.length) {
+      const chans = await db.from("yt_publications").select("channel_id").in("id", openIds).returns<{ channel_id: string }[]>();
+      for (const c of chans.data ?? []) busy.add(c.channel_id);
+    }
+    for (const next of nextInLine(list, busy, now)) {
+      const p = list.find((x) => x.id === next.id)!;
+      try {
+        await queueStep(p.studioId, { video_id: p.videoId, step: "upload", idempotency_key: `upload:${p.id}:wachtrij:${now}`, payload: { publication_id: p.id }, max_attempts: 5 });
+        log(`Wachtrij YouTube: publicatie ${p.id} gaat nu naar YouTube`);
+      } catch (e) {
+        log(`Wachtrij YouTube: publicatie ${p.id} niet verstuurd: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  /**
    * 20-11-2026: every 5 minutes, a montage that failed, was cancelled or got lost is started again once by the worker
    * itself (see revive.ts), so Milan does not have to click "Opnieuw proberen" for it.
    */
@@ -2023,6 +2089,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       setInterval(() => void settleDueSchedules().catch(() => undefined), 5 * 60_000);
       // 20-11-2026: failed, cancelled or lost montages start again once by themselves (checked at start and every 5 minutes).
       void reviveMontages().catch(() => undefined);
+      // 22-11-2026: the Wachtrij YouTube (checked at start and every 2 minutes).
+      void drainWaiting().catch(() => undefined);
+      setInterval(() => void drainWaiting().catch(() => undefined), 2 * 60_000);
       setInterval(() => void reviveMontages().catch(() => undefined), 5 * 60_000);
     },
     recover,
@@ -2032,6 +2101,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     failStuck,
     settleDueSchedules,
     reviveMontages,
+    drainWaiting,
     stop() {
       if (timer) clearInterval(timer);
     },

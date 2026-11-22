@@ -20,6 +20,7 @@ import { archiveVideo, queueRender, remontage } from "@/lib/youtube/analysisData
 import { oldScript } from "@/components/youtube/AudioModeSwitch";
 import { ArchivedList, FailedList, ProductionList } from "@/components/youtube/ProductionList";
 import { LiveList } from "@/components/youtube/LiveList";
+import { WaitingList } from "@/components/youtube/WaitingList";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -64,6 +65,8 @@ const TABS = [
   { key: "upload", label: "Uploaden", icon: "📤", hash: "uploaden" },
   { key: "action", label: "Actie nodig", icon: "👀", hash: "actie" },
   { key: "production", label: "In productie", icon: "⚙️", hash: "productie" },
+  // 22-11-2026: between Klaar voor YouTube and Live; what YouTube does not take now, in the order it goes.
+  { key: "waiting", label: "Wachtrij YouTube", icon: "⏳", hash: "wachtrij" },
   { key: "scheduled", label: "Ingepland", icon: "🗓️", hash: "ingepland" },
   { key: "live", label: "Live op YouTube", icon: "✅", hash: "live" },
   { key: "insights", label: "Inzichten", icon: "📈", hash: "inzichten" },
@@ -73,7 +76,7 @@ type Tab = (typeof TABS)[number]["key"];
 const OLD_HASH: Record<string, Tab> = { klaar: "action", review: "action", pijplijn: "action", bord: "production", overzicht: "insights", gameplay: "upload", maker: "upload", kalender: "scheduled", youtube: "live", cijfers: "insights" };
 /** Buttons inside older parts still name their old tab; this is where those parts live now. */
 const OLD_TAB: Record<string, Tab> = { library: "upload", maker: "upload", pipeline: "action", review: "action", ready: "action", live: "production", stats: "insights", settings: "settings", board: "production", overview: "insights", calendar: "scheduled", youtube: "live" };
-const FLOW_TAB: Record<Flow, Tab | null> = { production: "production", review: "action", ready: "action", uploading: "action", failed: "action", scheduled: "scheduled", live: "live", archived: null };
+const FLOW_TAB: Record<Flow, Tab | null> = { production: "production", review: "action", ready: "action", waiting: "waiting", uploading: "action", failed: "action", scheduled: "scheduled", live: "live", archived: null };
 
 const STEP_TONE: Record<StepState, { mark: string; tone: string }> = {
   works: { mark: "✓", tone: "text-emerald-700" },
@@ -554,6 +557,8 @@ export function StudioApp({ route }: { route?: string } = {}) {
               )}
             </>
           )}
+
+          {tab === "waiting" && (flowError ?? (!flowReady ? loading : <WaitingList state={flowReady} channel={channel} onArchive={(id) => void act(() => archiveVideo(id))} />))}
 
           {tab === "scheduled" && (
             <>
