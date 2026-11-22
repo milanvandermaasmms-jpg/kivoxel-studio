@@ -47,7 +47,21 @@ export type ServerOptions = {
   youtube?: YouTubeRoutes;
   /** Ivar: check the queue now (POST /poke, only from the dashboard). Starts nothing by itself. */
   poke?: () => void;
+  /** 23-11-2026: the music library (GET /music) and importing a track Milan downloaded from Uppbeat (POST /music/import). */
+  music?: { list: () => Promise<unknown>; import: (bytes: Buffer, meta: Record<string, unknown>) => Promise<unknown> };
 };
+
+/** The whole request body, at most `max` bytes. */
+async function readBody(req: IncomingMessage, max: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > max) throw new Error("Het bestand is te groot (maximaal 60 MB).");
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
 
 /** What the server needs from the YouTube connection; index.ts wires it to worker/youtube.ts and Supabase. */
 export type YouTubeRoutes = {
@@ -88,7 +102,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -119,6 +133,23 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
     try {
       if (req.method === "GET" && url.pathname === "/health") return send(200, health());
       if (req.method === "GET" && url.pathname === "/recordings") return send(200, await store.list());
+      if (req.method === "GET" && url.pathname === "/music" && music) return send(200, await music.list());
+      if (req.method === "POST" && url.pathname === "/music/import" && music) {
+        if (!origin) return send(403, { error: "Alleen via het dashboard" });
+        let meta: Record<string, unknown>;
+        try {
+          meta = JSON.parse(url.searchParams.get("meta") ?? "{}") as Record<string, unknown>;
+        } catch {
+          return send(400, { error: "De gegevens van de track zijn onleesbaar" });
+        }
+        const bytes = await readBody(req, 60 * 1024 * 1024);
+        if (bytes.length < 1000) return send(400, { error: "Geen audiobestand ontvangen" });
+        try {
+          return send(200, await music.import(bytes, meta));
+        } catch (e) {
+          return send(400, { error: e instanceof Error ? e.message : String(e) });
+        }
+      }
       if (req.method === "POST" && url.pathname === "/poke" && poke) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });
         poke();

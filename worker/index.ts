@@ -36,6 +36,7 @@ import { createEventStore } from "./eventTimeline.ts";
 import { createAligner, createSpeechStore } from "./kidsSpeech.ts";
 import { createPhraseLog } from "./phraseLog.ts";
 import { createMediaLibrary } from "./mediaLibrary.ts";
+import { importTrack, type ImportMeta } from "./musicImport.ts";
 import { bestLocalTts, chatterboxTts, findClone } from "./localTts.ts";
 import { configProblems, resolveSettings } from "../lib/kivoxel/config.ts";
 import { brandProblems } from "../lib/kivoxel/brand.ts";
@@ -252,6 +253,11 @@ const server = createWorkerServer({
   health,
   rendersDir: montage?.rendersDir,
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
+  // 23-11-2026: the music library and the Uppbeat import (Milan downloads, the studio imports once).
+  music: {
+    list: async () => (await createMediaLibrary(dataDir, join(import.meta.dirname, "..", "assets", "kivoxel", "sfx"), log).music()).tracks,
+    import: (bytes, meta) => importTrack({ musicDir: join(dataDir, "kivoxel-media", "music"), ffmpeg, bytes, meta: meta as unknown as ImportMeta }),
+  },
   youtube: { ...youtubeLink, refresh: statsSync ? async () => ((await youtube.status()).connected ? statsSync.sync(true) : "YouTube is niet gekoppeld") : undefined, link: manualLink ?? undefined },
   log,
   // Local mode: no queue, so run the intake straight away. Queue mode: the dashboard queues the step.

@@ -25,6 +25,13 @@ export type Track = {
   beat_offset_ms?: number;
   /** A generated test track: fine for testing the mix, never for a real upload. */
   test?: boolean;
+  /** 23-11-2026, imported from Uppbeat: the credit line YouTube needs (only for a free download; empty on a paid plan). */
+  credit?: string;
+  /** Channel profiles this track may be used on (kivoxel, spawnnado); empty = all. */
+  channels?: string[];
+  added_at?: string;
+  /** The tempo was measured by the worker (an estimate), not given by Milan. */
+  bpm_measured?: boolean;
 };
 export const SFX_KINDS = ["whoosh", "impact", "scratch", "pop", "riser"] as const;
 export type SfxKind = (typeof SFX_KINDS)[number];

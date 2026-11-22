@@ -23,6 +23,7 @@ import { LiveList } from "@/components/youtube/LiveList";
 import { WaitingList } from "@/components/youtube/WaitingList";
 import { RejectedList } from "@/components/youtube/RejectedList";
 import { WorkerQueue } from "@/components/youtube/WorkerQueue";
+import { MusicLibrary } from "@/components/youtube/MusicLibrary";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -620,6 +621,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
         <>
           <ChannelCard studioId={studio.id} onError={setError} allowAdd={!!route} />
           <StudioPreferences prefs={learning.prefs} channels={channelsNow} onChanged={learning.refresh} />
+          <MusicLibrary state={flowReady} workerOnline={!!health} />
           {flowReady && <ArchivedList state={flowReady} act={act} />}
           <PrivateTermsSettings studioId={studio.id} onError={setError} />
           <Section title="Werker op de pc" intro="De werker doet het zware werk op de pc van Milan: bestanden ontvangen, FFmpeg en later montage en uploaden. Hij werkt alleen als de pc aanstaat.">

@@ -1,7 +1,7 @@
 // The queue in Supabase (table yt_jobs, migration 007). The dashboard puts steps in; this worker picks them up.
 // Uses the service key from worker/.env.local; that key never goes into the app or Git.
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   analysisPrompt,
@@ -1120,7 +1120,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const lib = await media.music().catch(() => ({ dir: "", tracks: [] as Track[] }));
           const recentTracks = await media.musicLog.recent().catch(() => [] as string[]);
           // Milan, 16-11-2026: busy music for action, calm music for searching and farming, cross-fading with the content.
-          const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: lib.tracks, recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
+          const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: lib.tracks.filter((t) => !t.channels?.length || t.channels.includes(channelProfile.key)), recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
           if (parts.length) {
             const titles = [...new Set(parts.map((p) => p.title))];
             const own = parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("eigen"));
@@ -1313,7 +1313,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const count = (l: string) => items.filter((i) => i.level === l).length;
           qcSummary = { green: count("green"), orange: count("orange"), red: count("red"), lufs: log.integratedLufs, voSyncRed: items.filter((i) => i.level === "red" && i.key === "vo_sync").length };
           // "audio": which mode, music and SFX this montage got (the review shows it; no extra column needed).
-          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null, /** Captions on the real word times and the voice version of 16-11-2026 (for re-montage). */ aligned: (spoken as { heard?: unknown[] }[]).some((l) => !!l.heard?.length), voiceVersion: 3 } : null;
+          const audio = mixPlan ? { mode: mixPlan.mode, label: mixPlan.spec.label, music: mixPlan.music?.title ?? null, /** 23-11-2026: which library files (for the credit on the upload sheet and the usage per version). */ musicFiles: (mixPlan.music?.parts ?? []).map((p) => basename(p.file)), sfx: mixPlan.sfx.length, voice: voice.length > 0, voiceEngine: voice.length ? (localVoiceName ?? voiceName) : null, /** Captions on the real word times and the voice version of 16-11-2026 (for re-montage). */ aligned: (spoken as { heard?: unknown[] }[]).some((l) => !!l.heard?.length), voiceVersion: 3 } : null;
           // Chapters of a long video, ready for the description (section 7.7).
           const chapterLines = fase1 && !isShort ? chapters(cut.segments, timeline, plan.durationMs) : [];
           const saved = await db.from("yt_renders").update({ qc: { measured_at: new Date().toISOString(), probe: measured.probe, log, items, ...(audio ? { audio } : {}), ...(chapterLines.length ? { chapters: chapterLines } : {}), ...(interrupts.length ? { fx: { zoom: zoomStyle, captions: captionStyle, interrupts: interrupts.length, freezes: freezes.map((f) => f.text) } } : {}) } }).eq("job_id", job.id);
@@ -1489,6 +1489,20 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { captions, thumbnail };
   }
 
+  /**
+   * 23-11-2026: a track whose licence asks for a credit (an Uppbeat free download) gets its credit line in the description
+   * of exactly the version that uses it. On Milan's paid plan with the channel on the safelist no credit is needed, so
+   * nothing is added. Never twice; never past YouTube's 5000 bytes.
+   */
+  async function withMusicCredit(description: string, files: string[]): Promise<string> {
+    if (!files.length || !montage?.media) return description;
+    const lib = await montage.media.music().catch(() => null);
+    const credits = [...new Set((lib?.tracks ?? []).filter((t) => files.includes(t.file) && t.credit).map((t) => t.credit!))].filter((c) => !description.includes(c));
+    if (!credits.length) return description;
+    const next = [description.trim(), credits.join("\n")].filter(Boolean).join("\n\n");
+    return Buffer.byteLength(next, "utf8") <= 5000 ? next : description;
+  }
+
   const visibilityWord = (pub: PublicationRow) => (pub.publish_at ? "ingepland" : pub.visibility === "private" ? "privé" : pub.visibility === "public" ? "openbaar" : "verborgen");
 
   /** Upload to YouTube (fase D3, D4). Only for a publication that Milan sent (status queued). */
@@ -1502,7 +1516,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (pub.status !== "queued" && pub.status !== "uploading") throw new Error("Deze publicatie staat niet klaar om te uploaden");
       // The same checks as the screen: Milan chose title, audience, AI notice and montage himself.
       if (!pub.title.trim() || !pub.render_id) throw new Error("Titel of montage ontbreekt");
-      const render = await db.from("yt_renders").select("file_name, video_id").eq("id", pub.render_id).single<{ file_name: string; video_id: string }>();
+      const render = await db.from("yt_renders").select("file_name, video_id, qc").eq("id", pub.render_id).single<{ file_name: string; video_id: string; qc: { audio?: { musicFiles?: string[] } } | null }>();
       if (render.error) throw new Error(render.error.message);
       if (render.data.video_id !== pub.video_id) throw new Error("Deze montage hoort niet bij deze video");
       if (publisher.tokensChannelId) {
@@ -1542,7 +1556,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         .upload({
         key: pub.id,
         file: join(publisher.rendersDir, render.data.file_name),
-        meta: { title: pub.title, description: pub.description, tags: pub.tags, category_id: pub.category_id, language: pub.language, made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at },
+        meta: { title: pub.title, description: await withMusicCredit(pub.description, render.data.qc?.audio?.musicFiles ?? []), tags: pub.tags, category_id: pub.category_id, language: pub.language, made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at },
         signal: lv.signal,
         onProgress: (sent, total) => {
           const seconds = (Date.now() - started) / 1000;
