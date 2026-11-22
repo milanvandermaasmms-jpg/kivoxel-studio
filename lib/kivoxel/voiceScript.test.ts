@@ -43,8 +43,13 @@ describe("timing helpers", () => {
     expect(all.length).toBeGreaterThan(100);
     expect(all.filter(looksDutch)).toEqual([]);
   });
-  it("is explosive, not soft: no calm or ironic openers", () => {
-    for (const l of [...Object.values(templates.opener).flat(), ...persona.expressions.reaction]) expect(l).toMatch(/[!?…]|[A-Z]{2,}/);
+  // 23-11-2026 (Milan): "the voice sounds like someone who knows the game": reactions are short and natural, no shouting
+  // in CAPS and none of the generic phrases that fit any clip.
+  it("reactions are short and natural, and no opener uses a banned generic phrase", () => {
+    for (const l of persona.expressions.reaction) {
+      expect(l.split(/\s+/).length).toBeLessThanOrEqual(5);
+      expect(l).not.toMatch(/[A-Z]{3,}/);
+    }
     for (const banned of persona.banned_phrases) expect([...Object.values(templates.opener).flat()].join(" ").toLowerCase()).not.toContain(banned);
   });
 });

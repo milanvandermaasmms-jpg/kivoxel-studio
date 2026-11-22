@@ -3,8 +3,8 @@
   "version": 2,
   "opener": {
     "fail": ["This is about to go SO wrong.", "He has NO idea what's coming.", "Bro. BRO. Don't do it!", "Worst. Decision. EVER.", "He's about to lose EVERYTHING."],
-    "bijna_dood": ["He is NOT surviving this!", "One more hit and it's OVER!", "This is the closest call EVER!", "He should be DEAD right now!", "Hardcore. One life. Watch this!"],
-    "geluk": ["You will NOT believe this!", "This almost NEVER happens!", "Wait. WAIT. Is that…?!", "The luckiest moment EVER!"],
+    "bijna_dood": ["He is NOT surviving this!", "One more hit and it's OVER!", "This is the closest call EVER!", "He should be DEAD right now!", "Hardcore. One life. Look at his hearts."],
+    "geluk": ["Keep an eye on that chest.", "This almost NEVER happens!", "Wait. WAIT. Is that…?!", "The luckiest moment EVER!"],
     "bouw": ["From NOTHING to THIS!", "Wait for the end. Trust me!", "This build is INSANE!"],
     "grap": ["What is he even DOING?!", "This makes ZERO sense!", "Bro had ONE job!"],
     "jumpscare": ["Turn your sound UP!", "Something is RIGHT behind him!", "Do NOT look away!"]

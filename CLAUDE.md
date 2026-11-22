@@ -9,7 +9,8 @@ Hoe de Studio werkt voor Milan: `docs/handleiding.md` (1 pagina).
 - Milan is geen programmeur: leg keuzes kort uit in gewoon Nederlands. Hij werkt op Windows.
 - App-teksten en uitleg in het Nederlands; code, bestanden en variabelen in het Engels.
 - **Video-content is ALTIJD Engels, nooit Nederlands** (besluit Milan, 16-11-2026): stem, hooks, ondertitels, thumbnailtekst, scriptzinnen en testrenders. Alleen de Studio zelf is Nederlands. De test `looksDutch` in `lib/kivoxel` bewaakt de configbestanden.
-- Toon van stem en hooks: explosief en hard (gamer-hype), nooit soft of ironisch-rustig; wel kindvriendelijk.
+- Toon van stem en hooks (besluit Milan, 23-11-2026, vervangt "explosief en hard"): klinkt als iemand die de game kent. Elke zin één taak, specifiek voor deze opname, onthulling niet verklappen, natuurlijk gesproken Engels, stilte mag; geen generieke kreten of geschreeuw in hoofdletters. Kindvriendelijk.
+- Stemverdeling (besluit Milan, 23-11-2026), per kanaal, ook SpawnNado: 1 van iedere 3 Shorts en 1 van iedere 5 lange video's met Engelse voice-over (`lib/youtube/voicePlan.ts`).
 - Een fase is pas af na `npx tsc --noEmit`, `npm test`, `npm run build`, een controle in de browser en een testvideo voor Milan.
 
 ## Stack
