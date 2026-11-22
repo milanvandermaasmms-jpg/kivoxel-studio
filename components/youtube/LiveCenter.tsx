@@ -344,7 +344,7 @@ function NotesZone({ steps, liveColumns }: { steps: Activity[]; liveColumns: boo
   return (
     <>
       {toast && (
-        <div role="status" className="fixed bottom-20 right-4 z-50 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg md:bottom-6">
+        <div role="status" className="fixed bottom-20 right-4 z-50 rounded-lg border border-white/10 bg-[#0b1220] px-4 py-2 text-sm text-white shadow-lg md:bottom-6">
           <CheckCircle2 className="mr-1.5 inline h-4 w-4 text-emerald-400" aria-hidden />
           {toast}
         </div>

@@ -87,7 +87,7 @@ export function StudioTopBar({ items, channels, channel, onChannel, onOpen, hide
         )}
       </div>
       {toast && (
-        <div role="status" className="fixed bottom-20 right-4 z-50 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg md:bottom-6">
+        <div role="status" className="fixed bottom-20 right-4 z-50 rounded-lg border border-white/10 bg-[#0b1220] px-4 py-2 text-sm text-white shadow-lg md:bottom-6">
           <button type="button" onClick={() => onOpen("ready")} className="text-left">
             {toast}
           </button>
