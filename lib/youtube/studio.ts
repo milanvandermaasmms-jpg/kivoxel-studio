@@ -2,6 +2,7 @@
 // with the worker alone and shows that the database part is not ready yet.
 import { friendlyError, supabase } from "../supabase";
 import type { LocalRecording } from "./protocol";
+import type { Briefing } from "../kivoxel/briefing";
 
 export type DbRecording = { id: string; fingerprint: string; status: "uploading" | "received" | "ready" | "failed"; error: string | null; channel_id?: string | null };
 export type DbJob = { id: string; step: string; status: "queued" | "running" | "done" | "failed" | "cancelled"; attempts: number; error: string | null; created_at: string; recording_id: string | null; video_id: string | null; channel_id?: string | null };
@@ -31,7 +32,7 @@ export async function isKnownRecording(studioId: string, fingerprint: string): P
 }
 
 /** Records the received file and queues the intake step for the worker. Safe to repeat: nothing is added twice. */
-export async function registerRecording(studioId: string, local: LocalRecording, channelId?: string | null): Promise<void> {
+export async function registerRecording(studioId: string, local: LocalRecording, channelId?: string | null, briefing?: Briefing | null): Promise<void> {
   const insert = await supabase
     .from("yt_recordings")
     // Without a channel the database puts it on the default channel (KIVOXEL); from /studio/<channel> it goes to that channel.
@@ -45,8 +46,19 @@ export async function registerRecording(studioId: string, local: LocalRecording,
     if (existing.error) throw new Error(friendlyError(existing.error.message));
     id = existing.data.id;
   }
-  const job = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: id, step: "intake", idempotency_key: `intake:${id}` });
+  const job = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: id, step: "intake", idempotency_key: `intake:${id}`, ...(briefing ? { payload: { briefing } } : {}) });
   if (job.error && job.error.code !== "23505") throw new Error(friendlyError(job.error.message));
+  // The same file again (duplicate) with a new briefing: a second, cheap intake carries it (no new analysis is paid).
+  if (job.error && briefing) await saveBriefing(studioId, id!, briefing);
+}
+
+/**
+ * 23-11-2026 (superprompt V5, fase 11): the production briefing lives in the payload of an intake job of the recording
+ * (no migration needed). Changing it later adds a new intake job (ffprobe only, free); the newest briefing counts.
+ */
+export async function saveBriefing(studioId: string, recordingId: string, briefing: Briefing): Promise<void> {
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "intake", idempotency_key: `intake:${recordingId}:briefing:${Date.now()}`, payload: { briefing } });
+  if (error && error.code !== "23505") throw new Error(friendlyError(error.message));
 }
 
 export async function retryJob(id: string): Promise<void> {

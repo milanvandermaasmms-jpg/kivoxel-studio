@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { EditorReport } from "@/lib/kivoxel/editorReview";
 import type { GateResult } from "@/lib/kivoxel/producerGate";
+import type { BriefCheck } from "@/lib/kivoxel/briefing";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
 const clock = (ms: number) => `${String(Math.floor(ms / 60_000)).padStart(2, "0")}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
@@ -13,8 +14,8 @@ const TONE: Record<string, string> = { "Klaar voor Milan": "border-emerald-200 b
  * saw blind in the export, every finding with a button to that moment, and why this version has (no) voice-over and
  * what the producer gate said about the moment.
  */
-export function EditorPanel({ editor, voicePlan, producer, onJump }: { editor: EditorReport | null | undefined; voicePlan?: { voice: boolean; reason: string } | null; producer?: GateResult | null; onJump: (ms: number) => void }) {
-  if (!editor && !voicePlan && !producer) return null;
+export function EditorPanel({ editor, voicePlan, producer, onJump, briefing, onWaive }: { editor: EditorReport | null | undefined; voicePlan?: { voice: boolean; reason: string } | null; producer?: GateResult | null; onJump: (ms: number) => void; /** 23-11-2026: did this version follow the upload briefing? */ briefing?: { checks: BriefCheck[]; verdict: { ok: boolean; text: string } } | null; onWaive?: (key: string) => void }) {
+  if (!editor && !voicePlan && !producer && !briefing) return null;
   return (
     <section aria-label="Eindredacteur" className="space-y-2 text-sm">
       {editor && (
@@ -37,6 +38,24 @@ export function EditorPanel({ editor, voicePlan, producer, onJump }: { editor: E
               ))}
             </ul>
           )}
+        </div>
+      )}
+      {briefing && briefing.checks.length > 0 && (
+        <div className={`space-y-1 rounded-md border p-3 ${briefing.verdict.ok ? "border-slate-200" : "border-red-200 bg-red-50 text-red-900"}`}>
+          <p className="font-semibold">Briefing: {briefing.verdict.ok ? "gevolgd" : "niet gevolgd"}</p>
+          <ul className="space-y-1 text-xs">
+            {briefing.checks.map((c) => (
+              <li key={c.key} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium">{c.status === "ok" ? "✓" : c.status === "niet" ? "✗" : c.status === "vervallen" ? "–" : "?"} {c.instruction}</span>
+                <span className="opacity-80">{c.why}</span>
+                {c.status === "niet" && onWaive && (
+                  <button type="button" onClick={() => onWaive(c.key)} className="underline underline-offset-2">
+                    Laat vervallen
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {(voicePlan || producer) && (

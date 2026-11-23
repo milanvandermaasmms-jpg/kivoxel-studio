@@ -27,6 +27,7 @@ import { MusicLibrary } from "@/components/youtube/MusicLibrary";
 import { VoiceSplit } from "@/components/youtube/EditorPanel";
 import { CandidateList } from "@/components/youtube/ProducerDossier";
 import type { Candidate } from "@/lib/kivoxel/producerGate";
+import type { Briefing } from "@/lib/kivoxel/briefing";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -214,19 +215,19 @@ export function StudioApp({ route }: { route?: string } = {}) {
 
   // 20-11-2026: a recording goes to the channel that was open when its upload STARTED (not the one open when it ends),
   // and a Fortnite/Roblox/GTA/CoD recording always goes to SpawnNado, never to KIVOXEL (Minecraft only).
-  const register = async (rec: LocalRecording, chosen: string | null): Promise<string | null> => {
+  const register = async (rec: LocalRecording, chosen: string | null, briefing: Briefing | null = null): Promise<string | null> => {
     const { channelId, moved } = routeRecording(channelsNow, chosen, rec.label, rec.originalName);
-    await registerRecording(studio.id, rec, channelId);
+    await registerRecording(studio.id, rec, channelId, briefing);
     return moved ? `Geen Minecraft: deze opname staat bij ${moved.name}.` : null;
   };
 
-  const onReceived = async (outcome: UploadOutcome, startedOn: string | null): Promise<string | null> => {
+  const onReceived = async (outcome: UploadOutcome, startedOn: string | null, briefing: Briefing | null = null): Promise<string | null> => {
     let note: string | null = null;
     // Also for a duplicate: the file may already be on the pc but not in this studio's database. Registering is safe to repeat.
     if (dbReady) {
       try {
-        const moved = await register(outcome.recording, startedOn);
-        if (outcome.kind === "done") note = ["De intake staat in de wachtrij.", moved].filter(Boolean).join(" ");
+        const moved = await register(outcome.recording, startedOn, briefing);
+        if (outcome.kind === "done") note = ["De intake staat in de wachtrij.", briefing ? "De briefing gaat mee naar analyse, script en montage." : null, moved].filter(Boolean).join(" ");
       } catch (e) {
         setError(`De opname staat op de pc, maar kon niet in de database worden gezet: ${e instanceof Error ? e.message : e}`);
       }

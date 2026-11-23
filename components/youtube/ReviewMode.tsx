@@ -13,6 +13,8 @@ import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers } from "@/lib/youtube/review";
 import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import { EditorPanel } from "@/components/youtube/EditorPanel";
+import type { BriefCheck, Briefing } from "@/lib/kivoxel/briefing";
+import { saveBriefing } from "@/lib/youtube/studio";
 import { ProducerDossierView } from "@/components/youtube/ProducerDossier";
 import { buildDossier } from "@/lib/kivoxel/producerDossier";
 import type { Lesson } from "@/lib/kivoxel/lessons";
@@ -122,6 +124,12 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const lastFeedback = renderJob?.payload?.feedback ?? renderJob?.result?.feedback ?? [];
   // 23-11-2026: eindredacteur (stored with this version), voice split and producer gate of this production.
   const editor = (render?.qc as { editor?: EditorReport } | null | undefined)?.editor ?? null;
+  // 23-11-2026 (superprompt V5, fase 13): the briefing check of this version; Milan may let an instruction go on purpose.
+  const briefing = (render?.qc as { briefing?: { checks: BriefCheck[]; verdict: { ok: boolean; text: string }; brief: Briefing } } | null | undefined)?.briefing ?? null;
+  const waive = (key: string) => {
+    if (!briefing || !video?.recording_id) return;
+    void act(() => saveBriefing(studioId, video.recording_id!, { ...briefing.brief, waived: [...new Set([...(briefing.brief.waived ?? []), key])] }));
+  };
   const voicePlan = (renderJob?.result as { voicePlan?: { voice: boolean; reason: string } | null } | null | undefined)?.voicePlan ?? null;
   const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult; lessons?: Lesson[]; newMoment?: { from: number; to: number | null; why: string } } | null; payload?: { feedback?: FeedbackItem[]; mode?: string } | null } | undefined) : undefined;
   const producer = scriptJob?.result?.producer ?? null;
@@ -227,7 +235,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 )}
               </section>
             )}
-            {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} />}
+            {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} briefing={briefing} onWaive={waive} />}
             {item.kind === "final" && render && script && (
               <ProducerDossierView
                 title={state_title(video?.id)}

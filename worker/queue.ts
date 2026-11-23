@@ -55,6 +55,7 @@ import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
 import { lessonPrompt, lessonsFrom, type Lesson } from "../lib/kivoxel/lessons.ts";
+import { briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingSummary, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, type BriefCheck, type Briefing, type KeyEventFind } from "../lib/kivoxel/briefing.ts";
 import { producerGate, rankCandidates, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
 import { measureExport } from "./editorMeasure.ts";
@@ -273,6 +274,28 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     return { profile, game: recordingGame(rec.data?.label, profile), label: rec.data?.label ?? null };
   }
 
+  /** 23-11-2026 (superprompt V5, fase 11-12): Milan's newest briefing for a recording (payload of an intake job), or null. */
+  async function briefingOf(recordingId: string | null): Promise<Briefing | null> {
+    if (!recordingId) return null;
+    const r = await db.from("yt_jobs").select("payload, created_at").eq("recording_id", recordingId).eq("step", "intake").order("created_at", { ascending: false }).limit(20).returns<{ payload: Record<string, unknown> | null }[]>();
+    for (const j of r.data ?? []) {
+      const b = parseBriefing(j.payload?.briefing);
+      if (b) return b;
+    }
+    return null;
+  }
+
+  /** What the newest analysis saw of the briefing's key event (never filled in from Milan's words alone). */
+  async function keyEventOf(recordingId: string | null): Promise<KeyEventFind | null> {
+    if (!recordingId) return null;
+    const r = await db.from("yt_jobs").select("result, created_at").eq("recording_id", recordingId).eq("step", "analyse").eq("status", "done").order("created_at", { ascending: false }).limit(10).returns<{ result: Record<string, unknown> | null }[]>();
+    for (const j of r.data ?? []) {
+      const k = j.result?.keyEvent as KeyEventFind | undefined;
+      if (k && typeof k.found === "boolean") return k;
+    }
+    return null;
+  }
+
   /** The Minecraft HUD signals (hearts, menus, death screen) only count in Minecraft. */
   async function hudOf(recordingId: string | null, studioId: string): Promise<"minecraft" | "none"> {
     return (await recordingGameInfo(recordingId, studioId)).game === "minecraft" ? "minecraft" : "none";
@@ -366,7 +389,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     }
   }
 
-  async function aiMoments(job: Job, row: RecordingRow & { duration_ms: number }, lv: Live = NO_LIVE): Promise<{ moments: Moment[]; rejected: string[] }> {
+  async function aiMoments(job: Job, row: RecordingRow & { duration_ms: number }, lv: Live = NO_LIVE): Promise<{ moments: Moment[]; rejected: string[]; keyEvent?: KeyEventFind | null }> {
     if (!ai) throw new Error(NO_KEY);
     if (row.duration_ms > MAX_ANALYSIS_MS) throw new Error(`Opname is te lang voor één analyse (${formatTimecode(row.duration_ms)}; maximaal ${formatTimecode(MAX_ANALYSIS_MS)}). Splits de opname.`);
     const local = await store.get(row.fingerprint);
@@ -406,6 +429,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const gi = await recordingGameInfo(row.id, job.studio_id);
     const detect = gi.profile.games.length > 1 && !gameInText(gi.label, gi.profile) ? gi.profile.games : undefined;
     let detected: unknown = null;
+    // Milan's briefing: where to look first, and a separate answer about his key event (direction, never proof).
+    const brief = await briefingOf(row.id);
+    const keyFinds: (KeyEventFind | null)[] = [];
     let timer: NodeJS.Timeout | null = null;
     try {
       for (const chunk of chunks) {
@@ -417,7 +443,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         try {
           const expected = expectedThinkingMs(lengthMs);
           const partHints = timeline ? signalHints(timeline, many ? chunk : undefined) : hints;
-          const prompt = analysisPrompt(row.duration_ms, chunk, { game: gi.game, detect });
+          const prompt = [analysisPrompt(row.duration_ms, chunk, { game: gi.game, detect }), ...briefingAnalysisLines(brief, chunk)].join("\n");
           const { json } = await paid(job, () =>
             ai.gemini.analyseVideo(file, partHints ? `${prompt}\n${partHints}` : prompt, (stage) => {
               void lv.phase(`${ANALYSIS_STAGES[stage].label}${label}`, stageProgress(stage, 0));
@@ -434,6 +460,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (timer) clearInterval(timer);
           const parsed = parseAnalysis(json, row.duration_ms, chunk);
           detected ??= (json as { game?: unknown } | null)?.game ?? null;
+          if (brief?.keyEvent) keyFinds.push(parseKeyEvent(json, many ? chunk.startMs : 0));
           answered += 1;
           found.push(parsed.moments);
           rejected.push(...parsed.rejected);
@@ -449,7 +476,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await lv.event("note", `Game herkend: ${GAMES[recordingGame(null, gi.profile, detected)].name}`);
       }
       await lv.phase("Momenten opslaan en formats plannen", 0.98);
-      const merged = { moments: mergeMoments(found), rejected };
+      const merged = { moments: mergeMoments(found), rejected, keyEvent: brief?.keyEvent ? (mergeKeyEvents(keyFinds) ?? { found: false, atMs: null, evidence: "" }) : null };
       if (!merged.moments.length && rejected.length && answered) throw new Error(`Antwoord van de analysedienst onbruikbaar: ${rejected.slice(0, 3).join("; ")}`);
       return timeline ? dropDead(merged, timeline) : merged;
     } finally {
@@ -469,7 +496,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (stored.error) throw new Error(stored.error.message);
       if (!stored.data.length) throw new Error("Deze opname heeft nog geen momenten: analyseer hem eerst");
       const moments = stored.data.map(fromRow);
-      const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
+      const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments, await keyEventOf(row.id));
       return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source: "replan", rejected: [] as string[] };
     }
     // KIVOXEL fase 1, section 8: without a key, without credits, with the service down or in free mode, the moments
@@ -488,7 +515,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       return { moments: momentsFromTimeline(t, durationMs), rejected: [] as string[] };
     };
     const wantsFreeAnalysis = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
-    let result: { moments: Moment[]; rejected: string[] };
+    let result: { moments: Moment[]; rejected: string[]; keyEvent?: KeyEventFind | null };
     if (row.is_test) result = { moments: testMoments(row.duration_ms), rejected: [] };
     else if (wantsFreeAnalysis) result = await freeAnalysis("Gratis modus");
     else if (!ai) result = await freeAnalysis("Geen analysedienst (GEMINI_API_KEY ontbreekt)");
@@ -502,6 +529,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     }
     const { moments: found, rejected } = result;
+    // Briefing: was Milan's key event seen? The free analysis cannot recognise a named event, so it says so.
+    const brief = row.is_test ? null : await briefingOf(row.id);
+    const keyEvent: KeyEventFind | null = brief?.keyEvent ? (result.keyEvent ?? { found: false, atMs: null, evidence: used.engine === "free" ? "De gratis analyse kan een benoemde gebeurtenis niet herkennen" : "" }) : null;
+    if (brief) await lv.event("note", `Briefing: ${briefingSummary(brief)}`.slice(0, 500));
+    if (keyEvent) await lv.event("note", (keyEvent.found ? `Belangrijkste gebeurtenis "${brief!.keyEvent}" gezien op ${formatTimecode(keyEvent.atMs!)}: ${keyEvent.evidence}` : `Belangrijkste gebeurtenis "${brief!.keyEvent}" NIET in beeld gevonden${keyEvent.evidence ? ` (${keyEvent.evidence})` : ""}. Geef een tijdcode in de briefing, of kies een ander moment.`).slice(0, 500));
     // yt_moments.source only knows test/ai/manual (migration 009); the free engine is recorded in "model".
     const source = row.is_test ? "test" : "ai";
     const rows = found.map((m) => ({
@@ -568,8 +600,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await lv.event("note", candidates.enough ? `Kandidaten: ${candidates.candidates.filter((c) => c.status !== "AFGEKEURD").length} van ${candidates.candidates.length} verdienen een montage` : "Onvoldoende basis: geen moment in deze opname haalt de producer-poort");
       }
     }
-    const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
-    return { candidates, moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
+    const planNotes: string[] = [];
+    const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments, keyEvent, planNotes);
+    for (const n of planNotes) await lv.event("note", n);
+    return { keyEvent, briefing: brief ? briefingSummary(brief) : null, planNotes, candidates, moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
   }
 
   /**
@@ -607,11 +641,16 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   }
 
   /** Plans the videos of a recording and queues a script per video; returns how many videos were planned. */
-  async function planAndQueue(job: Job, recordingId: string, isTest: boolean, durationMs: number, moments: Moment[]): Promise<number> {
+  async function planAndQueue(job: Job, recordingId: string, isTest: boolean, durationMs: number, moments: Moment[], keyEvent: KeyEventFind | null = null, notes: string[] = []): Promise<number> {
     const boosts = isTest ? [] : await learnedBoosts(job.studio_id, recordingId);
     const learned = boostsSummary(boosts);
     if (learned) log(`Keuze van Shorts weegt mee wat kijkers uitkeken: ${learned}`);
-    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`, (m) => boostOf(boosts, m.kind));
+    // Briefing: the found key event and Milan's time marks go first; then only the videos he asked for.
+    const brief = isTest ? null : await briefingOf(recordingId);
+    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`, (m) => boostOf(boosts, m.kind) + briefingBoost(brief, keyEvent, m));
+    const chosenPlans = filterPlans(plans, brief);
+    plans = chosenPlans.plans;
+    if (chosenPlans.note) notes.push(chosenPlans.note);
     // Parts that already exist stay as they are: a new analysis must not start a second, differently cut series.
     if (plans.some((p) => p.part)) {
       const parts = await db.from("yt_videos").select("id").eq("studio_id", job.studio_id).eq("recording_id", recordingId).like("plan_key", `${recordingId}:C:part:%`).neq("status", "archived").limit(1).returns<{ id: string }[]>();
@@ -787,7 +826,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const withShortHook = (d: ScriptDraft): ScriptDraft => (shortHook ? { ...d, topLine: shortHook, hooks: d.hooks.map((h) => ({ ...h, overlay: shortHook! })) } : d);
       // Milan's own story of the whole recording (payload.story): the arc and the mood for every part.
       const story = typeof job.payload?.story === "string" ? job.payload.story : "";
-      const storyText = story.trim() ? "\n" + storyBlock(story, part ?? undefined).join("\n") : "";
+      // 23-11-2026: and the briefing he gave with the upload (story, edit notes, mood, the key event only when it was seen).
+      const brief = video.data.is_test ? null : await briefingOf(video.data.recording_id);
+      const briefLines = briefingScriptLines(brief, brief?.keyEvent ? await keyEventOf(video.data.recording_id) : null);
+      const storyText = (story.trim() ? "\n" + storyBlock(story, part ?? undefined).join("\n") : "") + (briefLines.length ? "\n" + briefLines.join("\n") : "");
       if (wantsFree || !ai) {
         draft = free();
         engine = "free";
@@ -1030,7 +1072,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     // videos gets the English voice-over (the one where telling adds most); the choice is kept per video, so a retry or a
     // version 2 never counts twice. Archived videos give their place back.
     let voicePlan: { voice: boolean; reason: string } | null = null;
-    if (!askedMode && !video.data.is_test && video.data.channel_id) {
+    // 23-11-2026: Milan's voice choice in the briefing beats the automatic split (and takes no place in it).
+    const brief = video.data.is_test ? null : await briefingOf(video.data.recording_id);
+    const briefMode = askedMode ? null : briefingAudioMode(brief);
+    if (briefMode) await lv.event("note", `Briefing bepaalt de audio: ${briefMode}`);
+    if (!askedMode && !briefMode && !video.data.is_test && video.data.channel_id) {
       try {
         const ledger = createVoiceLedger(join(montage.rendersDir, "..", "voice-plan.json"));
         const fmt = video.data.format === "C" ? "long" : "short";
@@ -1049,12 +1095,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await lv.event("error", `Stemverdeling niet bepaald: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    const planned = askedMode ?? (voicePlan ? (voicePlan.voice ? "vo_muziek" : presetFile.channel_default.audio_mode) : presetFile.channel_default.audio_mode);
+    const planned = askedMode ?? briefMode ?? (voicePlan ? (voicePlan.voice ? "vo_muziek" : presetFile.channel_default.audio_mode) : presetFile.channel_default.audio_mode);
     const kSettings = resolveSettings(typeof job.payload?.preset === "string" ? job.payload.preset : null, channelAudioMode(planned, channelProfile));
     const modeSpec = kSettings.audio_modes[kSettings.audio_mode];
     let storyOverlays: StoryText[] = [];
     let mixPlan: MixPlan | null = null;
     let mixNote: string | null = null;
+    /** Moods of the music in the mix (for the briefing check); null = no music. */
+    let musicMoods: string[] | null = null;
+    let briefCheck: { checks: BriefCheck[]; verdict: { ok: boolean; text: string }; brief: Briefing } | null = null;
     const voice: VoiceClip[] = [];
     // Studio 2.0: a voice for this montage only (comparing voices), else the studio setting. KIVOXEL videos are English,
     // always: a non-English voice falls back to the English one.
@@ -1185,16 +1234,19 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const peakOut = (mainEvent ?? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0])?.peak_out ?? null;
         let music: MusicChoice | null = null;
         // Review fix "muziek uit": this version without music (the rest of the mix stays).
-        if (modeSpec.music && fixes?.music !== "none") {
+        if (modeSpec.music && fixes?.music !== "none" && brief?.music !== "none") {
           const lib = await media.music().catch(() => ({ dir: "", tracks: [] as Track[] }));
           const recentTracks = await media.musicLog.recent().catch(() => [] as string[]);
+          const briefMusic = musicForBriefing(lib.tracks.filter((t) => !t.channels?.length || t.channels.includes(channelProfile.key)), brief);
+          if (briefMusic.note) await lv.event("note", briefMusic.note);
           // Milan, 16-11-2026: busy music for action, calm music for searching and farming, cross-fading with the content.
-          const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: lib.tracks.filter((t) => !t.channels?.length || t.channels.includes(channelProfile.key)), recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
+          const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: briefMusic.tracks, recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
           if (parts.length) {
             const titles = [...new Set(parts.map((p) => p.title))];
             const own = parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("eigen"));
             music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (${own ? "eigen KIVOXEL-muziek" : parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("Uppbeat")) ? "Uppbeat" : "Pixabay"})`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
             void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
+            musicMoods = [...new Set(parts.flatMap((p) => lib.tracks.find((t) => t.file === p.file)?.moods ?? []))];
             mixNote = parts.length > 1 ? `Muziek wisselt mee: ${parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)} s`).join(", ")}` : null;
           } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
           void peakOut;
@@ -1470,8 +1522,18 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const measuredEvents = timeline ? timeline.events.filter((e) => e.payoff >= 30 && cut.segments.some((g) => e.t_peak >= g.src_start_ms && e.t_peak <= g.src_end_ms)).length : null;
           const measure = await measureExport(montage.ffmpeg ?? "ffmpeg", outFile, plan.durationMs, existsSync(srt) ? srt : null);
           editor = reviewExport(measure, { short: isShort, peakOutMs, voiceLines: spoken.map((l) => ({ atMs: l.at_ms, text: l.text })), hasVoice: voice.length > 0, gameplayShare, measuredEvents });
+          // 23-11-2026 (superprompt V5, fase 13): did this montage follow Milan's briefing? A missed instruction blocks.
+          if (brief) {
+            const checks = briefingCheck(brief, brief.keyEvent ? await keyEventOf(video.data.recording_id) : null, { format: video.data.format, hasVoice: voice.length > 0, musicMoods: mixPlan?.music ? (musicMoods ?? []) : null, ranges: cut.segments.map((g) => ({ startMs: g.src_start_ms, endMs: g.src_end_ms })), peakOutMs, durationMs: plan.durationMs, lines: spoken.map((l) => l.text) });
+            briefCheck = { checks, verdict: briefingVerdict(checks), brief };
+            await lv.event("note", briefCheck.verdict.text.slice(0, 500));
+            if (!briefCheck.verdict.ok) {
+              const missed = checks.filter((x) => x.status === "niet").map((c) => ({ atMs: 0, kind: "briefing" as const, severity: "blokkeert" as const, text: `Briefing niet gevolgd: ${c.instruction}. ${c.why}`, fix: "Afkeuren en opnieuw monteren, of de instructie bewust laten vervallen." }));
+              editor = { ...editor, findings: [...editor.findings, ...missed], status: "Correctie nodig", main: briefCheck.verdict.text.slice(0, 300) };
+            }
+          }
           const cur = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
-          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor } }).eq("job_id", job.id);
+          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor, ...(briefCheck ? { briefing: briefCheck } : {}) } }).eq("job_id", job.id);
           await lv.event("note", `Eindredacteur: ${editor.status}. ${editor.main}`.slice(0, 500));
         } catch (e) {
           if (e instanceof CancelledError) throw e;
@@ -1512,7 +1574,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (voicePlan && video.data.channel_id) await createVoiceLedger(join(montage.rendersDir, "..", "voice-plan.json")).delivered(video.data.channel_id, video.data.format === "C" ? "long" : "short", video.data.id).catch(() => undefined);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote, changes: fixed.changes, feedback: job.payload?.feedback ?? null, previousRender: job.payload?.previous_render ?? null, voicePlan, editor: editor ? { status: editor.status, main: editor.main } : null };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote, changes: fixed.changes, feedback: job.payload?.feedback ?? null, previousRender: job.payload?.previous_render ?? null, voicePlan, editor: editor ? { status: editor.status, main: editor.main } : null, briefing: briefCheck ? { ok: briefCheck.verdict.ok, text: briefCheck.verdict.text } : null };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });

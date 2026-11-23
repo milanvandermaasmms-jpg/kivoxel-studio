@@ -30,7 +30,7 @@ export type Intent = {
   /** How many moments the analysis measured inside the footage used (the chosen one included). */
   measuredEvents?: number | null;
 };
-export type Finding = { atMs: number; kind: "beeld" | "geluid" | "captions" | "uitkomst" | "opening" | "aandacht" | "stem"; severity: "blokkeert" | "verbeteren" | "controle"; text: string; fix?: string };
+export type Finding = { atMs: number; kind: "beeld" | "geluid" | "captions" | "uitkomst" | "opening" | "aandacht" | "stem" | "briefing"; severity: "blokkeert" | "verbeteren" | "controle"; text: string; fix?: string };
 export type EditorStatus = "Klaar voor Milan" | "Correctie nodig" | "Handmatige controle nodig";
 export type EditorReport = { status: EditorStatus; blind: string[]; findings: Finding[]; main: string; checkedAt: string };
 

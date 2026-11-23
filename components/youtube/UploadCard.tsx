@@ -7,6 +7,8 @@ import { Button, Field, inputClass } from "@/components/ui/Dialog";
 import { formatBytes } from "@/lib/youtube/studio";
 import { uploadRecording, type UploadOutcome, type UploadPhase } from "@/lib/youtube/workerClient";
 import { GAMES, labelWithGame, PROFILES, type ChannelProfile, type GameId } from "@/lib/youtube/gameProfile";
+import { BriefingForm, emptyDraft, draftToBriefing, type BriefingDraft } from "./BriefingForm";
+import type { Briefing } from "@/lib/kivoxel/briefing";
 
 const PHASE_TEXT: Record<UploadPhase, string> = {
   fingerprint: "Vingerafdruk berekenen…",
@@ -22,8 +24,8 @@ type Message = { tone: "ok" | "error"; text: string };
  * 19-11-2026 (Milan): the upload lives outside the card, so it keeps running AND stays visible when he clicks to
  * another tab or another channel in the Studio. Only closing or reloading the page stops it (the browser warns first).
  */
-type UploadState = { file: File | null; label: string; isTest: boolean; game: GameId | ""; progress: Progress | null; paused: boolean; message: Message | null; controller: AbortController | null; channel: string | null; channelId: string | null };
-let state: UploadState = { file: null, label: "", isTest: false, game: "", progress: null, paused: false, message: null, controller: null, channel: null, channelId: null };
+type UploadState = { file: File | null; label: string; isTest: boolean; game: GameId | ""; progress: Progress | null; paused: boolean; message: Message | null; controller: AbortController | null; channel: string | null; channelId: string | null; brief: BriefingDraft };
+let state: UploadState = { file: null, label: "", isTest: false, game: "", progress: null, paused: false, message: null, controller: null, channel: null, channelId: null, brief: emptyDraft() };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<UploadState>) => {
   state = { ...state, ...patch };
@@ -45,9 +47,9 @@ export function UploadCard({
   profile?: ChannelProfile;
   workerOnline: boolean;
   isKnown: (fingerprint: string) => Promise<boolean>;
-  onReceived: (outcome: UploadOutcome, channelId: string | null) => Promise<string | null>;
+  onReceived: (outcome: UploadOutcome, channelId: string | null, briefing: Briefing | null) => Promise<string | null>;
 }) {
-  const { file, label, isTest, game, progress, paused, message } = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const { file, label, isTest, game, progress, paused, message, brief } = useSyncExternalStore(subscribe, snapshot, snapshot);
   const setFile = (file: File | null) => set({ file });
   const setLabel = (label: string) => set({ label });
   const setIsTest = (isTest: boolean) => set({ isTest });
@@ -82,13 +84,15 @@ export function UploadCard({
         onProgress: (phase, received, total) => setProgress({ phase, received, total }),
       });
       setProgress(null);
-      const note = await onReceived(outcome, state.channelId);
+      // 23-11-2026 (superprompt V5, fase 11): the briefing goes with the recording to every step of the production.
+      const briefing = draftToBriefing(state.brief, game || (profile.games.length === 1 ? profile.games[0] : null));
+      const note = await onReceived(outcome, state.channelId, briefing);
       setMessage(
         outcome.kind === "duplicate"
           ? { tone: "error", text: `Deze opname staat al op de pc als “${outcome.recording.label}”. Er is niets dubbel opgeslagen.` }
           : { tone: "ok", text: `Ontvangen op de pc: “${outcome.recording.label}” (${formatBytes(outcome.recording.size)}).${note ? ` ${note}` : ""}` },
       );
-      if (outcome.kind === "done") setFile(null);
+      if (outcome.kind === "done") set({ file: null, brief: emptyDraft() });
     } catch (e) {
       if (abort.signal.aborted) {
         setPaused(true);
@@ -121,6 +125,7 @@ export function UploadCard({
             </select>
           </Field>
         )}
+        {!isTest && <BriefingForm draft={brief} game={game || (profile.games.length === 1 ? profile.games[0] : null)} disabled={busy || paused} onChange={(b) => set({ brief: b })} />}
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={isTest} onChange={(e) => setIsTest(e.target.checked)} disabled={busy || paused} className="h-4 w-4 accent-emerald-600" />
           Testdata (geen echte gameplay; wordt gratis en zonder AI verwerkt)
