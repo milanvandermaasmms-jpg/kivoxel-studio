@@ -53,7 +53,7 @@ export const VOICES: { name: string; label: string }[] = [
 ];
 
 export type AnalysisState =
-  | { ready: true; settings: DbSettings | null; spentCents: number; recordings: DbRecordingInfo[]; moments: DbMoment[]; videos: DbVideo[]; scripts: DbScript[]; analyseJobs: Record<string, string>; /** 23-11-2026: what the newest analysis says about the briefing (key event seen or not, planning notes). */ analyseBriefing?: Record<string, { keyEvent: { found: boolean; atMs: number | null; evidence: string } | null; briefing: string | null; planNotes: string[] }>; montage: MontageState }
+  | { ready: true; settings: DbSettings | null; spentCents: number; recordings: DbRecordingInfo[]; moments: DbMoment[]; videos: DbVideo[]; scripts: DbScript[]; analyseJobs: Record<string, string>; /** 23-11-2026: what the newest analysis says about the briefing (key event seen or not, planning notes). */ analyseBriefing?: Record<string, { keyEvent: { found: boolean; atMs: number | null; evidence: string } | null; briefing: string | null; planNotes: string[]; engineNote?: string | null }>; montage: MontageState }
   | { ready: false; reason: "migration" | "error"; message?: string };
 
 const isMissing = (error: { code?: string; message: string }) => error.code === "42P01" || error.code === "PGRST205" || error.code === "42703" || /does not exist|could not find/i.test(error.message);
@@ -73,7 +73,7 @@ export async function loadAnalysis(studioId: string): Promise<AnalysisState> {
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id, position)").eq("studio_id", studioId).order("created_at").returns<DbVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),
     // Oldest first, so the newest analysis of a recording wins below.
-    supabase.from("yt_jobs").select("recording_id, status, result").eq("studio_id", studioId).eq("step", "analyse").order("created_at").returns<{ recording_id: string | null; status: string; result: { keyEvent?: { found: boolean; atMs: number | null; evidence: string } | null; briefing?: string | null; planNotes?: string[] } | null }[]>(),
+    supabase.from("yt_jobs").select("recording_id, status, result").eq("studio_id", studioId).eq("step", "analyse").order("created_at").returns<{ recording_id: string | null; status: string; result: { keyEvent?: { found: boolean; atMs: number | null; evidence: string } | null; briefing?: string | null; planNotes?: string[]; engine?: string; engineNote?: string | null } | null }[]>(),
     loadMontage(studioId),
   ]);
   const error = settings.error ?? costs.error ?? recordings.error ?? moments.error ?? videos.error ?? scripts.error ?? jobs.error;
@@ -83,7 +83,7 @@ export async function loadAnalysis(studioId: string): Promise<AnalysisState> {
   for (const j of jobs.data ?? []) {
     if (!j.recording_id) continue;
     analyseJobs[j.recording_id] = j.status;
-    if (j.status === "done") analyseBriefing[j.recording_id] = { keyEvent: j.result?.keyEvent ?? null, briefing: j.result?.briefing ?? null, planNotes: j.result?.planNotes ?? [] };
+    if (j.status === "done") analyseBriefing[j.recording_id] = { keyEvent: j.result?.keyEvent ?? null, briefing: j.result?.briefing ?? null, planNotes: j.result?.planNotes ?? [], engineNote: j.result?.engine === "free" ? (j.result?.engineNote ?? "gratis analyse") : null };
   }
   return {
     ready: true,

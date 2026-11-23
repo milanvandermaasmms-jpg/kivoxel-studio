@@ -166,6 +166,7 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                       return (
                         <div className={`mt-1 rounded-md border px-2 py-1 text-xs ${ab.keyEvent && !ab.keyEvent.found ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 text-slate-700"}`}>
                           <p>Briefing bij de laatste analyse: {ab.briefing}</p>
+                          {ab.engineNote && <p>Let op: deze analyse liep zonder Gemini ({ab.engineNote}).</p>}
                           {ab.keyEvent && (ab.keyEvent.found && ab.keyEvent.atMs !== null ? <p>Belangrijkste gebeurtenis gezien op {mm(ab.keyEvent.atMs)}: {ab.keyEvent.evidence}</p> : <p>Belangrijkste gebeurtenis NIET in beeld gevonden{ab.keyEvent.evidence ? ` (${ab.keyEvent.evidence})` : ""}. Geef een tijdcode in de briefing, of kies een ander moment.</p>)}
                           {ab.planNotes.map((n) => (
                             <p key={n}>{n}</p>
