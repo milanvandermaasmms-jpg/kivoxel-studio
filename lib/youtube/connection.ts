@@ -9,7 +9,9 @@ export type ConnectionView =
   | { kind: "not-configured" }
   | { kind: "other-linked" }
   | { kind: "ready" }
-  | { kind: "connected"; reconnectBefore: string; error: string | null; tokensHere: boolean };
+  | { kind: "connected"; reconnectBefore: string; error: string | null; tokensHere: boolean }
+  /** 23-11-2026: KIVOXEL (default channel) was linked before the Studio stored a channel ID per channel; the worker's own sign-in is that channel and uploads work. */
+  | { kind: "default-linked"; channelId: string };
 
 /** Google Testing mode: the consent ends 7 days after signing in. */
 export const TESTING_DAYS = 7;
@@ -27,6 +29,7 @@ export function connectionView(channel: Channel, health: WorkerHealth | null, to
     const tokensHere = !!tokensFor && tokensFor === channel.youtube_channel_id;
     return { kind: "connected", reconnectBefore: reconnectBefore(channel.youtube_connected_at), error: channel.youtube_error ?? null, tokensHere };
   }
+  if (channel.is_default && tokensFor) return { kind: "default-linked", channelId: tokensFor };
   if (anotherLinked) return { kind: "other-linked" };
   if (!health) return { kind: "worker-off" };
   if (health.youtube === undefined) return { kind: "worker-old" };

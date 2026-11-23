@@ -43,4 +43,9 @@ describe("channel check before every upload (fase 0.5)", () => {
     expect(uploadChannelProblem({ name: "KIVOXEL", youtubeChannelId: null, isDefault: true }, "UC6zZPLDaBan9Jr8WpEhbdwA")).toBeNull();
     expect(uploadChannelProblem({ name: "KIVOXEL", youtubeChannelId: null, isDefault: true }, null)).toMatch(/geen YouTube-koppeling/);
   });
+  it("KIVOXEL (default channel) linked before per-channel IDs shows as linked when the worker's sign-in is there", () => {
+    const def = { ...base, is_default: true } as Channel;
+    expect(connectionView(def, health, "UC6zZPLDaBan9Jr8WpEhbdwA", false)).toEqual({ kind: "default-linked", channelId: "UC6zZPLDaBan9Jr8WpEhbdwA" });
+    expect(connectionView(def, health, null, false).kind).toBe("ready");
+  });
 });

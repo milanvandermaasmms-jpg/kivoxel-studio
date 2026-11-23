@@ -96,9 +96,10 @@ export function YouTubeConnection({ channel, anotherLinked, onChanged }: { chann
     <div className="space-y-2 rounded-md border border-slate-200 p-3 text-xs text-slate-700">
       <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
         YouTube-koppeling
-        {view.kind === "connected" ? <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${view.error ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>{view.error ? "fout" : "gekoppeld"}</span> : <StatusBadge status="connect" />}
+        {view.kind === "default-linked" ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">gekoppeld</span> : view.kind === "connected" ? <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${view.error ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>{view.error ? "fout" : "gekoppeld"}</span> : <StatusBadge status="connect" />}
       </p>
 
+      {view.kind === "default-linked" && <p>Gekoppeld via de vaste aanmelding van de werker met het YouTube-kanaal {view.channelId} (van vóór de koppeling per kanaal). Uploaden en kijkcijfers werken; opnieuw koppelen is niet nodig.</p>}
       {view.kind === "migration" && <p>De koppeling komt er met migratie 036 (nog niet uitgevoerd).</p>}
       {view.kind === "worker-off" && <p>Start de werker op de pc (worker\start-werker.cmd); de koppeling loopt via de werker, zodat de sleutels van YouTube op de pc blijven.</p>}
       {view.kind === "worker-old" && <p>De werker draait nog een oude versie zonder YouTube. Herstart de werker (venster sluiten en opnieuw starten).</p>}
