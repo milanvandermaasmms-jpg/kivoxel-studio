@@ -160,6 +160,19 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                         <StatusBadge status="connect" />
                       )}
                     </div>
+                    {!review && !r.is_test && state.analyseBriefing?.[r.id]?.briefing && (() => {
+                      const ab = state.analyseBriefing![r.id];
+                      const mm = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
+                      return (
+                        <div className={`mt-1 rounded-md border px-2 py-1 text-xs ${ab.keyEvent && !ab.keyEvent.found ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 text-slate-700"}`}>
+                          <p>Briefing bij de laatste analyse: {ab.briefing}</p>
+                          {ab.keyEvent && (ab.keyEvent.found && ab.keyEvent.atMs !== null ? <p>Belangrijkste gebeurtenis gezien op {mm(ab.keyEvent.atMs)}: {ab.keyEvent.evidence}</p> : <p>Belangrijkste gebeurtenis NIET in beeld gevonden{ab.keyEvent.evidence ? ` (${ab.keyEvent.evidence})` : ""}. Geef een tijdcode in de briefing, of kies een ander moment.</p>)}
+                          {ab.planNotes.map((n) => (
+                            <p key={n}>{n}</p>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {!review && !r.is_test && (
                       <div className="mt-1">
                         <RecordingBriefing studioId={studioId} recordingId={r.id} game={null} act={act} reanalyse={state.settings?.paid_processing_enabled && analysisService ? { label: `${job === "done" ? "opnieuw " : ""}analyseren (± ${euros(estimateAnalysisCents(r.duration_ms ?? 0))})`, run: () => queueAnalysis(studioId, r.id, job === "done") } : undefined} />

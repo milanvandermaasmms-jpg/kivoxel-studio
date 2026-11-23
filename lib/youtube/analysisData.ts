@@ -53,7 +53,7 @@ export const VOICES: { name: string; label: string }[] = [
 ];
 
 export type AnalysisState =
-  | { ready: true; settings: DbSettings | null; spentCents: number; recordings: DbRecordingInfo[]; moments: DbMoment[]; videos: DbVideo[]; scripts: DbScript[]; analyseJobs: Record<string, string>; montage: MontageState }
+  | { ready: true; settings: DbSettings | null; spentCents: number; recordings: DbRecordingInfo[]; moments: DbMoment[]; videos: DbVideo[]; scripts: DbScript[]; analyseJobs: Record<string, string>; /** 23-11-2026: what the newest analysis says about the briefing (key event seen or not, planning notes). */ analyseBriefing?: Record<string, { keyEvent: { found: boolean; atMs: number | null; evidence: string } | null; briefing: string | null; planNotes: string[] }>; montage: MontageState }
   | { ready: false; reason: "migration" | "error"; message?: string };
 
 const isMissing = (error: { code?: string; message: string }) => error.code === "42P01" || error.code === "PGRST205" || error.code === "42703" || /does not exist|could not find/i.test(error.message);
@@ -73,13 +73,18 @@ export async function loadAnalysis(studioId: string): Promise<AnalysisState> {
     supabase.from("yt_videos").select("*, yt_video_moments(moment_id, position)").eq("studio_id", studioId).order("created_at").returns<DbVideo[]>(),
     supabase.from("yt_scripts").select("*").eq("studio_id", studioId).order("version", { ascending: false }).returns<DbScript[]>(),
     // Oldest first, so the newest analysis of a recording wins below.
-    supabase.from("yt_jobs").select("recording_id, status").eq("studio_id", studioId).eq("step", "analyse").order("created_at").returns<{ recording_id: string | null; status: string }[]>(),
+    supabase.from("yt_jobs").select("recording_id, status, result").eq("studio_id", studioId).eq("step", "analyse").order("created_at").returns<{ recording_id: string | null; status: string; result: { keyEvent?: { found: boolean; atMs: number | null; evidence: string } | null; briefing?: string | null; planNotes?: string[] } | null }[]>(),
     loadMontage(studioId),
   ]);
   const error = settings.error ?? costs.error ?? recordings.error ?? moments.error ?? videos.error ?? scripts.error ?? jobs.error;
   if (error) return isMissing(error) ? { ready: false, reason: "migration" } : { ready: false, reason: "error", message: friendlyError(error.message) };
   const analyseJobs: Record<string, string> = {};
-  for (const j of jobs.data ?? []) if (j.recording_id) analyseJobs[j.recording_id] = j.status;
+  const analyseBriefing: NonNullable<Extract<AnalysisState, { ready: true }>["analyseBriefing"]> = {};
+  for (const j of jobs.data ?? []) {
+    if (!j.recording_id) continue;
+    analyseJobs[j.recording_id] = j.status;
+    if (j.status === "done") analyseBriefing[j.recording_id] = { keyEvent: j.result?.keyEvent ?? null, briefing: j.result?.briefing ?? null, planNotes: j.result?.planNotes ?? [] };
+  }
   return {
     ready: true,
     settings: settings.data,
@@ -89,6 +94,7 @@ export async function loadAnalysis(studioId: string): Promise<AnalysisState> {
     videos: videos.data ?? [],
     scripts: scripts.data ?? [],
     analyseJobs,
+    analyseBriefing,
     montage,
   };
 }

@@ -62,7 +62,7 @@ import { contentPrompt, parseContentCheck } from "../lib/kivoxel/contentCheck.ts
 import { MOOD_FOR } from "../lib/kivoxel/media.ts";
 import { weakFirstLine as weakOpening } from "../lib/youtube/hooks.ts";
 import type { GateResult as ProducerGate } from "../lib/kivoxel/producerGate.ts";
-import { briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingSummary, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, type BriefCheck, type Briefing, type KeyEventFind } from "../lib/kivoxel/briefing.ts";
+import { keyEventFromMoments, briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingSummary, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, type BriefCheck, type Briefing, type KeyEventFind } from "../lib/kivoxel/briefing.ts";
 import { producerGate, rankCandidates, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
 import { measureExport } from "./editorMeasure.ts";
@@ -468,7 +468,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (timer) clearInterval(timer);
           const parsed = parseAnalysis(json, row.duration_ms, chunk);
           detected ??= (json as { game?: unknown } | null)?.game ?? null;
-          if (brief?.keyEvent) keyFinds.push(parseKeyEvent(json, many ? chunk.startMs : 0));
+          if (brief?.keyEvent) {
+            const explicit = parseKeyEvent(json, many ? chunk.startMs : 0);
+            keyFinds.push(explicit?.found ? explicit : (keyEventFromMoments(json, many ? chunk.startMs : 0) ?? explicit));
+          }
           answered += 1;
           found.push(parsed.moments);
           rejected.push(...parsed.rejected);

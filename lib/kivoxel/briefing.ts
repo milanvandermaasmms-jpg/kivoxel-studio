@@ -138,7 +138,7 @@ export function briefingAnalysisLines(b: Briefing | null, chunk?: { startMs: num
   }
   if (b.keyEvent)
     out.push(
-      `The owner says the most important event is: "${b.keyEvent}". Look for it. Add to your JSON "key_event": {"found": true|false, "at": "MM:SS" (the instant it is clearly visible, only when found), "evidence": "what you see on screen that proves it"}. Say found=false when you do not clearly see it; never guess.`,
+      `The owner says the most important event is: "${b.keyEvent}". Look for it. On every moment that IS this event, add "matches_key_event": true. Also add to your JSON "key_event": {"found": true|false, "at": "MM:SS" (the instant it is clearly visible, only when found), "evidence": "what you see on screen that proves it"}. Say found=false when you do not clearly see it; never guess.`,
     );
   return out;
 }
@@ -151,6 +151,21 @@ export function parseKeyEvent(json: unknown, chunkStartMs = 0): KeyEventFind | n
   const evidence = typeof k.evidence === "string" ? k.evidence.trim().slice(0, 300) : "";
   const found = k.found === true && at !== null && evidence.length > 0;
   return { found, atMs: found ? at! + chunkStartMs : null, evidence };
+}
+
+/**
+ * 23-11-2026, first real test: Gemini returned four falls as moments but left "key_event" empty, so the studio said
+ * "not found". A moment it marked with matches_key_event counts as the key event too (its peak, with its reason as
+ * evidence); the explicit answer still wins when it is there and found.
+ */
+export function keyEventFromMoments(json: unknown, chunkStartMs = 0): KeyEventFind | null {
+  const list = (json as { moments?: unknown } | null)?.moments;
+  if (!Array.isArray(list)) return null;
+  const hit = list.find((m) => (m as { matches_key_event?: unknown })?.matches_key_event === true) as { peak?: unknown; start?: unknown; reason?: unknown } | undefined;
+  if (!hit) return null;
+  const at = typeof hit.peak === "string" ? parseTimecode(hit.peak) : typeof hit.start === "string" ? parseTimecode(hit.start) : null;
+  const evidence = typeof hit.reason === "string" ? hit.reason.trim().slice(0, 300) : "";
+  return at !== null && evidence ? { found: true, atMs: at + chunkStartMs, evidence } : null;
 }
 
 /** Over all chunks: the first found answer wins; else "not found". */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, parseMarks, parseTimecode, type MontageFacts } from "./briefing";
+import { keyEventFromMoments, briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, parseMarks, parseTimecode, type MontageFacts } from "./briefing";
 
 const facts = (over: Partial<MontageFacts> = {}): MontageFacts => ({ format: "A", hasVoice: false, musicMoods: ["tense"], ranges: [{ startMs: 100_000, endMs: 130_000 }], peakOutMs: 6000, durationMs: 20_000, lines: [], ...over });
 
@@ -81,5 +81,11 @@ describe("slimme uploadbriefing", () => {
     const c = briefingCheck({ v: 1, voice: "voice", waived: ["voice"] }, null, facts());
     expect(c[0].status).toBe("vervallen");
     expect(briefingVerdict(c).ok).toBe(true);
+  });
+  it("a moment marked as the key event counts when the explicit answer is missing (first real test, 23-11-2026)", () => {
+    const json = { moments: [{ peak: "02:30", reason: "The player falls from a high snow ledge and loses hearts", matches_key_event: true }, { peak: "03:00", reason: "x" }] };
+    expect(keyEventFromMoments(json, 480_000)).toEqual({ found: true, atMs: 630_000, evidence: "The player falls from a high snow ledge and loses hearts" });
+    expect(keyEventFromMoments({ moments: [{ peak: "01:00", reason: "y" }] })).toBeNull();
+    expect(briefingAnalysisLines({ v: 1, keyEvent: "val" }).join(" ")).toMatch(/matches_key_event/);
   });
 });
