@@ -123,7 +123,9 @@ export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string
         height: render?.height ?? null,
         durationMs: render?.duration_ms ?? null,
         measure,
-        gameplayShare: minecraftOnly && rec && segs?.length ? gameplayShareOf(await visualOf(rec.fingerprint, !["archived", "published", "scheduled"].includes(v.status) && pub?.status !== "published"), segs.map((g) => ({ startMs: g.src_start_ms, endMs: g.src_end_ms }))) : null,
+        // 23-11-2026: no new picture measurement here (an hour of footage kept the worker too busy to answer the studio);
+        // recordings are measured again when they are next analysed or edited.
+        gameplayShare: minecraftOnly && rec && segs?.length ? gameplayShareOf(await visualOf(rec.fingerprint, false), segs.map((g) => ({ startMs: g.src_start_ms, endMs: g.src_end_ms }))) : null,
         hasVoice: !!render?.voice_name,
         topLine: sc?.top_line ?? null,
         lines: render?.voice_name ? (sc?.lines ?? []).map((l) => ({ atMs: l.at_ms, text: l.text })) : [],

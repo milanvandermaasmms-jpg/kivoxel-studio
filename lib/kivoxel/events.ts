@@ -169,9 +169,11 @@ export function bestFrame(v: VisualSignals, fromMs: number, toMs: number): numbe
   let score = -Infinity;
   // With the HUD in view we know it is gameplay (no menu, no loading screen): use only those frames when there are any.
   const hud = v.frames.slice(a, b + 1).some((x) => x.health >= 0);
+  // Once per call, not per frame (per frame it was a full pass over the recording for every frame).
+  const overlayOk = overlayReliable(v);
   for (let i = a; i <= b; i++) {
     const x = v.frames[i];
-    if (!x || x.ui >= 120 || x.luma < 25 || (hud && x.health < 0) || ((x.overlay ?? 1000) >= 0 && (x.overlay ?? 1000) < OVERLAY_OFF && overlayReliable(v))) continue;
+    if (!x || x.ui >= 120 || x.luma < 25 || (hud && x.health < 0) || (overlayOk && (x.overlay ?? 1000) >= 0 && (x.overlay ?? 1000) < OVERLAY_OFF)) continue;
     // Sharp beats blurry; a lighter frame reads better as a small thumbnail (caves are dark).
     const s = x.sharp - 0.6 * x.motion + (x.health >= 0 ? 4 : 0) + Math.min(3, Math.max(0, (x.luma - 50) / 20));
     if (s > score) {
