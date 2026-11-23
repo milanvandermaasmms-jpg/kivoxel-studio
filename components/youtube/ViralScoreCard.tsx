@@ -65,7 +65,7 @@ export function ViralScoreCard({ result, onJudge }: { result: ViralResult; onJud
           ))}
         </ul>
       )}
-      <p className="text-[11px] opacity-80">Een interne inschatting, geen belofte van weergaven. Gemeten = door de pc in de export; inschatting = regel over gemeten feiten; Milan = jouw oordeel.</p>
+      <p className="text-[11px] opacity-80">Een interne inschatting, geen belofte van weergaven. Gemeten = door de pc in de export; inschatting = regel over gemeten feiten; AI = oordeel van Gemini over de video (alleen waar niets anders was); Milan = jouw oordeel, dat altijd voorgaat.</p>
     </section>
   );
 }
