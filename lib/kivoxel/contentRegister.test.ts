@@ -50,6 +50,12 @@ describe("contentregister", () => {
     expect(e.total).not.toBeNull();
   });
 
+  it("an archived production without a measurable problem is not 'behouden' but stays in the archive", () => {
+    const e = assess(facts({ status: "archived", reviewNote: "Vervangen door versie 2" }));
+    expect(e.action).toBe("afgekeurd (archief)");
+    expect(e.control).toBe("afgerond");
+  });
+
   it("counts per action", () => {
     const r = summarize([assess(facts()), assess(facts({ gameplayShare: 0.2 }))], "2026-11-23T12:00:00Z");
     expect(r.counts).toMatchObject({ behouden: 1, "opnieuw maken": 1 });

@@ -10,8 +10,8 @@ import { NORM, SCORE_LABEL, type Action, type Entry, type Register, type ScoreKe
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
 type State = (Register & { running?: { done: number; total: number } | null }) | { entries: []; builtAt: null; running?: { done: number; total: number } | null };
-const ACTIONS: Action[] = ["opnieuw maken", "verbeteren", "behouden", "niet beoordeeld", "live (alleen info)"];
-const TONE: Record<Action, string> = { "opnieuw maken": "bg-red-100 text-red-900", verbeteren: "bg-amber-100 text-amber-900", behouden: "bg-emerald-100 text-emerald-900", "niet beoordeeld": "bg-slate-100 text-slate-700", "live (alleen info)": "bg-sky-100 text-sky-900" };
+const ACTIONS: Action[] = ["opnieuw maken", "verbeteren", "behouden", "niet beoordeeld", "afgekeurd (archief)", "live (alleen info)"];
+const TONE: Record<Action, string> = { "opnieuw maken": "bg-red-100 text-red-900", verbeteren: "bg-amber-100 text-amber-900", behouden: "bg-emerald-100 text-emerald-900", "niet beoordeeld": "bg-slate-100 text-slate-700", "live (alleen info)": "bg-sky-100 text-sky-900", "afgekeurd (archief)": "bg-slate-200 text-slate-700" };
 const KEYS: ScoreKey[] = ["script", "montage", "audio", "beeld", "techniek"];
 const scoreTone = (v: number | null) => (v === null ? "text-slate-400" : v >= NORM.keep ? "text-emerald-700" : v >= NORM.remake ? "text-amber-700" : "text-red-700");
 const STATUS: Record<string, string> = { idea: "Idee", scripted: "Script", rendering: "In montage", review: "Te keuren", approved: "Klaar", scheduled: "Ingepland", published: "Live", failed: "Mislukt", archived: "Afgekeurd" };

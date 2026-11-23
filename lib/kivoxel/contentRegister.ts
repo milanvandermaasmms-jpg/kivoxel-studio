@@ -48,7 +48,7 @@ export type Facts = {
 export type ScoreKey = "script" | "montage" | "audio" | "beeld" | "techniek";
 export const SCORE_LABEL: Record<ScoreKey, string> = { script: "Script", montage: "Montage", audio: "Audio", beeld: "Beeld", techniek: "Techniek" };
 export type Score = { value: number | null; reasons: string[] };
-export type Action = "behouden" | "verbeteren" | "opnieuw maken" | "niet beoordeeld" | "live (alleen info)";
+export type Action = "behouden" | "verbeteren" | "opnieuw maken" | "niet beoordeeld" | "live (alleen info)" | "afgekeurd (archief)";
 export type Entry = {
   videoId: string;
   channel: string;
@@ -190,15 +190,21 @@ export function assess(f: Facts): Entry {
     why = `${SCORE_LABEL[k]} ${scores[k].value}: ${scores[k].reasons[0]}`;
   } else {
     action = "behouden";
-    why = `Totaal ${total}; geen meetbaar probleem${f.status === "archived" ? " (staat wel onder Afgekeurd)" : ""}`;
+    why = `Totaal ${total}; geen meetbaar probleem`;
   }
-  return { ...base, scores, total, action, why, control: action === "behouden" ? "afgerond" : "open" };
+  // 23-11-2026, first real run: archived productions without a measurable problem are not "behouden": Milan rejected or
+  // replaced them for reasons the measurements cannot see (the moment itself). They only come back on his choice.
+  if (f.status === "archived" && action === "behouden") {
+    action = "afgekeurd (archief)";
+    why = `Metingen in orde (totaal ${total}), maar staat onder Afgekeurd${f.reviewNote ? `: "${f.reviewNote.slice(0, 80)}"` : ""}. Alleen opnieuw maken als jij dat kiest.`;
+  }
+  return { ...base, scores, total, action, why, control: action === "behouden" || action === "afgekeurd (archief)" ? "afgerond" : "open" };
 }
 
 export type Register = { builtAt: string; measuredAt: string | null; entries: Entry[]; counts: Record<Action, number>; running?: { done: number; total: number } | null };
 
 export function summarize(entries: Entry[], builtAt: string): Register {
-  const counts = { behouden: 0, verbeteren: 0, "opnieuw maken": 0, "niet beoordeeld": 0, "live (alleen info)": 0 } as Record<Action, number>;
+  const counts = { behouden: 0, verbeteren: 0, "opnieuw maken": 0, "niet beoordeeld": 0, "live (alleen info)": 0, "afgekeurd (archief)": 0 } as Record<Action, number>;
   for (const e of entries) counts[e.action] += 1;
   return { builtAt, measuredAt: builtAt, entries, counts };
 }
