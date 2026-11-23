@@ -17,12 +17,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+// 23-11-2026 (audit): several parts of the page asked the worker for its health at the same moment (six requests at
+// once). Calls within 3 seconds now share one request.
+let healthCache: { at: number; value: Promise<WorkerHealth | null> } | null = null;
 export async function workerHealth(): Promise<WorkerHealth | null> {
-  try {
-    return await call<WorkerHealth>("/health", { signal: AbortSignal.timeout(3000) });
-  } catch {
-    return null;
-  }
+  const now = Date.now();
+  if (healthCache && now - healthCache.at < 3000) return healthCache.value;
+  const value = call<WorkerHealth>("/health", { signal: AbortSignal.timeout(3000) }).catch(() => null);
+  healthCache = { at: now, value };
+  return value;
 }
 
 export const listLocalRecordings = () => call<LocalRecording[]>("/recordings");
