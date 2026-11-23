@@ -76,3 +76,44 @@ Per prioriteit: wat is gebouwd, welk bewijs er is, en wat nog openstaat. "Getest
 - **Werker liep vast:** de HUD-betrouwbaarheid werd per beeldje opnieuw berekend. Gerepareerd, en het register meet opnames niet meer opnieuw.
 - **Correctielus:** het correctiekenmerk raakte kwijt tussen script en montage, waardoor een correctie opnieuw gecorrigeerd kon worden. Het kenmerk gaat nu mee.
 - **Overschreven bestand:** ik had per ongeluk een bestaand bestand overschreven (`lib/youtube/viralData.ts`). Meteen uit Git teruggezet, en er is niets verloren.
+
+## Aanvulling (avond 23-11-2026): echte tests
+
+### Proefproductie (akkoord op de kosten, ± € 0,40)
+
+"22/11 minecraft" (16:20), briefing: horror, belangrijkste gebeurtenis "een val van grote hoogte waarbij de speler hartjes verliest", spannend en mysterieus, alleen Shorts (max. 2), spannende muziek.
+
+| Stap | Uitkomst |
+|---|---|
+| Briefing bij een bestaande opname | Opgeslagen via de nieuwe knop **Briefing**; de werker gebruikte hem (te zien bij de opname). |
+| Analyse 1 (Gemini) | 19 momenten, waaronder vier vallen (2:26 "falls from a high snow ledge … losing multiple hearts", score 90). Gemini beantwoordde de vraag naar de belangrijkste gebeurtenis niet, dus de studio meldde ten onrechte "niet gevonden". |
+| Analyse 2 | "fetch failed" (netwerk), netjes teruggevallen op de gratis analyse; dat staat nu zichtbaar bij de opname. |
+| Analyse 3 (Gemini) | Weer geen antwoord over de gebeurtenis, ook niet via een markering per moment. |
+| Opnieuw plannen (gratis) | Gebeurtenis gekoppeld op de momentbeschrijvingen: "gezien op 2:30: The player falls from a high snow cliff into the water below…" (met de vermelding "niet door Gemini bevestigd"). Eén nieuwe Short gepland. |
+| Montage | "Minecraft Cliff Fall Survival Challenge in the Snow", 13 s, Engels. |
+| Briefingcontrole | Gevolgd: het moment van 2:30 zit in de montage, de muziek past (tense, dark); sfeer en montage-instructie "?" (zelf beoordelen). |
+| AI-inhoudscheck | Hook 8, fragment 8, verhaal 8, originaliteit 7, elk met tijdcodes. |
+| Viralscore | 9,0, publicatiegereed; de score zegt erbij welke onderdelen alleen de AI beoordeelde. |
+| Eindredacteur | "Handmatige controle nodig": hoogtepunt pas op 0:08 (advies: teaser in de eerste seconde). |
+
+Gevonden en gerepareerd:
+- de belangrijkste gebeurtenis wordt nu ook via de momentbeschrijvingen gekoppeld;
+- een Nederlandse briefing gaf de Nederlandse titel "Horror Nacht in de Sneeuw". Die wordt nu tegengehouden: Nederlandse titels gaan weg, Nederlandse scripttekst valt terug op de Engelse sjablonen;
+- "Stem + muziek" was onmogelijk door het besluit van 16-11 (een stemversie heeft geen muziek). Het bestaat nu als aparte keuze in de audio-opties; de gewone stemversie blijft zonder muziek.
+
+### Audiopreview (gratis)
+
+Preview B van "Night Walk With The Realm Tool": gemaakt in ± 2 minuten en afspeelbaar in het keurscherm, met "Kies deze audio". De video kreeg géén nieuwe versie (de hoofdspeler toont dezelfde twee versies).
+
+### AI-inhoudscheck (akkoord op de kosten)
+
+Alle 13 producties in de keuring en de nieuwe Short zijn gecontroleerd, met scores van 6 tot 10 en tijdcodes per onderdeel. Gemini is mild (veel 8+): een tweede mening, geen eindoordeel.
+
+### Viralscore in de praktijk
+
+"Giant Robot Boss (Part 1)": 8,1 maar **geblokkeerd**, terecht: bevroren beeld van 0:12 tot 0:14, stem niet gelijk met het beeld, en twaalf onverwachte stiltes (stem/geluid 3,0).
+
+### Werker
+
+- **Vastlopers:** twee keer liep de werker vast; beide keren is de oorzaak gevonden. Eerst rekende de HUD-betrouwbaarheid per beeldje opnieuw over de hele opname. Daarna riep de meting per stukje beeld finish() aan, wat bij lange opnames kwadratisch werd. Allebei gerepareerd, met tests.
+- **Ivar-monitor:** zag de drie mislukte montages ("No space left on device") en meldt nu geen mislukkingen meer die een latere poging al verving.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyJudgement, viralScore, type ViralInput } from "./viralScore";
+import { applyAi, applyJudgement, viralScore, type ViralInput } from "./viralScore";
 import type { ExportMeasure } from "./editorReview";
 import type { GateResult } from "./producerGate";
 
@@ -67,5 +67,11 @@ describe("viralscore 8,0", () => {
     expect(r.status).toBe("publicatiegereed");
     expect(r.parts.find((p) => p.key === "hook")).toEqual(stored.parts.find((p) => p.key === "hook"));
     expect(applyJudgement(viralScore(input({ briefingOk: false })), { originaliteit: 10 }).status).toBe("geblokkeerd");
+  });
+  it("says which parts only the AI judged, also when publication ready", () => {
+    const r = applyAi(viralScore(input()), { originaliteit: 8 });
+    expect(r.status).toBe("publicatiegereed");
+    expect(r.summary).toMatch(/Originaliteit en entertainment door de AI beoordeeld, nog niet door jou/);
+    expect(applyJudgement(r, { originaliteit: 8.5 }).summary).not.toMatch(/door de AI/);
   });
 });

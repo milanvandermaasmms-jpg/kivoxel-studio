@@ -244,6 +244,6 @@ function finish(parts: Part[], blocks: string[]): ViralResult {
         ? `${fmt(total!)} — onder 8,0. Zwakst: ${weakest.slice(0, 2).map((p) => `${p.label} ${fmt(p.score)}`).join(", ")}`
         : status === "oordeel nodig"
           ? `${total !== null ? `${fmt(total)} op het gemeten deel (${Math.round(coverage * 100)}%)` : "Nog niets gemeten"}; jouw oordeel nodig voor: ${open.map((p) => p.label).join(", ")}`
-          : `${fmt(total!)} — publicatiegereed (alles beoordeeld, geen blokkade)`;
+          : `${fmt(total!)} — publicatiegereed (alles beoordeeld, geen blokkade)${parts.some((p) => p.source === "AI") ? `; ${parts.filter((p) => p.source === "AI").map((p) => p.label).join(", ")} door de AI beoordeeld, nog niet door jou` : ""}`;
   return { parts, total, coverage, blocks, status, weakest, summary };
 }

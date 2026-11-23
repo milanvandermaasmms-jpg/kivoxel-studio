@@ -6,10 +6,10 @@
 **🚀 X klaar voor YouTube** staat altijd bovenaan. Klik erop en je ziet wat je kunt publiceren. Daarnaast staan de aantallen per status en de keuze van het kanaal (Kivoxel nu, Dreamnest NL later).
 
 ## De stappen (links, op de telefoon bovenaan)
-1. **📤 Uploaden**: zet een opname in de Studio. Dat kan met de uploadknop, of door het bestand in de inbox-map op de pc te zetten. Open **Briefing voor de montage** om aan te geven wat er gebeurt, de belangrijkste gebeurtenis, tijdcodes, sfeer, output, stem en muziek. De studio zoekt die gebeurtenis in beeld en meldt het eerlijk als hij hem niet ziet.
+1. **📤 Uploaden**: zet een opname in de Studio. Dat kan met de uploadknop, of door het bestand in de inbox-map op de pc te zetten. Open **Briefing voor de montage** om aan te geven wat er gebeurt, de belangrijkste gebeurtenis, tijdcodes, sfeer, output, stem en muziek. De studio zoekt die gebeurtenis in beeld en meldt het eerlijk als hij hem niet ziet. Bij een opname die er al staat: **Briefing bekijken of aanpassen**, dan **Opslaan en opnieuw plannen (gratis)** of **opnieuw analyseren** (met de kosten erbij). Wat de analyse met de briefing deed, staat bij de opname.
 2. **⚙️ In productie**: bovenaan **Studio-gezondheid** (wat Ivar elke 2 minuten op de pc controleert en zelf herstelt), daarna wat de werker nu doet. De werker is het zwarte venster op de pc; laat dat open.
 3. **👀 Review**: klik op **Start met keuren**. Je ziet één video tegelijk, met grote knoppen.
-   - **Viralscore** (minimaal 8,0): per onderdeel een cijfer, waar het vandaan komt en het bewijs. Originaliteit beoordeel jij; zonder jouw oordeel staat er nooit "publicatiegereed".
+   - **Viralscore** (minimaal 8,0): per onderdeel een cijfer, waar het vandaan komt en het bewijs. Wat de pc niet kan meten (verhaal, originaliteit) beoordeel jij, of de **AI-inhoudscheck** (± 2 cent per Short, ± 5 per lange video): Gemini bekijkt de video en geeft per onderdeel een cijfer met tijdcodes. Zonder een van beide staat er nooit "publicatiegereed"; staat er een AI-oordeel in, dan zegt de score dat erbij. Jouw oordeel gaat altijd voor.
    - **Audio: drie opties**: A is deze versie, B energiek, C naturel. Of combineer zelf stem, muziek en effecten. **Kies deze audio** maakt de echte versie.
    - **Briefing**: per instructie ✓ / ✗ / ?, met **Laat vervallen**.
    - **Feedback op een tijdcode**, daarna **Afkeuren en opnieuw monteren** (gericht of volledig). **Vraag Ivar om advies** zet een vraag klaar bij Ivar.
