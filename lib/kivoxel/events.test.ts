@@ -145,3 +145,15 @@ describe("menu en inventaris rond een moment (22-11-2026)", () => {
     expect(menuShare(v, 15_000)).toBeGreaterThan(0.5);
   });
 });
+
+describe("hartjes niet herkenbaar (23-11-2026)", () => {
+  it("without recognisable hearts only the grey menu panel counts as menu", async () => {
+    const { heartsReliable, menuShare } = await import("./events");
+    const frame = (health: number, ui = 0) => ({ luma: 100, motion: 5, sharp: 10, ui, health, tint: 0 });
+    const frozen = { fps: 1, durationMs: 20_000, frames: [...Array(20)].map(() => frame(-1)) } as unknown as Parameters<typeof menuShare>[0];
+    expect(heartsReliable(frozen)).toBe(false);
+    expect(menuShare(frozen, 10_000)).toBe(0);
+    const panel = { ...frozen, frames: [...Array(20)].map((_, i) => frame(-1, i >= 8 ? 200 : 0)) } as unknown as Parameters<typeof menuShare>[0];
+    expect(menuShare(panel, 10_000)).toBeGreaterThan(0.5);
+  });
+});

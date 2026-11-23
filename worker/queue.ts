@@ -1456,11 +1456,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if ((await hudOf(video.data.recording_id!, job.studio_id)) === "minecraft") {
             const vis = JSON.parse(await readFile(join(montage.rendersDir, "..", "visual", `${rec.data.fingerprint}.json`), "utf8").catch(() => "null")) as { fps: number; frames: { health: number; ui: number }[] } | null;
             if (vis?.frames?.length) {
+              // Without recognisable hearts in this recording (frozen hearts, other HUD) only the menu panel counts.
+              const hearts = vis.frames.filter((f) => f.health >= 0).length / vis.frames.length >= 0.3;
               let tot = 0;
               let game = 0;
               for (const g of cut.segments) for (let i = Math.floor((g.src_start_ms / 1000) * vis.fps); i < Math.ceil((g.src_end_ms / 1000) * vis.fps) && i < vis.frames.length; i++) {
                 tot++;
-                if (vis.frames[i].health >= 0 && vis.frames[i].ui < 120) game++;
+                if ((!hearts || vis.frames[i].health >= 0) && vis.frames[i].ui < 120) game++;
               }
               gameplayShare = tot ? game / tot : null;
             }

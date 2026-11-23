@@ -26,7 +26,8 @@ export type GameEvent = {
 export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" | "black" | "quiet" };
 /** `rules`: version of the detection rules; a stored timeline with older rules is built again. */
 // 4 (22-11-2026): moments that are mostly menu/inventory lose 35 points (see menuShare).
-export const EVENT_RULES = 4;
+// 5 (23-11-2026): without recognisable hearts only the menu panel counts as menu (heartsReliable).
+export const EVENT_RULES = 5;
 export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game). */ hud?: "minecraft" | "none"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
@@ -209,12 +210,24 @@ export function mergeEvents(events: GameEvent[], gapMs = 3000): GameEvent[] {
  * (5 s before to 3 s after) that show a menu or inventory instead of gameplay: no hearts in the HUD, or the grey panel.
  * Moving the cursor over items makes the picture move, so findDead did not count those as menus.
  */
-export function menuShare(v: VisualSignals, peakMs: number): number {
+/**
+ * 23-11-2026 (lange video "22/11 minecraft"): in some recordings the hearts are never recognised (frozen hearts in snow,
+ * another HUD scale). Then "no hearts" means nothing; only the grey menu panel counts. True when hearts are seen in at
+ * least 30% of the frames.
+ */
+export function heartsReliable(v: VisualSignals): boolean {
+  if (!v.frames.length) return false;
+  let seen = 0;
+  for (const f of v.frames) if (f.health >= 0) seen++;
+  return seen / v.frames.length >= 0.3;
+}
+
+export function menuShare(v: VisualSignals, peakMs: number, hearts = heartsReliable(v)): number {
   const a = Math.max(0, Math.floor(((peakMs - 5000) / 1000) * v.fps));
   const b = Math.min(v.frames.length - 1, Math.ceil(((peakMs + 3000) / 1000) * v.fps));
   if (b < a) return 0;
   let n = 0;
-  for (let i = a; i <= b; i++) if (v.frames[i].health < 0 || v.frames[i].ui >= 120) n++;
+  for (let i = a; i <= b; i++) if ((hearts && v.frames[i].health < 0) || v.frames[i].ui >= 120) n++;
   return n / (b - a + 1);
 }
 /** Above this share a moment is mostly menu: it loses MENU_PENALTY points (it can still win when nothing better exists). */
@@ -281,6 +294,7 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
   }
 
   const dead = findDead(v, signals);
+  const heartsSeen = heartsReliable(v);
   const inDead = (ms: number) => dead.some((d) => ms >= d.startMs && ms < d.endMs && d.why !== "quiet");
   const events = mergeEvents(raw)
     // A peak inside a menu or a still picture is no moment (the death screen itself is still: keep deaths).
@@ -289,7 +303,7 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
     // Mostly menu or inventory around the peak: little for a viewer to see (deaths keep their screen).
     .map((e) => {
       if (e.kind === "death") return e;
-      const share = menuShare(v, e.t_peak);
+      const share = menuShare(v, e.t_peak, heartsSeen);
       return share > MENU_SHARE_MAX ? { ...e, payoff: Math.max(0, e.payoff - MENU_PENALTY), description: `${e.description} (grotendeels menu/inventaris: ${Math.round(share * 100)}%)`.slice(0, 200) } : e;
     });
 
