@@ -2,7 +2,7 @@
 // with the worker alone and shows that the database part is not ready yet.
 import { friendlyError, supabase } from "../supabase";
 import type { LocalRecording } from "./protocol";
-import type { Briefing } from "../kivoxel/briefing";
+import { parseBriefing, type Briefing } from "../kivoxel/briefing";
 
 export type DbRecording = { id: string; fingerprint: string; status: "uploading" | "received" | "ready" | "failed"; error: string | null; channel_id?: string | null };
 export type DbJob = { id: string; step: string; status: "queued" | "running" | "done" | "failed" | "cancelled"; attempts: number; error: string | null; created_at: string; recording_id: string | null; video_id: string | null; channel_id?: string | null };
@@ -56,6 +56,17 @@ export async function registerRecording(studioId: string, local: LocalRecording,
  * 23-11-2026 (superprompt V5, fase 11): the production briefing lives in the payload of an intake job of the recording
  * (no migration needed). Changing it later adds a new intake job (ffprobe only, free); the newest briefing counts.
  */
+/** The newest briefing of a recording (from its intake jobs), or null. */
+export async function loadBriefing(studioId: string, recordingId: string): Promise<Briefing | null> {
+  const { data, error } = await supabase.from("yt_jobs").select("payload, created_at").eq("studio_id", studioId).eq("recording_id", recordingId).eq("step", "intake").order("created_at", { ascending: false }).limit(20).returns<{ payload: { briefing?: unknown } | null }[]>();
+  if (error) throw new Error(friendlyError(error.message));
+  for (const j of data ?? []) {
+    const b = parseBriefing(j.payload?.briefing);
+    if (b) return b;
+  }
+  return null;
+}
+
 export async function saveBriefing(studioId: string, recordingId: string, briefing: Briefing): Promise<void> {
   const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "intake", idempotency_key: `intake:${recordingId}:briefing:${Date.now()}`, payload: { briefing } });
   if (error && error.code !== "23505") throw new Error(friendlyError(error.message));

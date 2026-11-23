@@ -22,7 +22,7 @@ export const PARTS: { key: PartKey; label: string; weight: number }[] = [
 ];
 export const MINIMUM = 8.0;
 
-export type Source = "gemeten" | "inschatting" | "Milan";
+export type Source = "gemeten" | "inschatting" | "AI" | "Milan";
 export type Part = { key: PartKey; label: string; weight: number; score: number | null; source: Source | null; evidence: string[] };
 export type ViralResult = {
   parts: Part[];
@@ -214,6 +214,16 @@ export function applyJudgement(r: ViralResult, milan: Partial<Record<PartKey, nu
     if (typeof own !== "number") return p;
     const measured = p.source === "Milan" ? p.evidence.slice(1) : p.evidence;
     return { ...p, score: r1(own), source: "Milan" as const, evidence: [`Jouw oordeel: ${r1(own)}`, ...measured] };
+  });
+  return finish(parts, r.blocks);
+}
+
+/** The AI content check (lib/kivoxel/contentCheck.ts) for parts nobody judged yet; labelled "AI", Milan can overrule. */
+export function applyAi(r: ViralResult, ai: Partial<Record<PartKey, number>>, evidence: Partial<Record<PartKey, string>> = {}): ViralResult {
+  const parts = r.parts.map((p) => {
+    const s = ai[p.key];
+    if (typeof s !== "number" || p.score !== null) return p;
+    return { ...p, score: r1(s), source: "AI" as const, evidence: [`AI-oordeel: ${evidence[p.key] ?? r1(s)}`, ...p.evidence] };
   });
   return finish(parts, r.blocks);
 }

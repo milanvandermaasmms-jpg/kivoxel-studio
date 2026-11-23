@@ -58,6 +58,7 @@ import { lessonPrompt, lessonsFrom, type Lesson } from "../lib/kivoxel/lessons.t
 import { viralScore, type ViralResult } from "../lib/kivoxel/viralScore.ts";
 import { musicPick, sfxAdjust, type SfxChoice } from "../lib/kivoxel/audioOptions.ts";
 import { musicFit, rankForMontage } from "../lib/kivoxel/musicFit.ts";
+import { contentPrompt, parseContentCheck } from "../lib/kivoxel/contentCheck.ts";
 import { MOOD_FOR } from "../lib/kivoxel/media.ts";
 import { weakFirstLine as weakOpening } from "../lib/youtube/hooks.ts";
 import type { GateResult as ProducerGate } from "../lib/kivoxel/producerGate.ts";
@@ -1993,6 +1994,25 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const hooks = parseHooks(script.data.hooks);
     const chosen = typeof script.data.chosen_hook === "number" ? (hooks[script.data.chosen_hook] ?? null) : null;
     const cut = applyHook(script.data, chosen, main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null);
+
+    // 23-11-2026 (Milan's OK on the cost): the AI content check. Gemini watches the export and judges hook, fragment, story
+    // and originality with evidence; stored with the render (qc.content), labelled "AI", never Milan's judgement.
+    if (job.payload?.content_check === true) {
+      if (!ai) throw new Error("Geen analysedienst (GEMINI_API_KEY) op deze pc");
+      if (!montage) throw new Error("Montage is op deze pc niet beschikbaar");
+      const file = join(montage.rendersDir, render.data.file_name);
+      if (!existsSync(file)) throw new Error("Het exportbestand staat niet (meer) op de pc");
+      await reserve(job, kind === "long" ? 5 : 2);
+      const brief = await briefingOf(video.data.recording_id);
+      await lv.phase("AI-inhoudscheck: Gemini bekijkt de video", 0.2);
+      const gameName = GAMES[await videoGame(video.data.id, job.studio_id)].name;
+      const { json } = await paid(job, () => ai.gemini.analyseVideo(file, contentPrompt({ kind, game: gameName, script: [cut.hook, ...cut.lines.map((l) => l.text)].filter(Boolean), briefing: brief ? briefingSummary(brief) : null })));
+      const check = parseContentCheck(json, ai.gemini.model);
+      const cur = await db.from("yt_renders").select("qc").eq("id", render.data.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
+      await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), content: check } }).eq("id", render.data.id);
+      await lv.event("note", `AI-inhoudscheck: ${(["hook", "fragment", "verhaal", "originaliteit"] as const).map((k) => `${k} ${check.parts[k].score ?? "?"}`).join(", ")}. ${check.summary}`.slice(0, 500));
+      return { content: check, render: render.data.id };
+    }
 
     const [channel, settings, others, refs] = await Promise.all([
       video.data.channel_id ? db.from("yt_channels").select("language, audience").eq("id", video.data.channel_id).maybeSingle<{ language: "en" | "nl"; audience: string | null }>() : Promise.resolve({ data: null }),

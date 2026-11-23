@@ -14,8 +14,9 @@ import { reviewBlockers } from "@/lib/youtube/review";
 import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import { EditorPanel } from "@/components/youtube/EditorPanel";
 import { ViralScoreCard } from "@/components/youtube/ViralScoreCard";
-import { applyJudgement, type PartKey, type ViralResult } from "@/lib/kivoxel/viralScore";
-import { loadJudgements, saveJudgement } from "@/lib/youtube/viralJudgement";
+import { applyAi, applyJudgement, type PartKey, type ViralResult } from "@/lib/kivoxel/viralScore";
+import { loadJudgements, requestContentCheck, saveJudgement } from "@/lib/youtube/viralJudgement";
+import { aiForViral, AI_PARTS, type ContentCheck } from "@/lib/kivoxel/contentCheck";
 import { isPreviewJob, type PreviewJob } from "@/lib/youtube/audioPreviewData";
 import { AudioOptions } from "@/components/youtube/AudioOptions";
 import type { BriefCheck, Briefing } from "@/lib/kivoxel/briefing";
@@ -143,7 +144,11 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
       live = false;
     };
   }, [studioId, video?.id, storedViral]);
-  const viral = storedViral ? applyJudgement(storedViral, judgements && judgements.videoId === video?.id ? judgements.parts : {}) : null;
+  // The AI content check (if Milan started it) fills open parts, labelled "AI"; Milan's own judgement always wins.
+  const content = (render?.qc as { content?: ContentCheck } | null | undefined)?.content ?? null;
+  const withAi = storedViral && content ? applyAi(storedViral, aiForViral(storedViral, content), Object.fromEntries(AI_PARTS.map((k) => [k, content.parts[k].evidence]))) : storedViral;
+  const viral = withAi ? applyJudgement(withAi, judgements && judgements.videoId === video?.id ? judgements.parts : {}) : null;
+  const contentBusy = video && render ? board.jobs.some((j) => j.step === "viral" && j.video_id === video.id && (j.status === "queued" || j.status === "running") && (j.payload as { content_check?: boolean } | null)?.content_check) : false;
   const judge = (part: PartKey, score: number) => {
     if (!video) return;
     setJudgements((j) => ({ videoId: video.id, parts: { ...(j?.videoId === video.id ? j.parts : {}), [part]: score } }));
@@ -348,6 +353,30 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
           </div>
           <aside aria-label="Kwaliteit" className="mt-4 space-y-4 lg:sticky lg:top-0 lg:mt-0">
               {item.kind === "final" && render && viral && <ViralScoreCard result={viral} onJudge={judge} />}
+            {item.kind === "final" && render && (
+              <section aria-label="AI-inhoudscheck" className="space-y-1 rounded-md border border-slate-200 p-3 text-xs">
+                <p className="text-sm font-semibold">AI-inhoudscheck</p>
+                {content ? (
+                  <>
+                    <p className="text-slate-700">{content.summary}</p>
+                    <ul className="space-y-0.5">
+                      {AI_PARTS.map((k) => (
+                        <li key={k}>
+                          <span className="font-medium">{k}: {content.parts[k].score ?? "?"}</span> — {content.parts[k].evidence}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-[11px] text-slate-500">Oordeel van Gemini ({content.model}) op {new Date(content.checkedAt).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}. Een buitenstaander-oordeel, geen garantie; jouw oordeel gaat altijd voor.</p>
+                  </>
+                ) : contentBusy ? (
+                  <p className="text-slate-600">Gemini bekijkt de video…</p>
+                ) : (
+                  <button type="button" onClick={() => void act(() => requestContentCheck(studioId, video!.id, render.id))} className="rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50">
+                    Laat Gemini de inhoud beoordelen (± {render.height > render.width ? "2" : "5"} cent)
+                  </button>
+                )}
+              </section>
+            )}
             {item.kind === "final" && render && (
               <button type="button" onClick={() => askIvar(viral && viral.status !== "publicatiegereed" ? `Waarom haalt deze video ${viral.total !== null ? viral.total.toFixed(1).replace(".", ",") : "geen score"} en wat is de beste verbetering?` : "Wat vind je van deze video, en welke van de drie audio-opties past het best?")} className="w-full rounded-md border border-violet-300 px-3 py-2 text-left text-sm text-violet-800 hover:bg-violet-50">
                 Vraag Ivar om advies over deze video

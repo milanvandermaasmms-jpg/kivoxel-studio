@@ -10,6 +10,13 @@ import { GAMEPLAY_LABEL, GAMEPLAY_TYPES, MOODS, MUSIC_LABEL, MUSIC_PREFS, OUTPUT
 export type BriefingDraft = { gameplay: GameplayType | ""; story: string; editNotes: string; keyEvent: string; marks: string; moods: BriefMood[]; output: Output; shorts: string; voice: VoicePref; music: MusicPref; extra: string };
 export const emptyDraft = (): BriefingDraft => ({ gameplay: "", story: "", editNotes: "", keyEvent: "", marks: "", moods: [], output: "auto", shorts: "", voice: "auto", music: "auto", extra: "" });
 
+/** A stored briefing back into the form (to change it later). */
+export function briefingToDraft(b: Briefing | null): BriefingDraft {
+  if (!b) return emptyDraft();
+  const mm = (ms: number) => `${String(Math.floor(ms / 60_000)).padStart(2, "0")}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
+  return { gameplay: b.gameplay ?? "", story: b.story ?? "", editNotes: b.editNotes ?? "", keyEvent: b.keyEvent ?? "", marks: (b.marks ?? []).map((m) => `${mm(m.atMs)} ${m.note}`.trim()).join(String.fromCharCode(10)), moods: b.moods ?? [], output: b.output ?? "auto", shorts: b.shorts ? String(b.shorts) : "", voice: b.voice ?? "auto", music: b.music ?? "auto", extra: b.extra ?? "" };
+}
+
 /** The draft as stored briefing; null when Milan filled in nothing (the studio then decides itself). */
 export function draftToBriefing(d: BriefingDraft, game: string | null): Briefing | null {
   const n = Number(d.shorts);
