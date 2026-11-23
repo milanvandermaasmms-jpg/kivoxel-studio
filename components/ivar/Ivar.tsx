@@ -11,7 +11,7 @@ import { isDreamnestChannel } from "@/lib/studioRoutes";
 import { pageVisible } from "@/lib/visible";
 import { workerHealth } from "@/lib/youtube/workerClient";
 import * as data from "@/lib/ivar/data";
-import { usePageContext } from "@/lib/ivar/pageContext";
+import { IVAR_ASK_EVENT, usePageContext } from "@/lib/ivar/pageContext";
 import { suggestions, type ProjectState } from "@/lib/ivar/suggest";
 import { launcherSignal, taskView, type JobRow, type LauncherSignal } from "@/lib/ivar/tasks";
 import { clientKey, sameTarget, scopeOf, scopeTrail, type Card, type ChannelKind, type Conversation, type Idea, type MemoryItem, type Message, type Revision, type Scope } from "@/lib/ivar/types";
@@ -284,6 +284,26 @@ function IvarShell({ studioId }: { studioId: string }) {
   const health = useStudioHealth(workerOnline);
   const healthAlert = !!health && health.health.status !== "operationeel";
   const shownSignal: LauncherSignal = healthAlert && signal !== "busy" ? "attention" : signal === "idle" && newInsights > 0 ? "ready" : signal;
+
+  // "Vraag Ivar" from the review (fase 35): open the panel with the question in the box (Milan sends it himself).
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text ?? "";
+      setOpen(true);
+      setView("chat");
+      setTimeout(() => {
+        const el = inputRef.current as unknown as HTMLTextAreaElement | HTMLInputElement | null;
+        if (el && text) {
+          const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
+          set?.call(el, text);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.focus();
+        }
+      }, 80);
+    };
+    window.addEventListener(IVAR_ASK_EVENT, onAsk);
+    return () => window.removeEventListener(IVAR_ASK_EVENT, onAsk);
+  }, [setOpen]);
 
   // ---------- keyboard ----------
   useEffect(() => {

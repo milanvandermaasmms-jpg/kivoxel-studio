@@ -31,6 +31,12 @@ export function usePublishPageContext(scope: Scope | null) {
   }, [key]);
 }
 
+/** 23-11-2026 (superprompt V6, fase 35): "Vraag Ivar" from a page opens his panel with a question ready to send. */
+export const IVAR_ASK_EVENT = "ivar:ask";
+export function askIvar(text: string) {
+  window.dispatchEvent(new CustomEvent(IVAR_ASK_EVENT, { detail: { text } }));
+}
+
 /** Ivar's "Open in de studio" buttons: the studio page listens and opens that video (no full reload). */
 export const IVAR_OPEN_EVENT = "ivar:open-video";
 export function openInStudio(videoId: string) {

@@ -29,6 +29,7 @@ import { rejectWithFeedback, remountWithFeedback } from "@/lib/youtube/remountDa
 import { clock, type FeedbackItem, type RemountMode } from "@/lib/youtube/reviewFeedback";
 
 import { FORMATS } from "@/lib/youtube/studio";
+import { askIvar, usePublishPageContext } from "@/lib/ivar/pageContext";
 
 type Ready = Extract<BoardState, { ready: true }>;
 
@@ -80,6 +81,8 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const video = item ? board.input.videos.find((v) => v.id === item.videoId) : undefined;
   const channel = video ? board.channels.find((c) => c.id === video.channel_id) : undefined;
   const format = video ? FORMATS.find((f) => f.key === video.format) : undefined;
+  // 23-11-2026 (superprompt V6, fase 28.1/35): Ivar knows which video is open in the review.
+  usePublishPageContext(video ? { channelId: video.channel_id ?? null, channelName: channel?.name ?? null, projectKind: "video", projectId: video.id, projectLabel: video.promise ?? "Video", page: "Keuren" } : null);
   const scripts = video ? board.scripts.filter((s) => s.video_id === video.id) : [];
   const script = item?.kind === "concept" ? scripts.find((s) => s.id === item.scriptId) : scripts.find((s) => s.status === "approved");
   const renders = video ? board.renders.filter((r) => r.video_id === video.id) : [];
@@ -217,7 +220,10 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
         {!item || !video ? (
           <p className="py-16 text-center text-slate-600">Niets meer te keuren. Goed bezig!</p>
         ) : (
-          <div className="mx-auto max-w-2xl space-y-4 text-sm">
+          // 23-11-2026 (superprompt V6, fase 33): video, audio and choices on the left; quality panel (viral score, editor,
+          // dossier) on the right on a wide screen; one column on a phone.
+          <div className="mx-auto max-w-6xl text-sm lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-6">
+          <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
               <span aria-hidden className="h-3 w-3 rounded-full border border-slate-300" style={{ background: channel?.brand_color ?? "transparent" }} />
               <span>{channel?.name ?? "Kanaal"}</span>
@@ -267,34 +273,6 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 current={renderJob?.result ? { voice: (renderJob.result as { voice?: string | null }).voice ?? null, music: (renderJob.result as { music?: string | null }).music ?? null, sfx: (renderJob.result as { sfx?: number | null }).sfx ?? null } : null}
                 game={board.input.recordings.find((r) => r.id === video.recording_id)?.label ?? null}
                 act={act}
-              />
-            )}
-            {item.kind === "final" && render && viral && <ViralScoreCard result={viral} onJudge={judge} />}
-            {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} briefing={briefing} onWaive={waive} />}
-            {item.kind === "final" && render && script && (
-              <ProducerDossierView
-                title={state_title(video?.id)}
-                onJump={jumpTo}
-                dossier={buildDossier({
-                  format: render.height > render.width ? "short" : "long",
-                  title: state_title(video?.id),
-                  titles: script.titles,
-                  topLine: script.top_line,
-                  hook: script.hook,
-                  hooks: script.hooks,
-                  chosenHook: script.chosen_hook,
-                  lines: script.lines,
-                  plan: script.edit_plan,
-                  targetMs: script.target_ms,
-                  loopLine: script.loop_line,
-                  gate: producer,
-                  editor,
-                  voice: !!voicePlan?.voice || /stem/i.test(renderAudio(render)?.label ?? ""),
-                  audioLabel: renderAudio(render)?.label ?? null,
-                  music: renderAudio(render)?.music ?? null,
-                  thumbnails: ((render as { thumbnails?: { label?: string; text?: string }[] }).thumbnails ?? []),
-                  lessons: scriptJob?.result?.lessons ?? [],
-                })}
               />
             )}
             {item.kind === "final" && render && workerOnline && <FeedbackPanel player={() => player.current} items={feedback} onChange={setFeedback} mode={mode} onMode={setMode} />}
@@ -367,6 +345,42 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 {error}
               </p>
             )}
+          </div>
+          <aside aria-label="Kwaliteit" className="mt-4 space-y-4 lg:sticky lg:top-0 lg:mt-0">
+              {item.kind === "final" && render && viral && <ViralScoreCard result={viral} onJudge={judge} />}
+            {item.kind === "final" && render && (
+              <button type="button" onClick={() => askIvar(viral && viral.status !== "publicatiegereed" ? `Waarom haalt deze video ${viral.total !== null ? viral.total.toFixed(1).replace(".", ",") : "geen score"} en wat is de beste verbetering?` : "Wat vind je van deze video, en welke van de drie audio-opties past het best?")} className="w-full rounded-md border border-violet-300 px-3 py-2 text-left text-sm text-violet-800 hover:bg-violet-50">
+                Vraag Ivar om advies over deze video
+              </button>
+            )}
+              {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} briefing={briefing} onWaive={waive} />}
+              {item.kind === "final" && render && script && (
+                <ProducerDossierView
+                  title={state_title(video?.id)}
+                  onJump={jumpTo}
+                  dossier={buildDossier({
+                    format: render.height > render.width ? "short" : "long",
+                    title: state_title(video?.id),
+                    titles: script.titles,
+                    topLine: script.top_line,
+                    hook: script.hook,
+                    hooks: script.hooks,
+                    chosenHook: script.chosen_hook,
+                    lines: script.lines,
+                    plan: script.edit_plan,
+                    targetMs: script.target_ms,
+                    loopLine: script.loop_line,
+                    gate: producer,
+                    editor,
+                    voice: !!voicePlan?.voice || /stem/i.test(renderAudio(render)?.label ?? ""),
+                    audioLabel: renderAudio(render)?.label ?? null,
+                    music: renderAudio(render)?.music ?? null,
+                    thumbnails: ((render as { thumbnails?: { label?: string; text?: string }[] }).thumbnails ?? []),
+                    lessons: scriptJob?.result?.lessons ?? [],
+                  })}
+                />
+              )}
+          </aside>
           </div>
         )}
       </div>
