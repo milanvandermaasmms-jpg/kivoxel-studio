@@ -51,6 +51,8 @@ export type ServerOptions = {
   music?: { list: () => Promise<unknown>; import: (bytes: Buffer, meta: Record<string, unknown>) => Promise<unknown> };
   /** 23-11-2026: the voice-over split per channel and format, planned and delivered (GET /voice-plan). */
   voicePlan?: () => Promise<unknown>;
+  /** 23-11-2026: the content register (GET /register; POST /register/run builds a new one in the background). */
+  register?: { get: () => Promise<unknown>; run: () => string };
 };
 
 /** The whole request body, at most `max` bytes. */
@@ -104,7 +106,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -152,6 +154,11 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
         } catch (e) {
           return send(400, { error: e instanceof Error ? e.message : String(e) });
         }
+      }
+      if (req.method === "GET" && url.pathname === "/register" && register) return send(200, await register.get());
+      if (req.method === "POST" && url.pathname === "/register/run" && register) {
+        if (!origin) return send(403, { error: "Alleen via het dashboard" });
+        return send(200, { state: register.run() });
       }
       if (req.method === "POST" && url.pathname === "/poke" && poke) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });
