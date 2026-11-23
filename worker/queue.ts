@@ -56,6 +56,8 @@ import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
 import { lessonPrompt, lessonsFrom, type Lesson } from "../lib/kivoxel/lessons.ts";
 import { viralScore, type ViralResult } from "../lib/kivoxel/viralScore.ts";
+import { musicPick, sfxAdjust, type SfxChoice } from "../lib/kivoxel/audioOptions.ts";
+import { musicFit, rankForMontage } from "../lib/kivoxel/musicFit.ts";
 import { MOOD_FOR } from "../lib/kivoxel/media.ts";
 import { weakFirstLine as weakOpening } from "../lib/youtube/hooks.ts";
 import type { GateResult as ProducerGate } from "../lib/kivoxel/producerGate.ts";
@@ -1050,6 +1052,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     // 23-11-2026: a targeted correction after Milan's feedback changes only what he pointed at in this timeline
     // (crop of one piece, more time after the peak, music); the moments and the script stay.
     const fixes = (job.payload?.fixes ?? null) as Fixes | null;
+    // 23-11-2026 (superprompt V6, fase 31): an audio preview (B, C or Milan's own combination) is the same montage with
+    // other audio, saved as its own file: no new version, no status change, no place in the voice split, no checks.
+    const preview = typeof job.payload?.preview === "string" && /^(A|B|C|eigen)$/.test(job.payload.preview) ? job.payload.preview : null;
+    const musicChoice = typeof job.payload?.music_pick === "string" ? job.payload.music_pick : undefined;
+    const sfxLevel = (["subtiel", "gebalanceerd", "dynamisch"] as const).find((x) => x === job.payload?.sfx_level) as SfxChoice | undefined;
     // 23-11-2026: after "kies een ander moment" the plan has a new moment while the video is still linked to the old one;
     // the cold open then takes the plan's own peak (it opened with 1.5 s of the rejected moment).
     const linkedPeak = main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null;
@@ -1081,7 +1088,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const brief = video.data.is_test ? null : await briefingOf(video.data.recording_id);
     const briefMode = askedMode ? null : briefingAudioMode(brief);
     if (briefMode) await lv.event("note", `Briefing bepaalt de audio: ${briefMode}`);
-    if (!askedMode && !briefMode && !video.data.is_test && video.data.channel_id) {
+    if (!askedMode && !briefMode && !preview && !video.data.is_test && video.data.channel_id) {
       try {
         const ledger = createVoiceLedger(join(montage.rendersDir, "..", "voice-plan.json"));
         const fmt = video.data.format === "C" ? "long" : "short";
@@ -1110,6 +1117,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let musicMoods: string[] | null = null;
     /** Every music part has a licence on record and is no test track (for the viral score's hard block). */
     let musicLicensed = true;
+    /** How well the chosen track suits this montage (0-10, fase 32). */
+    let musicFitScore: number | null = null;
     let briefCheck: { checks: BriefCheck[]; verdict: { ok: boolean; text: string }; brief: Briefing } | null = null;
     const voice: VoiceClip[] = [];
     // Studio 2.0: a voice for this montage only (comparing voices), else the studio setting. KIVOXEL videos are English,
@@ -1241,20 +1250,30 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const peakOut = (mainEvent ?? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0])?.peak_out ?? null;
         let music: MusicChoice | null = null;
         // Review fix "muziek uit": this version without music (the rest of the mix stays).
-        if (modeSpec.music && fixes?.music !== "none" && brief?.music !== "none") {
+        if (modeSpec.music && fixes?.music !== "none" && brief?.music !== "none" && musicChoice !== "none") {
           const lib = await media.music().catch(() => ({ dir: "", tracks: [] as Track[] }));
           const recentTracks = await media.musicLog.recent().catch(() => [] as string[]);
-          const briefMusic = musicForBriefing(lib.tracks.filter((t) => !t.channels?.length || t.channels.includes(channelProfile.key)), brief);
-          if (briefMusic.note) await lv.event("note", briefMusic.note);
+          const briefMusic0 = musicForBriefing(lib.tracks.filter((t) => !t.channels?.length || t.channels.includes(channelProfile.key)), brief);
+          if (briefMusic0.note) await lv.event("note", briefMusic0.note);
+          // Audio option B/C or Milan's own choice: energetic or calm music (fase 31).
+          const picked = musicPick(briefMusic0.tracks, musicChoice);
+          if (picked.note) await lv.event("note", picked.note);
+          // 23-11-2026 (superprompt V6, fase 32): for a Short only tracks that suit its main moment (8.0+), licence required.
+          const fitCtx = { type: mainEvent?.type ?? null, intensity: mainEvent?.intensity ?? 0.5, withVoice: !!modeSpec.voice, short: isShort, channel: channelProfile.key };
+          const ranked = isShort && mainEvent ? rankForMontage(picked.tracks, fitCtx) : null;
+          if (ranked) await lv.event("note", ranked.note);
+          const briefMusic = { tracks: ranked?.tracks.length ? ranked.tracks : picked.tracks };
           // Milan, 16-11-2026: busy music for action, calm music for searching and farming, cross-fading with the content.
           const parts = planMusicParts({ durationMs: cutMs, events: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, type: e.type, kind: e.kind })), library: briefMusic.tracks, recent: recentTracks, rnd, short: isShort, noRepeatWithin: kSettings.variation.music_no_repeat_within });
           if (parts.length) {
             const titles = [...new Set(parts.map((p) => p.title))];
             const own = parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("eigen"));
             music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (${own ? "eigen KIVOXEL-muziek" : parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("Uppbeat")) ? "Uppbeat" : "Pixabay"})`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
-            void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
+            if (!preview) void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
             musicMoods = [...new Set(parts.flatMap((p) => lib.tracks.find((t) => t.file === p.file)?.moods ?? []))];
             musicLicensed = parts.every((p) => { const t = lib.tracks.find((x) => x.file === p.file); return !!t && !!t.license?.trim() && !t.test; });
+            const firstTrack = lib.tracks.find((x) => x.file === parts[0].file);
+            if (firstTrack) musicFitScore = musicFit(firstTrack, fitCtx).score;
             mixNote = parts.length > 1 ? `Muziek wisselt mee: ${parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)} s`).join(", ")}` : null;
           } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
           void peakOut;
@@ -1273,7 +1292,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
               if (pickFile) sfx.push({ file: join(lib.dir, pickFile.file), atMs: a.atMs, db: (modeSpec.voice ? -14 : -9) + (pickFile.db ?? 0), kind: a.kind });
             }
           }
-          void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
+          // Audio option: subtle (fewer, softer), balanced (as planned) or dynamic (louder) effects.
+          sfx = sfxAdjust(sfx, sfxLevel);
+          if (!preview) void media.sfxLog.add(sfx.map((c) => c.file)).catch(() => {});
         }
         // Own KIVOXEL motif (Milan, 18-11-2026): start of every Short, start and end of a long video.
         const motif = await media.motif?.((await recordingGameInfo(video.data.recording_id, job.studio_id)).profile.key).catch(() => null);
@@ -1360,6 +1381,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await rename(partial, output);
       // Fase D4b: the same captions as a separate file, for YouTube (search and accessibility).
       await writeFile(join(montage.rendersDir, srtFileName(fileName)), buildSrt(spoken, plan.durationMs), "utf8");
+      if (preview) {
+        await lv.event("note", `Audiopreview ${preview} klaar: ${voice.length ? (localVoiceName ?? voiceName) : "geen stem"}, ${mixPlan?.music?.title ?? "geen muziek"}, ${mixPlan?.sfx.length ?? 0} effecten (${sfxLevel ?? "gebalanceerd"})`);
+        return { preview: { variant: preview, file: fileName, durationMs: plan.durationMs, choice: job.payload?.audio_choice ?? null, voice: voice.length ? (localVoiceName ?? voiceName) : null, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, audioMode: kSettings.audio_mode } };
+      }
       const insert = await db.from("yt_renders").upsert(
         { studio_id: job.studio_id, video_id: video.data.id, script_id: s.data.id, job_id: job.id, file_name: fileName, duration_ms: Math.max(1, plan.durationMs), width: size.width, height: size.height, voice_name: voice.length && !localVoiceName ? voiceName : null, tts_characters: characters, is_test: video.data.is_test, ...(privacyReady ? { privacy_blur: blur.length > 0, game_muted: muteGame } : {}) },
         { onConflict: "job_id", ignoreDuplicates: true },
@@ -1546,7 +1571,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
               firstLineWeak: !!cut.topLine && weakOpening(cut.topLine),
               hasVoice: voice.length > 0,
               voiceSyncRed: (qcSummary?.voSyncRed ?? 0) > 0,
-              music: mixPlan?.music ? { moods: musicMoods ?? [], licensed: musicLicensed } : null,
+              music: mixPlan?.music ? { moods: musicMoods ?? [], licensed: musicLicensed, fit: musicFitScore } : null,
               fittingMoods: mainEvent?.type ? MOOD_FOR[mainEvent.type] : [],
               sfxCount: mixPlan?.sfx.filter((c) => c.kind !== "motif").length ?? 0,
               musicChosenOff: !modeSpec.music || fixes?.music === "none" || brief?.music === "none",
@@ -2138,7 +2163,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     ]);
     if (jobs.error || scripts.error) return log(`Montages niet nagekeken: ${(jobs.error ?? scripts.error)!.message}`);
     for (const v of vids.data ?? []) {
-      const r = reviveMontage(v, (jobs.data ?? []).filter((j) => j.video_id === v.id), (scripts.data ?? []).filter((s) => s.video_id === v.id), now);
+      // Audio previews (23-11-2026) are no montage of the video: left out, so a preview never counts as "the montage".
+      const r = reviveMontage(v, (jobs.data ?? []).filter((j) => j.video_id === v.id && !(j.payload as { preview?: unknown } | null)?.preview), (scripts.data ?? []).filter((s) => s.video_id === v.id), now);
       if (!r) continue;
       try {
         await queueStep(v.studio_id, { video_id: v.id, step: "render", idempotency_key: r.idempotency_key, payload: r.payload });

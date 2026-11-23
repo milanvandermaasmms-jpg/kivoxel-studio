@@ -142,9 +142,10 @@ export async function queueRender(studioId: string, script: DbScript, attempt: n
   // KIVOXEL fase 1: the audio mode travels with the job (no new column); without it the worker uses the channel default.
   const payload = audioMode ? { script_id: script.id, audio_mode: audioMode } : { script_id: script.id };
   // One montage at a time per video: a second one would only overwrite the first.
-  const open = await supabase.from("yt_jobs").select("id").eq("video_id", script.video_id).eq("step", "render").in("status", ["queued", "running"]).limit(1).returns<{ id: string }[]>();
+  const open = await supabase.from("yt_jobs").select("id, payload").eq("video_id", script.video_id).eq("step", "render").in("status", ["queued", "running"]).returns<{ id: string; payload: { preview?: unknown } | null }[]>();
   if (open.error) throw new Error(friendlyError(open.error.message));
-  if (open.data?.length) throw new Error("Er staat al een montage van deze video in de rij. Volg hem in Live.");
+  // An audio preview (23-11-2026) does not block a real montage.
+  if (open.data?.some((j) => !j.payload?.preview)) throw new Error("Er staat al een montage van deze video in de rij. Volg hem in Live.");
   const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: renderKey(script.id, attempt), payload });
   // 23505 = the same key again: a double click within the same 10 seconds, the first click already queued it.
   if (error && error.code !== "23505") throw new Error(friendlyError(error.message));

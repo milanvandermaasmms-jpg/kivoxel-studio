@@ -52,7 +52,7 @@ export type ViralInput = {
   hasVoice: boolean;
   voiceSyncRed: boolean;
   /** Music in the mix: its moods and whether its licence is on record; null = no music (by choice or mode). */
-  music: { moods: string[]; licensed: boolean } | null;
+  music: { moods: string[]; licensed: boolean; /** Suitability of the track for this montage (musicFit, 0-10). */ fit?: number | null } | null;
   /** Moods that suit the main event (MOOD_FOR), best first; empty when unknown. */
   fittingMoods: string[];
   sfxCount: number;
@@ -124,6 +124,9 @@ function muziekSfx(i: ViralInput): Omit<Part, "key" | "label" | "weight"> {
   if (!i.music) {
     if (!i.musicChosenOff) return { score: null, source: null, evidence: ["Geen muziek in deze versie en geen bewuste keuze daarvoor"] };
     ev.push("Bewust zonder muziek");
+  } else if (typeof i.music.fit === "number") {
+    s = i.music.fit;
+    ev.push(`Muziekgeschiktheid ${i.music.fit.toFixed(1).replace(".", ",")} voor dit moment (sfeer, energie, tempo, balans met de stem, licentie)`);
   } else {
     const best = i.fittingMoods.length ? Math.min(...i.music.moods.map((m) => (i.fittingMoods.includes(m) ? i.fittingMoods.indexOf(m) : 9))) : null;
     if (best === null) ev.push(`Muziek: ${i.music.moods.join(", ")} (soort moment onbekend)`), (s -= 1);

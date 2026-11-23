@@ -16,6 +16,8 @@ import { EditorPanel } from "@/components/youtube/EditorPanel";
 import { ViralScoreCard } from "@/components/youtube/ViralScoreCard";
 import { applyJudgement, type PartKey, type ViralResult } from "@/lib/kivoxel/viralScore";
 import { loadJudgements, saveJudgement } from "@/lib/youtube/viralJudgement";
+import { isPreviewJob, type PreviewJob } from "@/lib/youtube/audioPreviewData";
+import { AudioOptions } from "@/components/youtube/AudioOptions";
 import type { BriefCheck, Briefing } from "@/lib/kivoxel/briefing";
 import { saveBriefing } from "@/lib/youtube/studio";
 import { ProducerDossierView } from "@/components/youtube/ProducerDossier";
@@ -82,7 +84,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const script = item?.kind === "concept" ? scripts.find((s) => s.id === item.scriptId) : scripts.find((s) => s.status === "approved");
   const renders = video ? board.renders.filter((r) => r.video_id === video.id) : [];
   const flags = video ? [...new Set((video.yt_video_moments ?? []).flatMap((m) => board.input.moments.find((x) => x.id === m.moment_id)?.privacy_flags ?? []))] : [];
-  const renderBusy = video ? board.jobs.some((j) => j.step === "render" && j.video_id === video.id && (j.status === "queued" || j.status === "running")) : false;
+  const renderBusy = video ? board.jobs.some((j) => j.step === "render" && j.video_id === video.id && (j.status === "queued" || j.status === "running") && !isPreviewJob(j)) : false;
   const blockers = item?.kind === "final" ? reviewBlockers({ approvedScriptId: script?.status === "approved" ? script.id : null, latestRender: renders[0] ?? null, renderBusy, privacyFlags: flags }) : [];
   // Milan, 16-11-2026: approving is never blocked by the Poortwachter or the quality checks, only when there is no montage.
   const canApprove = !!item && !!script && blockers.length === 0;
@@ -254,6 +256,18 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                   </div>
                 )}
               </section>
+            )}
+            {item.kind === "final" && render && script && video && (
+              <AudioOptions
+                studioId={studioId}
+                channelId={video.channel_id ?? null}
+                script={script}
+                previews={board.jobs.filter((j) => j.video_id === video.id && isPreviewJob(j) && j.created_at > render.created_at).sort((a, b) => b.created_at.localeCompare(a.created_at)) as unknown as PreviewJob[]}
+                attempt={board.jobs.filter((j) => j.step === "render" && j.video_id === video.id).length + 1}
+                current={renderJob?.result ? { voice: (renderJob.result as { voice?: string | null }).voice ?? null, music: (renderJob.result as { music?: string | null }).music ?? null, sfx: (renderJob.result as { sfx?: number | null }).sfx ?? null } : null}
+                game={board.input.recordings.find((r) => r.id === video.recording_id)?.label ?? null}
+                act={act}
+              />
             )}
             {item.kind === "final" && render && viral && <ViralScoreCard result={viral} onJudge={judge} />}
             {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} briefing={briefing} onWaive={waive} />}

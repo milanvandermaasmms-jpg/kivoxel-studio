@@ -64,7 +64,8 @@ export function placeOf(video: FlowVideo, scripts: BoardScript[], pub: FlowPubli
 
   const own = jobs.filter((j) => j.video_id === video.id);
   const scriptJob = newest(own.filter((j) => j.step === "script"));
-  const renderJob = newest(own.filter((j) => j.step === "render"));
+  // An audio preview (23-11-2026) is no montage of the video: it never changes where the video stands.
+  const renderJob = newest(own.filter((j) => j.step === "render" && !(j as { payload?: { preview?: unknown } | null }).payload?.preview));
   const ownScripts = scripts.filter((s) => s.video_id === video.id).sort((a, b) => b.version - a.version);
   const approved = ownScripts.find((s) => s.status === "approved") ?? null;
   // A concept Milan turned down without asking for a new one leads nowhere: archived, out of sight.
