@@ -53,6 +53,7 @@ import { reviveMontage, type ReviveJob, type ReviveScript, type ReviveVideo } fr
 import { nextInLine, oldRefusal, parseWait, retryAfter, waitNote, type WaitingPub } from "../lib/youtube/uploadWait.ts";
 import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
+import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
 import { producerGate, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
 import { measureExport } from "./editorMeasure.ts";
@@ -979,7 +980,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     // 23-11-2026: a targeted correction after Milan's feedback changes only what he pointed at in this timeline
     // (crop of one piece, more time after the peak, music); the moments and the script stay.
     const fixes = (job.payload?.fixes ?? null) as Fixes | null;
-    const fixed = applyFixes(applyHook(s.data, chosen, main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null), fixes, local.probe.durationMs);
+    // 23-11-2026: after "kies een ander moment" the plan has a new moment while the video is still linked to the old one;
+    // the cold open then takes the plan's own peak (it opened with 1.5 s of the rejected moment).
+    const linkedPeak = main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null;
+    const fixed = applyFixes(applyHook(s.data, chosen, coldOpenPeak(linkedPeak, s.data.edit_plan)), fixes, local.probe.durationMs);
     const cut = fixed.cut;
     if (fixed.changes.length) await lv.event("note", `Gerichte correctie: ${fixed.changes.join("; ")}`);
     const size = renderSize(video.data.format);
