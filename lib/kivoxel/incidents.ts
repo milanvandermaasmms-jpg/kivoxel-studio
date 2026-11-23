@@ -27,7 +27,7 @@ export type Incident = {
   ref?: { jobId?: string; videoId?: string; step?: string; title?: string };
 };
 
-export type JobSnap = { id: string; step: string; status: string; error: string | null; /** When this worker session claimed it; older than the session start = an orphan of a previous run. */ locked_at?: string | null; attempts: number; max_attempts: number; heartbeat_at: string | null; progress: number | null; phase: string | null; started_at: string | null; finished_at: string | null; video_id: string | null; title?: string | null };
+export type JobSnap = { id: string; step: string; status: string; error: string | null; /** A later step of the same video and kind is done, running or waiting: this failure no longer matters. */ superseded?: boolean; /** When this worker session claimed it; older than the session start = an orphan of a previous run. */ locked_at?: string | null; attempts: number; max_attempts: number; heartbeat_at: string | null; progress: number | null; phase: string | null; started_at: string | null; finished_at: string | null; video_id: string | null; title?: string | null };
 export type Snapshot = {
   now: string;
   jobs: JobSnap[];
@@ -71,7 +71,7 @@ export function detect(s: Snapshot): Omit<Incident, "firstSeen" | "lastSeen">[] 
       out.push({ id: `voortgang_stil:${j.id}`, kind: "voortgang_stil", severity: "waarschuwing", domain: "techniek", title: `De ${name} staat al ${mins(ago(seen.since, s.now))} op ${Math.round(j.progress * 100)}%`, cause: `De werker leeft nog (laatste teken ${mins(beat)} geleden) maar de voortgang verandert niet${j.phase ? ` (fase: ${j.phase})` : ""}. Lange stappen (gekloonde stem, lange video) kunnen zo lang stilstaan.`, action: { level: 2, what: "Nog niet ingrijpen: een lopende FFmpeg wordt nooit zonder jouw akkoord gestopt. Blijft het zo, dan vraagt Ivar of de stap opnieuw mag.", auto: false }, ref: { jobId: j.id, videoId: j.video_id ?? undefined, step: j.step, title: j.title ?? undefined } });
   }
   const day = 24 * 60 * MIN;
-  for (const j of s.jobs.filter((x) => x.status === "failed" && ago(x.finished_at, s.now) < day)) {
+  for (const j of s.jobs.filter((x) => x.status === "failed" && !x.superseded && ago(x.finished_at, s.now) < day)) {
     const transient = !!j.error && TRANSIENT.test(j.error);
     out.push({
       id: `stap_mislukt:${j.id}`,

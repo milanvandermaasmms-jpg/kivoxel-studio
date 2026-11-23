@@ -47,4 +47,8 @@ describe("Ivar-incidentmonitor", () => {
     const [i] = detect(snap({ belowNorm: [{ videoId: "v2", title: "Night Walk", summary: "7,4 — onder 8,0" }] }));
     expect(i).toMatchObject({ domain: "kwaliteit", severity: "info" });
   });
+  it("a failure that a later attempt already replaced is no incident", () => {
+    const failed = job({ status: "failed", error: "No space left on device", finished_at: "2026-11-23T13:50:00.000Z", superseded: true });
+    expect(detect(snap({ jobs: [failed] }))).toEqual([]);
+  });
 });

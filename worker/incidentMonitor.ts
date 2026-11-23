@@ -35,6 +35,14 @@ export function createIncidentMonitor(opts: { db: SupabaseClient; dataDir: strin
       db.from("yt_publications").select("error").eq("status", "queued").like("error", "Wachtrij YouTube%").limit(500).returns<{ error: string | null }[]>(),
     ]);
     const jobs = [...(running.data ?? []), ...(failed.data ?? [])].map((j) => ({ ...j, progress: j.progress === null ? null : Number(j.progress) }));
+    // 23-11-2026: a failure that a later attempt of the same video and step already replaced (done, running or waiting)
+    // is no incident any more (first real round: three "failed" montages, one already succeeded at 00:32).
+    const failedVids = [...new Set((failed.data ?? []).map((j) => j.video_id).filter((x): x is string => !!x))];
+    if (failedVids.length) {
+      const later = await db.from("yt_jobs").select("video_id, step, status, created_at, payload").in("video_id", failedVids).in("status", ["done", "running", "queued"]).limit(1000).returns<{ video_id: string; step: string; status: string; created_at: string; payload: { preview?: unknown } | null }[]>();
+      const created = new Map((await db.from("yt_jobs").select("id, created_at").in("id", (failed.data ?? []).map((j) => j.id)).returns<{ id: string; created_at: string }[]>()).data?.map((x) => [x.id, x.created_at]) ?? []);
+      for (const j of jobs) if (j.status === "failed" && j.video_id) j.superseded = (later.data ?? []).some((x) => x.video_id === j.video_id && x.step === j.step && !x.payload?.preview && x.created_at > (created.get(j.id) ?? ""));
+    }
     // Titles for the messages (newest script's first title, else the promise).
     const vids = [...new Set(jobs.map((j) => j.video_id).filter((x): x is string => !!x))];
     if (vids.length) {
