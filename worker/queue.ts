@@ -54,7 +54,7 @@ import { nextInLine, oldRefusal, parseWait, retryAfter, waitNote, type WaitingPu
 import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
-import { producerGate, type GateResult } from "../lib/kivoxel/producerGate.ts";
+import { producerGate, rankCandidates, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
 import { measureExport } from "./editorMeasure.ts";
 import { createVoiceLedger } from "./voiceLedger.ts";
@@ -558,8 +558,17 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       }
     }
 
+    // 23-11-2026, viral check before the montage: the strongest moments of the recording, judged by the producer gate.
+    let candidates: ReturnType<typeof rankCandidates> | null = null;
+    if (!row.is_test && montage?.events) {
+      const t = await montage.events.cached(row.fingerprint, await hudOf(row.id, job.studio_id)).catch(() => null);
+      if (t) {
+        candidates = rankCandidates(t);
+        await lv.event("note", candidates.enough ? `Kandidaten: ${candidates.candidates.filter((c) => c.status !== "AFGEKEURD").length} van ${candidates.candidates.length} verdienen een montage` : "Onvoldoende basis: geen moment in deze opname haalt de producer-poort");
+      }
+    }
     const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments);
-    return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
+    return { candidates, moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source, rejected, events, engine: used.engine, engineNote: used.note };
   }
 
   /**

@@ -25,6 +25,8 @@ import { RejectedList } from "@/components/youtube/RejectedList";
 import { WorkerQueue } from "@/components/youtube/WorkerQueue";
 import { MusicLibrary } from "@/components/youtube/MusicLibrary";
 import { VoiceSplit } from "@/components/youtube/EditorPanel";
+import { CandidateList } from "@/components/youtube/ProducerDossier";
+import type { Candidate } from "@/lib/kivoxel/producerGate";
 import { ReviewTiles } from "@/components/youtube/ReviewTiles";
 import { InboxCard } from "@/components/youtube/InboxCard";
 import { UploadCard } from "@/components/youtube/UploadCard";
@@ -460,6 +462,15 @@ export function StudioApp({ route }: { route?: string } = {}) {
               )}
               {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
               <VoiceSplit channels={channelsNow.map((c) => ({ id: c.id, name: c.name }))} workerOnline={!!health} />
+              {flowReady && (
+                <CandidateList
+                  items={(flowReady.board.jobs as unknown as { step: string; status: string; recording_id: string | null; created_at: string; result?: { candidates?: { enough: boolean; candidates: Candidate[] } | null } | null }[])
+                    .filter((j) => j.step === "analyse" && j.status === "done" && j.result?.candidates?.candidates?.length && (!channel || flowReady.board.input.recordings.find((r) => r.id === j.recording_id)?.channel_id === channel))
+                    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+                    .slice(0, 5)
+                    .map((j) => ({ label: flowReady.board.input.recordings.find((r) => r.id === j.recording_id)?.label ?? "Opname", at: j.created_at, enough: j.result!.candidates!.enough, candidates: j.result!.candidates!.candidates }))}
+                />
+              )}
               <Fold title="Live meekijken" intro="Preview, stappen en logboek van wat de werker nu doet.">
                 <LiveCenter studioId={studio.id} analysis={analysisView?.ready ? analysisView : null}workerOnline={workerOnline} act={act} onOpenPipeline={() => chooseTab("action")} />
               </Fold>

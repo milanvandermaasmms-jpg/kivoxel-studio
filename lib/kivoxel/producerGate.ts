@@ -65,3 +65,24 @@ export function producerGate(input: { event: GameEvent; timeline: EventTimeline;
   const summary = status === "AFGEKEURD" ? `${[...critical.map((c) => c.reason), ...(weak ? [`Te zwak moment (${e.payoff} punten).`] : [])].join(" ")}` : status === "PROEFOPNAME" ? `Proefmontage: ${checks.filter((c) => c.verdict === "ONBEWEZEN" && c.key !== "originaliteit").map((c) => c.label.toLowerCase()).join(", ") || `zwak moment (${e.payoff} punten)`} nog onbewezen; geslaagd als de eindredacteur de uitkomst en de aanloop in de export ziet.` : "Alle meetbare controles geslaagd.";
   return { status, checks, summary, directions };
 }
+
+export type Candidate = { rank: number; startMs: number; peakMs: number; endMs: number; type: string | null; description: string; payoff: number; status: GateStatus; opening: string; why: string };
+
+/**
+ * Viral check before the montage (23-11-2026): the strongest moments of a recording, each judged by the producer gate,
+ * with its time codes, the opening (a flash of the peak) and the payoff. `enough` is false when no moment gets GROEN
+ * LICHT or PROEFOPNAME: then the recording is not a sound basis for a good Short, and the studio says so.
+ */
+export function rankCandidates(t: EventTimeline, count = 8): { candidates: Candidate[]; enough: boolean } {
+  const picked: GameEvent[] = [];
+  for (const e of [...t.events].filter((x) => x.type).sort((a, b) => b.payoff - a.payoff)) {
+    if (picked.some((p) => Math.abs(p.t_peak - e.t_peak) < 15_000)) continue;
+    picked.push(e);
+    if (picked.length === count) break;
+  }
+  const candidates = picked.map((e, k) => {
+    const g = producerGate({ event: e, timeline: t, sourceOnPc: true });
+    return { rank: k + 1, startMs: e.t_start, peakMs: e.t_peak, endMs: e.t_end, type: e.type, description: e.description, payoff: e.payoff, status: g.status, opening: `Flits van het hoogtepunt op ${clock(e.t_peak)}, daarna de aanloop vanaf ${clock(Math.max(0, e.t_peak - 4500))}`, why: g.summary };
+  });
+  return { candidates, enough: candidates.some((c) => c.status !== "AFGEKEURD") };
+}

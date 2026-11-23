@@ -13,6 +13,8 @@ import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers } from "@/lib/youtube/review";
 import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import { EditorPanel } from "@/components/youtube/EditorPanel";
+import { ProducerDossierView } from "@/components/youtube/ProducerDossier";
+import { buildDossier } from "@/lib/kivoxel/producerDossier";
 import type { EditorReport } from "@/lib/kivoxel/editorReview";
 import type { GateResult } from "@/lib/kivoxel/producerGate";
 import { rejectWithFeedback, remountWithFeedback } from "@/lib/youtube/remountData";
@@ -122,6 +124,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const voicePlan = (renderJob?.result as { voicePlan?: { voice: boolean; reason: string } | null } | null | undefined)?.voicePlan ?? null;
   const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult } | null } | undefined) : undefined;
   const producer = scriptJob?.result?.producer ?? null;
+  const state_title = (id: string | undefined) => (id ? (scripts.find((s) => s.status === "approved")?.titles?.[0] ?? video?.promise ?? "Video") : "Video");
   const jumpTo = (ms: number) => {
     const v = player.current;
     if (v) {
@@ -222,6 +225,31 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               </section>
             )}
             {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} />}
+            {item.kind === "final" && render && script && (
+              <ProducerDossierView
+                title={state_title(video?.id)}
+                onJump={jumpTo}
+                dossier={buildDossier({
+                  format: render.height > render.width ? "short" : "long",
+                  title: state_title(video?.id),
+                  titles: script.titles,
+                  topLine: script.top_line,
+                  hook: script.hook,
+                  hooks: script.hooks,
+                  chosenHook: script.chosen_hook,
+                  lines: script.lines,
+                  plan: script.edit_plan,
+                  targetMs: script.target_ms,
+                  loopLine: script.loop_line,
+                  gate: producer,
+                  editor,
+                  voice: !!voicePlan?.voice || /stem/i.test(renderAudio(render)?.label ?? ""),
+                  audioLabel: renderAudio(render)?.label ?? null,
+                  music: renderAudio(render)?.music ?? null,
+                  thumbnails: ((render as { thumbnails?: { label?: string; text?: string }[] }).thumbnails ?? []),
+                })}
+              />
+            )}
             {item.kind === "final" && render && workerOnline && <FeedbackPanel player={() => player.current} items={feedback} onChange={setFeedback} mode={mode} onMode={setMode} />}
             {done && <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">{done}</p>}
             {item.kind === "final" && render && script?.status === "approved" && !renderBusy && (

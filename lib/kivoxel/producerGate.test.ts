@@ -39,3 +39,14 @@ describe("producer-poort vóór de montage", () => {
     expect(deadShare([{ startMs: 0, endMs: 500, why: "menu" }, { startMs: 500, endMs: 1000, why: "quiet" }], 0, 1000)).toBe(0.5);
   });
 });
+
+describe("kandidaatfragmenten vóór de montage", () => {
+  it("ranks the strongest moments with their verdict and says when there is no sound basis", async () => {
+    const { rankCandidates } = await import("./producerGate");
+    const good = rankCandidates(tl());
+    expect(good.candidates[0]).toMatchObject({ rank: 1, peakMs: 100_000, status: "GROEN LICHT" });
+    expect(good.enough).toBe(true);
+    const menu = rankCandidates(tl({ events: [ev()], dead: [{ startMs: 99_000, endMs: 104_000, why: "menu" }] }));
+    expect(menu.enough).toBe(false);
+  });
+});
