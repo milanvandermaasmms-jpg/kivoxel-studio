@@ -168,6 +168,36 @@ export function keyEventFromMoments(json: unknown, chunkStartMs = 0): KeyEventFi
   return at !== null && evidence ? { found: true, atMs: at + chunkStartMs, evidence } : null;
 }
 
+/** Dutch words in a briefing and the English words the analysis uses for them. */
+const NL_EN: Record<string, string[]> = {
+  val: ["fall", "falls", "fell", "falling", "drop"], vallen: ["fall", "falls", "fell", "falling"], valt: ["fall", "falls"], hoogte: ["high", "height", "ledge", "cliff"], klif: ["cliff", "ledge"], berg: ["mountain", "cliff"],
+  dood: ["dies", "death", "dying", "killed"], doodgaan: ["dies", "death"], hartjes: ["hearts", "health"], hartje: ["heart", "health"], schade: ["damage"],
+  kist: ["chest"], schat: ["treasure", "loot"], vondst: ["find", "found", "rare"], zeldzaam: ["rare"], diamant: ["diamond", "diamonds"], baas: ["boss"], eindbaas: ["boss"],
+  monster: ["monster", "mob", "creature"], zombie: ["zombie", "zombies"], skelet: ["skeleton"], spin: ["spider"], creeper: ["creeper"], draak: ["dragon"], robot: ["robot"],
+  explosie: ["explosion", "explodes", "blows"], ontploffing: ["explosion", "explodes"], lava: ["lava"], water: ["water"], sneeuw: ["snow", "snowy"], grot: ["cave"], nacht: ["night"],
+  gevecht: ["fight", "battle", "combat"], vechten: ["fight", "fighting"], ontsnapt: ["escape", "escapes"], ontsnapping: ["escape"], bijna: ["almost", "barely", "nearly"],
+  totem: ["totem"], harnas: ["armor"], wapenrusting: ["armor"], zwaard: ["sword"], boog: ["bow"], toverstaf: ["wand", "staff"],
+};
+const STOP = new Set(["een", "de", "het", "van", "en", "waarbij", "die", "dat", "met", "in", "op", "speler", "the", "a", "of", "player"]);
+
+/**
+ * 23-11-2026, second real test: Gemini again returned several falls as moments but neither filled "key_event" nor
+ * marked a moment. Free fallback: the key event's words (Dutch, translated with a small word list) against the
+ * analysis' own moment descriptions; the best moment with at least two matching words counts as found, clearly
+ * labelled as matched on the descriptions and not confirmed by Gemini.
+ */
+export function keyEventFromReasons(keyEvent: string, moments: { peakMs: number | null; startMs: number; reason: string; score: number }[]): KeyEventFind | null {
+  const words = keyEvent.toLowerCase().split(/[^a-zà-ÿ]+/).filter((w) => w.length > 2 && !STOP.has(w));
+  const terms = new Set(words.flatMap((w) => [w, ...(NL_EN[w] ?? [])]));
+  let best: { m: (typeof moments)[number]; hits: number } | null = null;
+  for (const m of moments) {
+    const text = ` ${m.reason.toLowerCase()} `;
+    const hits = [...terms].filter((t) => new RegExp(`(^|[^a-z])${t}([^a-z]|$)`).test(text)).length;
+    if (hits >= 2 && (!best || hits > best.hits || (hits === best.hits && m.score > best.m.score))) best = { m, hits };
+  }
+  return best ? { found: true, atMs: best.m.peakMs ?? best.m.startMs, evidence: `${best.m.reason.slice(0, 220)} (gevonden via de beschrijving van de momenten, niet door Gemini bevestigd)` } : null;
+}
+
 /** Over all chunks: the first found answer wins; else "not found". */
 export function mergeKeyEvents(finds: (KeyEventFind | null)[]): KeyEventFind | null {
   const all = finds.filter((f): f is KeyEventFind => !!f);

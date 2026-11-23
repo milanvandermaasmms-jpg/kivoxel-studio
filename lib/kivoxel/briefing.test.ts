@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keyEventFromMoments, briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, parseMarks, parseTimecode, type MontageFacts } from "./briefing";
+import { keyEventFromMoments, keyEventFromReasons, briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, parseMarks, parseTimecode, type MontageFacts } from "./briefing";
 
 const facts = (over: Partial<MontageFacts> = {}): MontageFacts => ({ format: "A", hasVoice: false, musicMoods: ["tense"], ranges: [{ startMs: 100_000, endMs: 130_000 }], peakOutMs: 6000, durationMs: 20_000, lines: [], ...over });
 
@@ -87,5 +87,15 @@ describe("slimme uploadbriefing", () => {
     expect(keyEventFromMoments(json, 480_000)).toEqual({ found: true, atMs: 630_000, evidence: "The player falls from a high snow ledge and loses hearts" });
     expect(keyEventFromMoments({ moments: [{ peak: "01:00", reason: "y" }] })).toBeNull();
     expect(briefingAnalysisLines({ v: 1, keyEvent: "val" }).join(" ")).toMatch(/matches_key_event/);
+  });
+  it("matches the Dutch key event on the English moment descriptions when Gemini did not answer (second real test)", () => {
+    const moments = [
+      { peakMs: 90_000, startMs: 80_000, reason: "The player crafts the cursed armor set.", score: 75 },
+      { peakMs: 150_000, startMs: 146_000, reason: "The player falls from a high snow ledge taking significant fall damage and losing multiple hearts.", score: 90 },
+    ];
+    const k = keyEventFromReasons("Een val van grote hoogte waarbij de speler hartjes verliest", moments)!;
+    expect(k).toMatchObject({ found: true, atMs: 150_000 });
+    expect(k.evidence).toMatch(/niet door Gemini bevestigd/);
+    expect(keyEventFromReasons("Het vinden van een Pirate Token", moments)).toBeNull();
   });
 });

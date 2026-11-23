@@ -209,6 +209,14 @@ export async function queueSeries(studioId: string, recordingId: string): Promis
   return "queued";
 }
 
+/** 23-11-2026: plan the videos again from the moments already found, with the current briefing (free, no new analysis). */
+export async function replanWithBriefing(studioId: string, recordingId: string): Promise<"queued" | "exists"> {
+  const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, recording_id: recordingId, step: "analyse", idempotency_key: `analyse:${recordingId}:replan:${new Date().toISOString().slice(0, 16)}`, payload: { replan: true } });
+  if (error?.code === "23505") return "exists";
+  if (error) throw new Error(friendlyError(error.message));
+  return "queued";
+}
+
 /**
  * A recording that was uploaded as test data by mistake: give it a proper name, remove the free test analysis
  * (test moments and test videos, with their scripts) and queue the real, paid analysis.

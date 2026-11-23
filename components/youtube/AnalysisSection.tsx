@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/shell/StatusBadge";
 import { Button } from "@/components/ui/Dialog";
 import { estimateAnalysisCents, FOOTAGE_NEEDED, FORMAT_FOR_KIND, formatTimecode, KIND_LABEL, missingFormats, partLabel, PRIVACY_LABEL, SERIES_MIN_MS, SERIES_PART_MS, targetFor, type Format, type PrivacyFlag } from "@/lib/youtube/analysis";
 import { AudioModeSwitch, renderAudio } from "@/components/youtube/AudioModeSwitch";
-import { archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, queueSeries, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
+import { replanWithBriefing, archiveVideo, createManualVideos, euros, loadAnalysis, markAsRealGameplay, queueAnalysis, queueRender, queueSeries, regenerateScript, savePrivacySettings, saveSettings, saveVoiceSettings, setChosenHook, setScriptStatus, setVideoReview, VOICES, type AnalysisState, type DbMoment, type DbRender, type DbScript, type DbVideo, type MontageState, type PrivacySettings, type VoiceSettings } from "@/lib/youtube/analysisData";
 import { RecordingBriefing } from "@/components/youtube/RecordingBriefing";
 import { ViralCard } from "@/components/youtube/ViralCard";
 import { pollOnce } from "@/lib/visible";
@@ -176,7 +176,7 @@ export function AnalysisSection({ state, studioId, act, analysisService, onWatch
                     })()}
                     {!review && !r.is_test && (
                       <div className="mt-1">
-                        <RecordingBriefing studioId={studioId} recordingId={r.id} game={null} act={act} reanalyse={state.settings?.paid_processing_enabled && analysisService ? { label: `${job === "done" ? "opnieuw " : ""}analyseren (± ${euros(estimateAnalysisCents(r.duration_ms ?? 0))})`, run: () => queueAnalysis(studioId, r.id, job === "done") } : undefined} />
+                        <RecordingBriefing studioId={studioId} recordingId={r.id} game={null} act={act} replan={job === "done" ? () => replanWithBriefing(studioId, r.id) : undefined} reanalyse={state.settings?.paid_processing_enabled && analysisService ? { label: `${job === "done" ? "opnieuw " : ""}analyseren (± ${euros(estimateAnalysisCents(r.duration_ms ?? 0))})`, run: () => queueAnalysis(studioId, r.id, job === "done") } : undefined} />
                       </div>
                     )}
                     {!review && !r.is_test && !job && !(state.settings?.paid_processing_enabled && analysisService) && (

@@ -9,7 +9,7 @@ import { BriefingForm, briefingToDraft, draftToBriefing, type BriefingDraft } fr
 import { briefingSummary } from "@/lib/kivoxel/briefing";
 import { loadBriefing, saveBriefing } from "@/lib/youtube/studio";
 
-export function RecordingBriefing({ studioId, recordingId, game, reanalyse, act }: { studioId: string; recordingId: string; game: string | null; /** Present when a paid analysis may start: label with the cost and the action. */ reanalyse?: { label: string; run: () => Promise<unknown> }; act: (a: () => Promise<unknown>) => Promise<void> }) {
+export function RecordingBriefing({ studioId, recordingId, game, reanalyse, replan, act }: { studioId: string; recordingId: string; game: string | null; /** Present when a paid analysis may start: label with the cost and the action. */ reanalyse?: { label: string; run: () => Promise<unknown> }; /** Free: plan again from the moments already found, with this briefing. */ replan?: () => Promise<unknown>; act: (a: () => Promise<unknown>) => Promise<void> }) {
   const [draft, setDraft] = useState<BriefingDraft | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const open = async () => {
@@ -32,6 +32,11 @@ export function RecordingBriefing({ studioId, recordingId, game, reanalyse, act 
         <Button variant="secondary" disabled={!briefing} onClick={() => void act(async () => { await saveBriefing(studioId, recordingId, briefing!); setSummary(briefingSummary(briefing)); })}>
           Briefing opslaan
         </Button>
+        {replan && (
+          <Button variant="secondary" disabled={!briefing} onClick={() => void act(async () => { await saveBriefing(studioId, recordingId, briefing!); await replan(); setSummary(briefingSummary(briefing)); })}>
+            Opslaan en opnieuw plannen (gratis)
+          </Button>
+        )}
         {reanalyse && (
           <Button disabled={!briefing} onClick={() => void act(async () => { await saveBriefing(studioId, recordingId, briefing!); await reanalyse.run(); setSummary(briefingSummary(briefing)); })}>
             Opslaan en {reanalyse.label}

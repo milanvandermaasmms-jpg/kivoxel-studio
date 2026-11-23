@@ -62,7 +62,7 @@ import { contentPrompt, parseContentCheck } from "../lib/kivoxel/contentCheck.ts
 import { MOOD_FOR } from "../lib/kivoxel/media.ts";
 import { weakFirstLine as weakOpening } from "../lib/youtube/hooks.ts";
 import type { GateResult as ProducerGate } from "../lib/kivoxel/producerGate.ts";
-import { keyEventFromMoments, briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingSummary, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, type BriefCheck, type Briefing, type KeyEventFind } from "../lib/kivoxel/briefing.ts";
+import { keyEventFromMoments, keyEventFromReasons, briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingSummary, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, type BriefCheck, type Briefing, type KeyEventFind } from "../lib/kivoxel/briefing.ts";
 import { producerGate, rankCandidates, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
 import { measureExport } from "./editorMeasure.ts";
@@ -507,8 +507,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (stored.error) throw new Error(stored.error.message);
       if (!stored.data.length) throw new Error("Deze opname heeft nog geen momenten: analyseer hem eerst");
       const moments = stored.data.map(fromRow);
-      const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments, await keyEventOf(row.id));
-      return { moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source: "replan", rejected: [] as string[] };
+      // 23-11-2026: replanning uses the briefing too; the key event is matched on the stored moment descriptions when
+      // the analysis did not answer about it (free, no new analysis).
+      const brief = row.is_test ? null : await briefingOf(row.id);
+      let keyEvent = brief?.keyEvent ? await keyEventOf(row.id) : null;
+      if (brief?.keyEvent && !keyEvent?.found) keyEvent = keyEventFromReasons(brief.keyEvent, moments) ?? keyEvent ?? { found: false, atMs: null, evidence: "" };
+      const planNotes: string[] = [];
+      const videos = await planAndQueue(job, row.id, row.is_test, durationMs, moments, keyEvent, planNotes);
+      for (const n of planNotes) await lv.event("note", n);
+      return { keyEvent, briefing: brief ? briefingSummary(brief) : null, planNotes, moments: moments.length, usable: moments.filter((m) => m.hasContext && m.hasPayoff).length, videos, source: "replan", rejected: [] as string[] };
     }
     // KIVOXEL fase 1, section 8: without a key, without credits, with the service down or in free mode, the moments
     // come from the free Event Timeline instead of the paid analysis.
@@ -542,7 +549,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const { moments: found, rejected } = result;
     // Briefing: was Milan's key event seen? The free analysis cannot recognise a named event, so it says so.
     const brief = row.is_test ? null : await briefingOf(row.id);
-    const keyEvent: KeyEventFind | null = brief?.keyEvent ? (result.keyEvent ?? { found: false, atMs: null, evidence: used.engine === "free" ? "De gratis analyse kan een benoemde gebeurtenis niet herkennen" : "" }) : null;
+    let keyEvent: KeyEventFind | null = brief?.keyEvent ? (result.keyEvent ?? { found: false, atMs: null, evidence: used.engine === "free" ? "De gratis analyse kan een benoemde gebeurtenis niet herkennen" : "" }) : null;
+    // Gemini did not answer about the key event: match it on the AI moments' own descriptions (free, labelled as such).
+    if (brief?.keyEvent && keyEvent && !keyEvent.found && used.engine === "ai") keyEvent = keyEventFromReasons(brief.keyEvent, found) ?? keyEvent;
     if (brief) await lv.event("note", `Briefing: ${briefingSummary(brief)}`.slice(0, 500));
     if (keyEvent) await lv.event("note", (keyEvent.found ? `Belangrijkste gebeurtenis "${brief!.keyEvent}" gezien op ${formatTimecode(keyEvent.atMs!)}: ${keyEvent.evidence}` : `Belangrijkste gebeurtenis "${brief!.keyEvent}" NIET in beeld gevonden${keyEvent.evidence ? ` (${keyEvent.evidence})` : ""}. Geef een tijdcode in de briefing, of kies een ander moment.`).slice(0, 500));
     // yt_moments.source only knows test/ai/manual (migration 009); the free engine is recorded in "model".
