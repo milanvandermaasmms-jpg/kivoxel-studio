@@ -68,8 +68,9 @@ export function ViralCard({ studioId, videoId, scripts, approved, act }: { studi
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-sm font-semibold">
           <Gauge className="h-4 w-4 text-violet-600" aria-hidden />
-          Viral-score {check ? <span className="tabular-nums">{nl(check.overall)} / 10</span> : null}
+          Script- en stemcheck {check ? <span className="tabular-nums">{nl(check.overall)} / 10</span> : null}
         </p>
+        {/* 23-11-2026: not the Viral Quality Score (minimum 8,0, in the review); this older check looks at voice, script and edit only. */}
         {!pending && (
           <Button variant="ghost" onClick={ask}>
             <RotateCcw className="h-3.5 w-3.5" aria-hidden /> {check ? "Opnieuw toetsen" : "Nu toetsen"}

@@ -55,6 +55,10 @@ import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
 import { lessonPrompt, lessonsFrom, type Lesson } from "../lib/kivoxel/lessons.ts";
+import { viralScore, type ViralResult } from "../lib/kivoxel/viralScore.ts";
+import { MOOD_FOR } from "../lib/kivoxel/media.ts";
+import { weakFirstLine as weakOpening } from "../lib/youtube/hooks.ts";
+import type { GateResult as ProducerGate } from "../lib/kivoxel/producerGate.ts";
 import { briefingAnalysisLines, briefingAudioMode, briefingBoost, briefingCheck, briefingScriptLines, briefingSummary, briefingVerdict, filterPlans, mergeKeyEvents, musicForBriefing, parseBriefing, parseKeyEvent, type BriefCheck, type Briefing, type KeyEventFind } from "../lib/kivoxel/briefing.ts";
 import { producerGate, rankCandidates, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
@@ -1104,6 +1108,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let mixNote: string | null = null;
     /** Moods of the music in the mix (for the briefing check); null = no music. */
     let musicMoods: string[] | null = null;
+    /** Every music part has a licence on record and is no test track (for the viral score's hard block). */
+    let musicLicensed = true;
     let briefCheck: { checks: BriefCheck[]; verdict: { ok: boolean; text: string }; brief: Briefing } | null = null;
     const voice: VoiceClip[] = [];
     // Studio 2.0: a voice for this montage only (comparing voices), else the studio setting. KIVOXEL videos are English,
@@ -1248,6 +1254,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             music = { file: join(lib.dir, parts[0].file), startMs: parts[0].startMs, title: `${titles.join(" / ")} (${own ? "eigen KIVOXEL-muziek" : parts.every((p) => lib.tracks.find((t) => t.file === p.file)?.source.startsWith("Uppbeat")) ? "Uppbeat" : "Pixabay"})`, parts: parts.map((p) => ({ ...p, file: join(lib.dir, p.file) })) };
             void media.musicLog.add([...new Set(parts.map((p) => p.file))]).catch(() => {});
             musicMoods = [...new Set(parts.flatMap((p) => lib.tracks.find((t) => t.file === p.file)?.moods ?? []))];
+            musicLicensed = parts.every((p) => { const t = lib.tracks.find((x) => x.file === p.file); return !!t && !!t.license?.trim() && !t.test; });
             mixNote = parts.length > 1 ? `Muziek wisselt mee: ${parts.map((p) => `${p.kind === "action" ? "actie" : "rustig"} ${(p.atMs / 1000).toFixed(0)}-${((p.atMs + p.durMs) / 1000).toFixed(0)} s`).join(", ")}` : null;
           } else mixNote = "Geen muziek in de bibliotheek: zet rechtenvrije tracks in kivoxel-media/music (zie docs/kivoxel-presets.md)";
           void peakOut;
@@ -1498,6 +1505,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // 23-11-2026, eindredacteur: judge the export Milan will get (picture, final sound, captions, and how much of the
       // footage used is gameplay), store it with this version, and correct the cause once by itself.
       let editor: EditorReport | null = null;
+      let viral: ViralResult | null = null;
       if (!video.data.is_test) {
         try {
           const outFile = join(montage.rendersDir, fileName);
@@ -1524,8 +1532,32 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
               editor = { ...editor, findings: [...editor.findings, ...missed], status: "Correctie nodig", main: briefCheck.verdict.text.slice(0, 300) };
             }
           }
+          // 23-11-2026 (superprompt V6, fase 30): the Viral Quality Score, minimum 8.0, each part with its source.
+          try {
+            const sj = await db.from("yt_jobs").select("result").eq("video_id", video.data.id).eq("step", "script").eq("status", "done").order("created_at", { ascending: false }).limit(1).returns<{ result: { producer?: ProducerGate } | null }[]>();
+            viral = viralScore({
+              short: isShort,
+              measure,
+              peakOutMs,
+              gameplayShare,
+              editor,
+              gate: sj.data?.[0]?.result?.producer ?? null,
+              payoff: mainEvent?.payoff ?? (inMontage.length ? Math.max(...inMontage.map((e) => e.payoff)) : null),
+              firstLineWeak: !!cut.topLine && weakOpening(cut.topLine),
+              hasVoice: voice.length > 0,
+              voiceSyncRed: (qcSummary?.voSyncRed ?? 0) > 0,
+              music: mixPlan?.music ? { moods: musicMoods ?? [], licensed: musicLicensed } : null,
+              fittingMoods: mainEvent?.type ? MOOD_FOR[mainEvent.type] : [],
+              sfxCount: mixPlan?.sfx.filter((c) => c.kind !== "motif").length ?? 0,
+              musicChosenOff: !modeSpec.music || fixes?.music === "none" || brief?.music === "none",
+              briefingOk: briefCheck ? briefCheck.verdict.ok : null,
+            });
+            await lv.event("note", `Viralscore: ${viral.summary}`.slice(0, 500));
+          } catch (e) {
+            await lv.event("error", `Viralscore niet berekend: ${e instanceof Error ? e.message : String(e)}`);
+          }
           const cur = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
-          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor, ...(briefCheck ? { briefing: briefCheck } : {}) } }).eq("job_id", job.id);
+          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor, ...(briefCheck ? { briefing: briefCheck } : {}), ...(viral ? { viral } : {}) } }).eq("job_id", job.id);
           await lv.event("note", `Eindredacteur: ${editor.status}. ${editor.main}`.slice(0, 500));
         } catch (e) {
           if (e instanceof CancelledError) throw e;
@@ -1566,7 +1598,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (voicePlan && video.data.channel_id) await createVoiceLedger(join(montage.rendersDir, "..", "voice-plan.json")).delivered(video.data.channel_id, video.data.format === "C" ? "long" : "short", video.data.id).catch(() => undefined);
       // Fase 3: every new montage gets a Viral-check before Milan reviews it. Never fails the montage.
       await queueStep(job.studio_id, { video_id: video.data.id, step: "viral", idempotency_key: `viral:${job.id}`, payload: { render_job: job.id } }).catch((e) => lv.event("error", `Viral-check niet klaargezet: ${e instanceof Error ? e.message : String(e)}`));
-      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote, changes: fixed.changes, feedback: job.payload?.feedback ?? null, previousRender: job.payload?.previous_render ?? null, voicePlan, editor: editor ? { status: editor.status, main: editor.main } : null, briefing: briefCheck ? { ok: briefCheck.verdict.ok, text: briefCheck.verdict.text } : null };
+      return { file: fileName, durationMs: plan.durationMs, recordingMs: local.probe.durationMs, segments: plan.segments, voice: voice.length ? voiceName : null, characters, note, blurredRegions: blur.length, gameMuted: muteGame, qc: qcSummary, hookType: chosen?.type ?? null, coldOpen: !!chosen?.cold_open, thumbnails: thumbs.length, sync: sync ? { ok: sync.ok, summary: sync.summary } : null, audioMode: kSettings.audio_mode, localVoice: localVoiceName, music: mixPlan?.music?.title ?? null, sfx: mixPlan?.sfx.length ?? 0, mixNote, changes: fixed.changes, feedback: job.payload?.feedback ?? null, previousRender: job.payload?.previous_render ?? null, voicePlan, editor: editor ? { status: editor.status, main: editor.main } : null, viral: viral ? { status: viral.status, total: viral.total, summary: viral.summary } : null, briefing: briefCheck ? { ok: briefCheck.verdict.ok, text: briefCheck.verdict.text } : null };
     } finally {
       await rm(tmp, { recursive: true, force: true });
       await rm(partial, { force: true });

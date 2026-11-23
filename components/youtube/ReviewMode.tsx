@@ -13,6 +13,9 @@ import { WORKER_URL } from "@/lib/youtube/protocol";
 import { reviewBlockers } from "@/lib/youtube/review";
 import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import { EditorPanel } from "@/components/youtube/EditorPanel";
+import { ViralScoreCard } from "@/components/youtube/ViralScoreCard";
+import { applyJudgement, type PartKey, type ViralResult } from "@/lib/kivoxel/viralScore";
+import { loadJudgements, saveJudgement } from "@/lib/youtube/viralJudgement";
 import type { BriefCheck, Briefing } from "@/lib/kivoxel/briefing";
 import { saveBriefing } from "@/lib/youtube/studio";
 import { ProducerDossierView } from "@/components/youtube/ProducerDossier";
@@ -124,6 +127,23 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   const lastFeedback = renderJob?.payload?.feedback ?? renderJob?.result?.feedback ?? [];
   // 23-11-2026: eindredacteur (stored with this version), voice split and producer gate of this production.
   const editor = (render?.qc as { editor?: EditorReport } | null | undefined)?.editor ?? null;
+  // 23-11-2026 (superprompt V6, fase 30): the Viral Quality Score of this version, completed with Milan's own judgement.
+  const storedViral = (render?.qc as { viral?: ViralResult } | null | undefined)?.viral ?? null;
+  const [judgements, setJudgements] = useState<{ videoId: string; parts: Partial<Record<PartKey, number>> } | null>(null);
+  useEffect(() => {
+    if (!video?.id || !storedViral) return;
+    let live = true;
+    void loadJudgements(studioId, video.id).then((parts) => live && setJudgements({ videoId: video.id, parts })).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [studioId, video?.id, storedViral]);
+  const viral = storedViral ? applyJudgement(storedViral, judgements && judgements.videoId === video?.id ? judgements.parts : {}) : null;
+  const judge = (part: PartKey, score: number) => {
+    if (!video) return;
+    setJudgements((j) => ({ videoId: video.id, parts: { ...(j?.videoId === video.id ? j.parts : {}), [part]: score } }));
+    void saveJudgement(studioId, video.channel_id ?? null, video.id, render?.id ?? null, part, score).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  };
   // 23-11-2026 (superprompt V5, fase 13): the briefing check of this version; Milan may let an instruction go on purpose.
   const briefing = (render?.qc as { briefing?: { checks: BriefCheck[]; verdict: { ok: boolean; text: string }; brief: Briefing } } | null | undefined)?.briefing ?? null;
   const waive = (key: string) => {
@@ -235,6 +255,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                 )}
               </section>
             )}
+            {item.kind === "final" && render && viral && <ViralScoreCard result={viral} onJudge={judge} />}
             {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} briefing={briefing} onWaive={waive} />}
             {item.kind === "final" && render && script && (
               <ProducerDossierView
