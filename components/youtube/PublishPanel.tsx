@@ -37,6 +37,8 @@ import { type publicationGate } from "@/lib/youtube/gatekeeper";
 import { loadClonedVoice, loadGateContext, loadThumbs, type GateContext } from "@/lib/youtube/gatekeeperData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import type { StoredThumb } from "@/lib/youtube/thumbnails";
+import { blocking, publishCheck, type PublishFacts } from "@/lib/youtube/publishCheck";
+import { loadPublishFacts } from "@/lib/youtube/publishCheckData";
 import { loadPublication, loadUploadProgress, PUBLICATION_STATUS, requestPublish, savePublication, type DbPublication, type Extras, type PublishAction, type UploadProgress } from "@/lib/youtube/publicationData";
 
 const IN_TRANSIT = ["queued", "uploading", "processing"];
@@ -264,6 +266,15 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [gateCtx, setGateCtx] = useState<GateContext | null>(null);
   const [thumbs, setThumbs] = useState<StoredThumb[]>([]);
   const [clonedVoice, setClonedVoice] = useState(false);
+  // 23-11-2026 (superprompt V5 fase 19): the real facts for the ten-point publication check.
+  const [pubFacts, setPubFacts] = useState<Awaited<ReturnType<typeof loadPublishFacts>> | null>(null);
+  useEffect(() => {
+    let live = true;
+    void loadPublishFacts(videoId, renderId, renderFile, workerOnline).then((f) => live && setPubFacts(f)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [videoId, renderId, renderFile, workerOnline]);
   const channelId = gateCtx?.channel?.id ?? null;
   const log = (action: string, metadata: Record<string, unknown> = {}) => track(studioId, action, "klaar", { video: videoId, kind, ...metadata }, channelId);
 
@@ -429,9 +440,14 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const publishOk = draft.visibility !== "private" && !draft.publish_at;
   const canAfter = onYouTube && !!current && ["uploaded", "scheduled", "published", "failed"].includes(current.status);
   // The one big button: what it does follows from the privacy choice. Saving happens first when needed.
-  const sendable = !locked && !onYouTube && base.length === 0 && !!renderId && problems.length === 0;
+  const checkFacts: PublishFacts | null = pubFacts
+    ? { ...pubFacts, kind, gameName: game.name, durationMs: renderMs, thumbnailChosen: extras.thumbnail_ms !== null, thumbnailsAvailable: thumbs.length, channel: gateCtx?.channel ? { name: gateCtx.channel.is_default ? "KIVOXEL" : gateCtx.channel.name, linked: !!gateCtx.channel.youtube_connected_at || gateCtx.channel.is_default } : null, clonedVoice }
+    : null;
+  const checklist = checkFacts ? publishCheck(draft, checkFacts) : [];
+  const checkBlocks = blocking(checklist);
+  const sendable = !locked && !onYouTube && base.length === 0 && !!renderId && problems.length === 0 && !!checkFacts && checkBlocks.length === 0;
   const primary: Confirm | null = !sendable ? null : draft.publish_at ? (isTest || !scheduleOk ? null : { action: "schedule", at: draft.publish_at, visibility: null }) : draft.visibility === "private" ? { action: "private", at: null, visibility: null } : isTest || !publishOk ? null : { action: "publish", at: null, visibility: draft.visibility as "public" | "unlisted" };
-  const whyNot = !renderId ? "Er is nog geen montage." : base[0] ?? problems[0] ?? before[0] ?? null;
+  const whyNot = !renderId ? "Er is nog geen montage." : base[0] ?? problems[0] ?? (checkBlocks[0] ? `${checkBlocks[0].label}: ${checkBlocks[0].why}` : null) ?? before[0] ?? (!checkFacts ? "de publicatiecheck wordt geladen." : null);
 
   async function send(c: Confirm) {
     setBusy(true);
@@ -482,6 +498,18 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       </div>
 
       {/* Fase 1.2: the primary action sits at the top of the card, never between the other buttons. */}
+      {!locked && !onYouTube && checklist.length > 0 && (
+        <section aria-label="Publicatiecheck" className="space-y-1 rounded-lg border border-slate-200 p-3 text-xs">
+          <p className="text-sm font-semibold">Publicatiecheck ({checklist.filter((i) => i.status === "ok").length} van {checklist.length} in orde)</p>
+          <ul className="space-y-0.5">
+            {checklist.map((i) => (
+              <li key={i.key} className={i.status === "blokkeert" ? "text-red-700" : i.status === "let op" ? "text-amber-800" : i.status === "zelf kijken" ? "text-violet-800" : "text-slate-700"}>
+                {i.status === "ok" ? "✓" : i.status === "blokkeert" ? "✗" : i.status === "zelf kijken" ? "👁" : "!"} <span className="font-medium">{i.label}</span>: {i.why}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {!locked && !onYouTube && (
         <div className="space-y-1.5 rounded-lg border-2 border-violet-200 bg-violet-50 p-3">
           <button type="button" disabled={!primary || busy} onClick={() => primary && setConfirming(primary)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#7c3aed] px-6 text-base font-semibold text-white shadow-sm hover:bg-[#6d28d9] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto">
