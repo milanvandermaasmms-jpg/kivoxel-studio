@@ -41,7 +41,8 @@ export const AUTO_VOICE = "auto";
 export function audioPayload(set: AudioSet, c: AudioChoice, variant: Variant | null, opts: { autoVoice?: boolean } = {}): Record<string, unknown> {
   const noVoice = c.voice === "geen";
   const noMusic = c.music === "geen";
-  const audio_mode = noVoice ? (noMusic ? "alleen_game" : "muziek_geen_vo") : "vo_muziek";
+  // Voice with music is its own mode (23-11-2026): the normal voice version stays without music (Milan, 16-11-2026).
+  const audio_mode = noVoice ? (noMusic ? "alleen_game" : "muziek_geen_vo") : noMusic ? "vo_muziek" : "vo_met_muziek";
   return {
     ...(variant ? { preview: variant } : {}),
     // "A" with autoVoice: let the worker's voice split decide (no audio_mode), exactly like a normal montage.

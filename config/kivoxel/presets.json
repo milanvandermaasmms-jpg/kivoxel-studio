@@ -8,6 +8,7 @@
 
     "audio_modes": {
       "vo_muziek": { "label": "Stem + ondertiteling", "voice": true, "music": false, "game": true, "game_db": -10, "music_db": null, "duck_db": null, "storytelling": "voice_and_captions", "$comment": "Milan 16-11-2026: optie 1 = stem, gamegeluid en ondertiteling, geen muziek. (De sleutel heet nog vo_muziek, zodat oude montages blijven werken.)" },
+      "vo_met_muziek": { "label": "Stem + muziek", "voice": true, "music": true, "game": true, "game_db": -12, "music_db": -22, "duck_db": -10, "storytelling": "voice_and_captions", "$comment": "23-11-2026 (superprompt V6, fase 31): alleen als Milan in de audio-opties zelf stem EN muziek kiest; de gewone stemversie (vo_muziek) blijft zonder muziek (besluit 16-11-2026)." },
       "muziek_geen_vo": { "label": "Muziek, geen stem", "voice": false, "music": true, "game": true, "game_db": -4, "music_db": -14, "duck_db": -8, "storytelling": "music_and_header", "text_story": false, "sfx": true, "$comment": "Milan 16-11-2026: muziek die meebeweegt (druk bij actie, rustig bij zoeken/farmen) + alleen de gele tekst bovenin; geen ondertiteling of verhaaltekst." },
       "alleen_game": { "label": "Alleen gamegeluid", "voice": false, "music": false, "game": true, "game_db": 0, "music_db": null, "duck_db": null, "storytelling": "none", "text_story": false, "sfx": false, "$comment": "Milan 16-11-2026: alleen het echte gamegeluid; geen stem, muziek, ondertitels, tekst of effecten (de gele hook bij Shorts blijft)." }
     },

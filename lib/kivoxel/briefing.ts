@@ -204,9 +204,9 @@ export function briefingScriptLines(b: Briefing | null, key: KeyEventFind | null
 }
 
 /** The audio mode Milan's voice and music choice ask for, or null (automatic). */
-export function briefingAudioMode(b: Briefing | null): "vo_muziek" | "muziek_geen_vo" | "alleen_game" | null {
+export function briefingAudioMode(b: Briefing | null): "vo_muziek" | "vo_met_muziek" | "muziek_geen_vo" | "alleen_game" | null {
   const v = b?.voice ?? "auto";
-  if (v === "voice" || v === "reactions") return "vo_muziek";
+  if (v === "voice" || v === "reactions") return b?.music && b.music !== "auto" && b.music !== "none" ? "vo_met_muziek" : "vo_muziek";
   if (v === "none") return b?.music === "none" ? "alleen_game" : "muziek_geen_vo";
   return null;
 }

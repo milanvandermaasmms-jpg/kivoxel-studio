@@ -10,11 +10,13 @@ describe("drie audio-opties", () => {
   });
 
   it("builds the render payload: preview flag, audio mode, voice, music and effects", () => {
-    expect(audioPayload(GAMING_SET, GAMING_SET.variants.B.choice, "B")).toMatchObject({ preview: "B", audio_mode: "vo_muziek", voice: "google", voice_name: "en-US-Chirp3-HD-Fenrir", music_pick: "energiek", sfx_level: "dynamisch" });
+    expect(audioPayload(GAMING_SET, GAMING_SET.variants.B.choice, "B")).toMatchObject({ preview: "B", audio_mode: "vo_met_muziek", voice: "google", voice_name: "en-US-Chirp3-HD-Fenrir", music_pick: "energiek", sfx_level: "dynamisch" });
     expect(audioPayload(GAMING_SET, GAMING_SET.variants.C.choice, "C")).toMatchObject({ audio_mode: "muziek_geen_vo", music_pick: "rustig", sfx_level: "subtiel" });
     expect(audioPayload(GAMING_SET, { voice: "geen", music: "geen", sfx: "subtiel" }, "eigen")).toMatchObject({ audio_mode: "alleen_game", music_pick: "none" });
     // The final version (no preview flag) carries the same audio.
     expect(audioPayload(GAMING_SET, { voice: "B", music: "A", sfx: "gebalanceerd" }, null)).not.toHaveProperty("preview");
+    // Voice without music stays the normal voice version (Milan, 16-11-2026); voice with music is its own mode.
+    expect(audioPayload(GAMING_SET, { voice: "B", music: "geen", sfx: "gebalanceerd" }, null)).toMatchObject({ audio_mode: "vo_muziek", music_pick: "none" });
     // A with the automatic voice split: no audio mode, the worker decides.
     expect(audioPayload(GAMING_SET, GAMING_SET.variants.A.choice, "A", { autoVoice: true })).not.toHaveProperty("audio_mode");
   });

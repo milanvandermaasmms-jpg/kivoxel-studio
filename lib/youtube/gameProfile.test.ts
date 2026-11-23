@@ -105,7 +105,7 @@ describe("SpawnNado: no voice, no captions, no blur", () => {
     expect(PROFILES.kivoxel.blur).toBe(true);
     const { presetFile } = await import("../kivoxel/config");
     // Without voice (the default 2 of 3): no voice and no text story; the voiced mode is the 1-of-3 voice-over version.
-    for (const m of (PROFILES.spawnnado.audioModes ?? []).filter((x) => x !== "vo_muziek")) {
+    for (const m of (PROFILES.spawnnado.audioModes ?? []).filter((x) => x !== "vo_muziek" && x !== "vo_met_muziek")) {
       const spec = presetFile.base.audio_modes[m as keyof typeof presetFile.base.audio_modes];
       expect(spec.voice).toBe(false);
       expect((spec as { text_story?: boolean }).text_story).toBe(false);

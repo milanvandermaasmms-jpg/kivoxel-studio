@@ -8,7 +8,7 @@ import personaJson from "../../config/kivoxel/voice_persona.json" with { type: "
 /** KIVOXEL video content is English, always (Milan, 16-11-2026). Only the Studio UI is Dutch. */
 export type Language = "en";
 export const VIDEO_LANGUAGE: Language = "en";
-export const AUDIO_MODES = ["vo_muziek", "muziek_geen_vo", "alleen_game"] as const;
+export const AUDIO_MODES = ["vo_muziek", "muziek_geen_vo", "alleen_game", "vo_met_muziek"] as const;
 export type AudioMode = (typeof AUDIO_MODES)[number];
 export const EVENT_TYPES = ["fail", "bijna_dood", "geluk", "bouw", "grap", "jumpscare"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];

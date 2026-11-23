@@ -13,7 +13,8 @@ export type PreviewJob = { id: string; status: string; error: string | null; cre
 export const isPreviewJob = (j: { step?: string; payload?: unknown }) => j.step === "render" && !!(j.payload as { preview?: unknown } | null)?.preview;
 
 /** The same combination twice is the same preview (no second render). */
-const key = (c: AudioChoice) => `${c.voice}-${c.music}-${c.sfx}`;
+// "m2": since 23-11-2026 voice + music really has music (vo_met_muziek); older previews of the same choice did not.
+const key = (c: AudioChoice) => `m2-${c.voice}-${c.music}-${c.sfx}`;
 
 export async function queuePreview(studioId: string, script: DbScript, set: AudioSet, variant: Variant, choice: AudioChoice): Promise<"queued" | "exists"> {
   const { error } = await supabase.from("yt_jobs").insert({ studio_id: studioId, video_id: script.video_id, step: "render", idempotency_key: `render:${script.id}:preview:${variant}:${key(choice)}`, payload: { script_id: script.id, ...audioPayload(set, choice, variant) } });
