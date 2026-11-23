@@ -56,6 +56,7 @@ export function ProducerDossierView({ dossier, title, onJump }: { dossier: Dossi
           <p className="font-medium">Risico op wegvegen</p>
           <ul className="text-xs">{dossier.risks.map((r, k) => <li key={k}><button type="button" className="underline" onClick={() => onJump(r.atMs)}>{clock(r.atMs)}</button>: {r.risk} → {r.solution}</li>)}</ul>
         </div>
+        {dossier.lessons.length > 0 && <div><p className="font-medium">Lessen uit jouw afkeuringen</p><ul className="list-disc pl-5 text-xs">{dossier.lessons.map((e, k) => <li key={k}>{e}</li>)}</ul></div>}
         <div><p className="font-medium">Editor</p><ul className="list-disc pl-5 text-xs">{dossier.editor.map((e, k) => <li key={k}>{e}</li>)}</ul></div>
         <div><p className="font-medium">Kijkproef</p><ul className="list-disc pl-5 text-xs">{dossier.viewingTest.map((e, k) => <li key={k}>{e}</li>)}</ul></div>
         <div><p className="font-medium">Variant</p><p className="text-xs">{dossier.variant.hypothesis}</p><p className="text-xs">{dossier.variant.a} · {dossier.variant.b}</p><p className="text-xs text-slate-500">{dossier.variant.compare}</p></div>

@@ -7,6 +7,7 @@
 import type { Segment } from "../youtube/analysis";
 import type { EditorReport } from "./editorReview";
 import type { GateResult } from "./producerGate";
+import { lessonSentence, type Lesson } from "./lessons";
 
 export type DossierInput = {
   format: "short" | "long";
@@ -26,6 +27,8 @@ export type DossierInput = {
   audioLabel?: string | null;
   music?: string | null;
   thumbnails?: { label?: string; text?: string }[];
+  /** Lessons from Milan's rejections that this script got (23-11-2026). */
+  lessons?: Lesson[];
 };
 export type Shot = { id: string; startMs: number; endMs: number; image: string; vo: string; text: string; sound: string; cut: string; essential: boolean };
 export type Dossier = {
@@ -44,6 +47,8 @@ export type Dossier = {
   viewingTest: string[];
   variant: { hypothesis: string; a: string; b: string; compare: string };
   measure: string[];
+  /** Which lesson from Milan's rejections was applied, with its origin. */
+  lessons: string[];
 };
 
 const clock = (ms: number) => `${String(Math.floor(ms / 60_000)).padStart(2, "0")}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
@@ -120,7 +125,7 @@ export function buildDossier(i: DossierInput): Dossier {
     ? ["Na 48 uur en na 7 dagen: bekeken versus weggeveegd, engaged views, gemiddelde kijkduur, gemiddeld % bekeken, retentie rond 0–3 s en rond het hoogtepunt.", "Referentie: mediaan van eigen Shorts 13–16 nov (7,9 s gemiddelde kijkduur, 24% bekeken, n=15). Met minder dan 5 vergelijkbare Shorts is het verschil een aanwijzing, geen bewijs.", "Als kijkers vóór het hoogtepunt wegvegen: de aanloop inkorten. Als ze tot het einde blijven maar niet opnieuw kijken: het einde dichter bij het begin laten aansluiten."]
     : ["Na 48 uur en 7 dagen: impressies en CTR per verkeersbron, retentie in de eerste 30 s, gemiddelde kijkduur, retentie rond sleutelscènes.", "Als de CTR laag is maar de opening houdt: verpakking wijzigen. Als de opening daalt: de eerste scène dichter bij de titel brengen."];
 
-  return { status: i.gate?.status ?? "Niet beoordeeld", reason: i.gate?.summary ?? "Geen producer-oordeel bij deze productie (gemaakt vóór 23-11-2026 of lange video).", promise, endImage, openings, packaging, shots, voText, silences, speakingSeconds: Math.round(voText.reduce((s, l) => s + l.seconds, 0) * 10) / 10, risks, editor, viewingTest, variant, measure };
+  return { status: i.gate?.status ?? "Niet beoordeeld", reason: i.gate?.summary ?? "Geen producer-oordeel bij deze productie (gemaakt vóór 23-11-2026 of lange video).", promise, endImage, openings, packaging, shots, voText, silences, speakingSeconds: Math.round(voText.reduce((s, l) => s + l.seconds, 0) * 10) / 10, risks, editor, viewingTest, variant, measure, lessons: (i.lessons ?? []).map(lessonSentence) };
 }
 
 /** The dossier as plain text, to copy into a document for the team. */
@@ -138,6 +143,7 @@ export function dossierText(d: Dossier, title: string): string {
   for (const s of d.silences) L.push(`stilte ${clock(s.startMs)}–${clock(s.endMs)}`);
   L.push("", "RISICO OP WEGVEGEN");
   for (const r of d.risks) L.push(`${clock(r.atMs)}: ${r.risk} → ${r.solution}`);
+  if (d.lessons.length) L.push("", "TOEGEPASTE LESSEN", ...d.lessons);
   L.push("", "EDITOR", ...d.editor, "", "KIJKPROEF", ...d.viewingTest, "", "VARIANT", d.variant.hypothesis, d.variant.a, d.variant.b, d.variant.compare, "", "MEETPLAN", ...d.measure);
   return L.join("\n");
 }

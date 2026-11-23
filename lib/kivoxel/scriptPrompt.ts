@@ -30,7 +30,7 @@ const KINDS: LineKind[] = ["hook", "anticipation", "reaction", "open_loop", "bri
 const STYLES: TtsStyle[] = ["spannend", "fluisterend", "schreeuw", "lachend", "normaal"];
 const tc = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; /** The game (default Minecraft, KIVOXEL). */ game?: GameId; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string; /** What the frames show (section 1a, vision model). */ evidence?: string; /** Milan's own story of the recording. */ story?: string }): { prompt: string; ids: Map<string, number> } {
+export function anticipationPrompt(input: { segments: Segment[]; targetMs: number; /** The game (default Minecraft, KIVOXEL). */ game?: GameId; timeline: EventTimeline | null; language?: Language; settings: Settings; short: boolean; recent?: string[]; note?: string; /** What the frames show (section 1a, vision model). */ evidence?: string; /** Milan's own story of the recording. */ story?: string; /** Lessons from Milan's rejections (23-11-2026). */ lessons?: string[] }): { prompt: string; ids: Map<string, number> } {
   // KIVOXEL videos are English, always.
   const lang = "English";
   const events = eventsInMontage(input.segments, input.timeline).filter((e) => e.peak_out < input.targetMs - 800);
@@ -67,6 +67,7 @@ export function anticipationPrompt(input: { segments: Segment[]; targetMs: numbe
     `Interjections you may use (vary, do not repeat): ${p.expressions.interjection.join(" | ")}`,
     `Example reactions (short and natural, never forced): ${p.expressions.reaction.join(" | ")}`,
     ...(input.recent?.length ? [`Recently used, do NOT use again: ${input.recent.slice(-20).join(" | ")}`] : []),
+    ...(input.lessons?.length ? ["Lessons from the owner's earlier rejections of this channel and format (apply them):", ...input.lessons] : []),
     ...(input.note ? [`The owner's comment on the previous version: "${input.note.replace(/"/g, "'")}". Change only what it asks.`] : []),
     "",
     'Answer only with JSON: {"lines":[{"event":"E1" or null,"kind":"hook|anticipation|reaction|open_loop|bridge|loop","text":"…","shorter":["shorter version","even shorter"],"style":"spannend|fluisterend|schreeuw|lachend|normaal"}]}',

@@ -54,6 +54,7 @@ import { nextInLine, oldRefusal, parseWait, retryAfter, waitNote, type WaitingPu
 import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
+import { lessonPrompt, lessonsFrom, type Lesson } from "../lib/kivoxel/lessons.ts";
 import { producerGate, rankCandidates, type GateResult } from "../lib/kivoxel/producerGate.ts";
 import { reviewExport, type EditorReport } from "../lib/kivoxel/editorReview.ts";
 import { measureExport } from "./editorMeasure.ts";
@@ -671,8 +672,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     if (!job.video_id) throw new Error("Deze stap hoort niet bij een video");
     const version = Number(job.payload?.version ?? 1);
     if (!Number.isInteger(version) || version < 1) throw new Error("Ongeldige versie");
-    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null; created_at?: string };
-    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key, created_at").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
+    type VideoRow = { id: string; recording_id: string | null; format: Format; language: "en" | "nl"; is_test: boolean; status: string; promise: string | null; plan_key: string | null; created_at?: string; channel_id?: string | null };
+    const video = await db.from("yt_videos").select("id, recording_id, format, language, is_test, status, promise, plan_key, created_at, channel_id").eq("id", job.video_id).eq("studio_id", job.studio_id).single<VideoRow>();
     if (video.error) throw new Error(video.error.message);
     const linked = await db.from("yt_video_moments").select(`position, yt_moments(${MOMENT_COLUMNS})`).eq("video_id", video.data.id).order("position").returns<Array<{ position: number; yt_moments: MomentRow }>>();
     if (linked.error) throw new Error(linked.error.message);
@@ -700,6 +701,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let newMoment: { from: number; to: number | null; why: string } | null = null;
     /** 23-11-2026: the producer gate's verdict on the moment of this Short. */
     let producer: GateResult | null = null;
+    /** 23-11-2026: lessons from Milan's rejections that this script got (and the hypotheses that it did not). */
+    let lessons: Lesson[] = [];
     // KIVOXEL fase 1: "ai" = Gemini writes the lines, "free" = the template engine (no credits needed).
     let engine: "test" | "ai" | "free" = "test";
     let engineNote: string | null = null;
@@ -817,7 +820,18 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if ("error" in parsed) throw new Error(`Script van de analysedienst onbruikbaar: ${parsed.error}`);
           draft = withShortHook(parsed.draft);
           engine = "ai";
-          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, game, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note, evidence: facts || undefined, story: storyText || undefined });
+          // 23-11-2026: lessons from Milan's rejections of this channel and format (rules only when seen at least twice).
+          try {
+            const since = new Date(Date.now() - 60 * 24 * 3_600_000).toISOString();
+            const rej = await db.from("yt_videos").select("id, review_note, created_at, format").eq("studio_id", job.studio_id).eq("channel_id", video.data.channel_id ?? "").not("review_note", "is", null).gte("created_at", since).limit(200).returns<{ id: string; review_note: string; created_at: string; format: string }[]>();
+            const same = (rej.data ?? []).filter((r) => (r.format === "C") === !short && r.id !== video.data.id);
+            const titles = same.length ? await db.from("yt_scripts").select("video_id, top_line, titles, version").in("video_id", same.map((r) => r.id)).returns<{ video_id: string; top_line: string | null; titles?: string[] | null; version: number }[]>() : { data: [] };
+            const titleOf = (id: string) => { const s = (titles.data ?? []).filter((x) => x.video_id === id).sort((a, b) => b.version - a.version)[0]; return s?.titles?.[0] ?? s?.top_line ?? "video"; };
+            lessons = lessonsFrom(same.map((r) => ({ title: titleOf(r.id), note: r.review_note, at: r.created_at })));
+          } catch {
+            lessons = [];
+          }
+          const ap = anticipationPrompt({ segments: plan.segments, targetMs: plan.targetMs, game, timeline, language: VIDEO_LANGUAGE, settings: kSettings, short, recent, note: feedback?.note, evidence: facts || undefined, story: storyText || undefined, lessons: lessonPrompt(lessons) });
           const answer = await paid(job, () => ai.gemini.generateText(ap.prompt));
           const lines = parseAnticipation(answer.json, ap.ids, plan.segments, plan.targetMs, timeline);
           // Almost nothing left after the checks (17-11-2026: one line for a 6-minute video, the rest read screen text):
@@ -902,7 +916,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       await db.from("yt_videos").update({ status: "rendering" }).eq("id", video.data.id).in("status", ["idea", "scripted", "review", "approved"]);
       remontaged = true;
     }
-    return { version, remontaged, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}), ...(newMoment ? { newMoment } : {}), ...(producer ? { producer } : {}) };
+    return { version, remontaged, targetMs: plan.targetMs, segments: plan.segments.length, warnings: plan.warnings, hooks: draft.hooks.length, engine, engineNote, learnedFrom, short: shortInfo, deadCutMs: shortInfo?.cutMs ?? longCutMsOut, ...(grounding ? { grounding } : {}), ...(newMoment ? { newMoment } : {}), ...(producer ? { producer } : {}), ...(lessons.length ? { lessons } : {}) };
   }
 
   /**
@@ -1024,7 +1038,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         const ids = known.filter((x) => !x.released).map((x) => x.videoId);
         const gone = ids.length ? ((await db.from("yt_videos").select("id").in("id", ids).eq("status", "archived").returns<{ id: string }[]>()).data ?? []).map((x) => x.id) : [];
         const m0 = flags.data?.[0]?.yt_moments;
-        const slot = await ledger.decide(video.data.channel_id, fmt, video.data.id, narrationValue({ kind: m0?.kind ?? null, description: m0?.reason ?? null }), gone);
+        // The moment the plan really shows: after "kies een ander moment" that is not the linked one (23-11-2026).
+        const planPeak = coldOpenPeak(linkedPeak, s.data.edit_plan);
+        const shown = planPeak !== linkedPeak && timeline ? timeline.events.filter((e) => Math.abs(e.t_peak - planPeak!) <= 3000).sort((a, b) => b.payoff - a.payoff)[0] : undefined;
+        const tell = shown ? narrationValue({ type: shown.type, description: shown.description }) : narrationValue({ kind: m0?.kind ?? null, description: m0?.reason ?? null });
+        const slot = await ledger.decide(video.data.channel_id, fmt, video.data.id, tell, gone);
         voicePlan = { voice: slot.voice, reason: slot.reason };
         await lv.event("note", `Stemverdeling: ${slot.voice ? "met Engelse voice-over" : "zonder voice-over"} (${slot.reason})`);
       } catch (e) {

@@ -23,7 +23,15 @@ Uit het verkeersbronnenrapport (24-10 t/m 21-11): Shorts-feed groeide van 3.324 
 - **Toegepast in de montage:** Shorts openen sinds 18-11 met een teaser van het hoogtepunt; de opbouw vóór de piek is 4,5 s, dus de piek valt rond 6,5 s. Sinds 23-11 krijgt de uitkomst minstens 3,5 s (de eerder afgekeurde Shorts stopten 2 s na de piek) en tellen menu-momenten 35 punten minder.
 - **Toetsen:** vergelijk Shorts vanaf 23-11 met de 15 hierboven op dezelfde leeftijd (48 uur na publicatie), mediaan % bekeken en gem. kijkduur, per lengtebucket. Pas de regel aan als korte Shorts niet beter scoren.
 
+## Nieuwe meting (studio-snapshot 23-11 08:25, Analytics t/m 20-11)
+
+Shorts gepubliceerd 20–21 november, ≥ 400 weergaven, n = 10: mediaan **96% bekeken** (spreiding 61–191%; boven 100% = opnieuw afgespeeld). Hoogste: *Minecraft Redstone Piston Trap Survival* (`wXHbRrbVCmM`, 1.440 weergaven, 191%), *Minecraft Nether Walk With Secret Chat Messages* (`CzCuM2_LUmc`, 750, 167%). Laagste: *Minecraft Redstone Piston Trap Built in the Dark* (`2Q2rpK-JPl4`, 1.423, 61%).
+
+- **Gemeten:** van 24% (13–16 nov, Shorts van 23–35 s die met de opbouw begonnen) naar 96% (20–21 nov, korte Shorts die openen met het hoogtepunt).
+- **Niet bewezen waarom.** Drie dingen veranderden tegelijk: lengte (een kortere Short haalt makkelijker een hoog %), opening (teaser van het hoogtepunt sinds 18-11) en verkeer (op 20-11 kwam 10.032 van 25.401 weergaven uit betaalde promotie). Analytics loopt t/m 20-11, dus voor video's van 21-11 is het een gedeeltelijke periode.
+- **Toetsplan:** vergelijk Shorts van ná de promotie (vanaf 22-11) op 48 uur leeftijd met deze 10; als het % hoog blijft zonder promotie, is lengte + opening de waarschijnlijkste verklaring.
+
 ## Open punten
 
-- De werker haalt sinds 20-11 geen `avg_view_pct` meer binnen (de laatste snapshots hebben `null`). Oorzaak nog niet onderzocht; tot dan is de YouTube Studio-export de bron.
+- ~~De werker haalt sinds 20-11 geen `avg_view_pct` meer binnen.~~ Onjuist (23-11): de oude snapshots waren vooral oudere en SpawnNado-video's; de werker haalt het percentage wel op (13 van de laatste 50 video's; de rest valt buiten de Analytics-periode). Wel beperkt: de werker volgt alleen de laatste 50 uploads per kanaal.
 - SpawnNado: nog geen bruikbare kijkcijfers (kanaal sinds 19-11, uploads deels geblokkeerd).

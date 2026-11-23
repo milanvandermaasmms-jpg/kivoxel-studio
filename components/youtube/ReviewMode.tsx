@@ -15,6 +15,7 @@ import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import { EditorPanel } from "@/components/youtube/EditorPanel";
 import { ProducerDossierView } from "@/components/youtube/ProducerDossier";
 import { buildDossier } from "@/lib/kivoxel/producerDossier";
+import type { Lesson } from "@/lib/kivoxel/lessons";
 import type { EditorReport } from "@/lib/kivoxel/editorReview";
 import type { GateResult } from "@/lib/kivoxel/producerGate";
 import { rejectWithFeedback, remountWithFeedback } from "@/lib/youtube/remountData";
@@ -122,7 +123,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   // 23-11-2026: eindredacteur (stored with this version), voice split and producer gate of this production.
   const editor = (render?.qc as { editor?: EditorReport } | null | undefined)?.editor ?? null;
   const voicePlan = (renderJob?.result as { voicePlan?: { voice: boolean; reason: string } | null } | null | undefined)?.voicePlan ?? null;
-  const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult } | null } | undefined) : undefined;
+  const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult; lessons?: Lesson[] } | null } | undefined) : undefined;
   const producer = scriptJob?.result?.producer ?? null;
   const state_title = (id: string | undefined) => (id ? (scripts.find((s) => s.status === "approved")?.titles?.[0] ?? video?.promise ?? "Video") : "Video");
   const jumpTo = (ms: number) => {
@@ -247,6 +248,7 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                   audioLabel: renderAudio(render)?.label ?? null,
                   music: renderAudio(render)?.music ?? null,
                   thumbnails: ((render as { thumbnails?: { label?: string; text?: string }[] }).thumbnails ?? []),
+                  lessons: scriptJob?.result?.lessons ?? [],
                 })}
               />
             )}
