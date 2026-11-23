@@ -35,6 +35,20 @@ describe("hearts", () => {
     const panel = new Uint8Array(96 * 54 * 3).fill(235);
     expect(frameMetrics(panel, null).metrics.ui).toBe(1000);
   });
+  // 23-11-2026, "22/11 minecraft" (Horror Survival add-on): colours measured on the real recording.
+  it("counts light-blue frozen hearts, but not near-white snow", () => {
+    const frozen = new Uint8Array(VISUAL_W * HEART_H * 3);
+    for (let i = 0; i < VISUAL_W * HEART_H; i++) frozen.set(i % VISUAL_W < 67 ? [175, 226, 252] : [45, 45, 45], i * 3);
+    expect(heartHealth(frozen)).toBe(700);
+    const snow = new Uint8Array(VISUAL_W * HEART_H * 3).map((_, i) => [236, 242, 250][i % 3]);
+    expect(heartHealth(snow)).toBe(-1);
+  });
+  it("sees a teal add-on menu panel as much as a grey one", () => {
+    const half = new Uint8Array(96 * 54 * 3).map((_, i) => (Math.floor(i / 3) % 2 ? [145, 197, 195] : [60, 70, 90])[i % 3]);
+    expect(frameMetrics(half, null).metrics.ui).toBe(1000);
+    const water = new Uint8Array(96 * 54 * 3).map((_, i) => [67, 140, 238][i % 3]);
+    expect(frameMetrics(water, null).metrics.ui).toBe(0);
+  });
 });
 
 describe("Event Timeline", () => {

@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createVisualParser, visualArgs, type VisualSignals } from "../lib/kivoxel/visual.ts";
+import { createVisualParser, HUD_VERSION, visualArgs, type VisualSignals } from "../lib/kivoxel/visual.ts";
 import { CancelledError } from "./ffmpeg.ts";
 
 export function detectVisual(ffmpeg: string, file: string, durationMs: number, options: { signal?: AbortSignal; onFrames?: (frames: number) => void } = {}): Promise<VisualSignals> {
@@ -36,7 +36,8 @@ export async function visualFor(ffmpeg: string, dataDir: string, fingerprint: st
   const cache = join(dir, `${fingerprint}.json`);
   try {
     const stored = JSON.parse(await readFile(cache, "utf8")) as VisualSignals;
-    if (stored.version === 3) return stored;
+    // HUD recognition improved (23-11-2026): only caches in which no heart was ever recognized are measured again.
+    if (stored.version === 3 && (stored.hud === HUD_VERSION || stored.frames.some((f) => f.health >= 0))) return stored;
   } catch {
     // not measured yet
   }

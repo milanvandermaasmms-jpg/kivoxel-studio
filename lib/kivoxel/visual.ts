@@ -5,12 +5,18 @@
 // Hearts: on Milan's PS5 recordings (Bedrock, 1920x1088) the heart row sits at 31.1-47.9% of the width and
 // 84.4-86.9% of the height (measured on "Hardcore Dane!!", 16-11-2026). FFmpeg cuts that strip out of every frame
 // and puts it, 96x8 pixels, under the small picture, so one decode gives both.
+//
+// 23-11-2026: add-ons change the HUD. In "22/11 minecraft" (Horror Survival add-on) the hearts are light-blue frozen
+// hearts and every menu is a teal panel (RGB 145,197,195) instead of the near-white Bedrock grey. Both are recognized
+// now (HUD_VERSION 2); older caches in which no heart was ever found are measured again.
 
 export const VISUAL_W = 96;
 export const VISUAL_H = 54;
 export const VISUAL_FPS = 4;
 export const HEART_H = 8;
 export const HEART_CROP = { x: 0.311, y: 0.844, w: 0.168, h: 0.025 };
+/** Raise when the HUD recognition changes, so recordings without recognized hearts are measured again. */
+export const HUD_VERSION = 2;
 export const FRAME_BYTES = VISUAL_W * (VISUAL_H + HEART_H) * 3;
 
 /** One frame, small numbers so a long recording stays a small file. */
@@ -31,7 +37,7 @@ export type FrameMetrics = {
   health: number;
 };
 
-export type VisualSignals = { version: 3; fps: number; width: number; height: number; durationMs: number; frames: FrameMetrics[] };
+export type VisualSignals = { version: 3; hud?: number; fps: number; width: number; height: number; durationMs: number; frames: FrameMetrics[] };
 
 const lumaOf = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -55,6 +61,9 @@ export function frameMetrics(rgb: Uint8Array, previous: Float32Array | null, wid
     // Bedrock panels (chest, inventory, crafting) are near-white RGB 235,235,235; older menus are 198 grey.
     const neutral = Math.abs(r - g) < 6 && Math.abs(g - b) < 6;
     if (neutral && (Math.abs(r - 235) < 9 || Math.abs(r - 198) < 9)) ui++;
+    // Add-on panels (Horror Survival, 22-11-2026) are teal 145,197,195. Only about half of such a panel is that flat
+    // colour (the slots are textured), so it counts double: a menu then reaches the same share as a grey one.
+    else if (Math.abs(r - 145) < 10 && Math.abs(g - 197) < 10 && Math.abs(b - 195) < 10) ui += 2;
   }
   let motion = 0;
   if (previous && previous.length === n) {
@@ -88,7 +97,9 @@ export function heartHealth(strip: Uint8Array, width = VISUAL_W, height = HEART_
     const g = strip[i + 1];
     const b = strip[i + 2];
     // Hearts are pure red (green and blue equally low); autumn leaves and lava behind the HUD are orange-red.
-    return r > 120 && g < 50 && b < 55 && Math.abs(g - b) < 18 && r > g * 2.5;
+    if (r > 120 && g < 50 && b < 55 && Math.abs(g - b) < 18 && r > g * 2.5) return true;
+    // Frozen hearts (powder snow, or add-ons that draw them always) are light blue; snow behind the HUD is near-white.
+    return b >= 200 && g >= 180 && r >= 110 && b - r >= 35;
   };
   const share = (x0: number, x1: number) => {
     let red = 0;
@@ -136,7 +147,7 @@ export function createVisualParser(durationMs: number) {
       buffer = joined.slice(offset);
     },
     finish(): VisualSignals {
-      return { version: 3, fps: VISUAL_FPS, width: VISUAL_W, height: VISUAL_H, durationMs, frames };
+      return { version: 3, hud: HUD_VERSION, fps: VISUAL_FPS, width: VISUAL_W, height: VISUAL_H, durationMs, frames };
     },
   };
 }
