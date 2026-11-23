@@ -64,3 +64,19 @@ describe("applying the chosen hook", () => {
     expect(r).toEqual({ topLine: script.top_line, hook: script.hook, lines: script.lines, segments: plan, targetMs: 18_000 });
   });
 });
+
+describe("zwakke openingszin (23-11-2026)", () => {
+  it("a first line that only describes the screen or fits any clip is weak", async () => {
+    const { weakFirstLine } = await import("./hooks");
+    expect(weakFirstLine("Glitch artifacts flashing on screen!")).toBe(true);
+    expect(weakFirstLine("This is absolutely insane, guys!")).toBe(true);
+    expect(weakFirstLine("Hear that? He's on the right.")).toBe(false);
+  });
+  it("a stored weak hook keeps its overlay, but the script's own lines speak", async () => {
+    const { applyHook } = await import("./hooks");
+    const script = { top_line: "X", hook: "Watch that zombie.", lines: [{ at_ms: 0, text: "Watch that zombie." }, { at_ms: 3000, text: "Close one." }], edit_plan: [], target_ms: 10_000 };
+    const r = applyHook(script, { type: "cold_open", first_line: "Glitch artifacts flashing on screen!", overlay: "CLOSEST CALL EVER", cold_open: false }, null);
+    expect(r.lines.map((l) => l.text)).toEqual(["Watch that zombie.", "Close one."]);
+    expect(r.topLine).toBe("CLOSEST CALL EVER");
+  });
+});

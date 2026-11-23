@@ -123,8 +123,10 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
   // 23-11-2026: eindredacteur (stored with this version), voice split and producer gate of this production.
   const editor = (render?.qc as { editor?: EditorReport } | null | undefined)?.editor ?? null;
   const voicePlan = (renderJob?.result as { voicePlan?: { voice: boolean; reason: string } | null } | null | undefined)?.voicePlan ?? null;
-  const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult; lessons?: Lesson[] } | null } | undefined) : undefined;
+  const scriptJob = video ? (board.jobs.filter((j) => j.video_id === video.id && j.step === "script" && j.status === "done").sort((a, b) => b.created_at.localeCompare(a.created_at))[0] as { result?: { producer?: GateResult; lessons?: Lesson[]; newMoment?: { from: number; to: number | null; why: string } } | null; payload?: { feedback?: FeedbackItem[]; mode?: string } | null } | undefined) : undefined;
   const producer = scriptJob?.result?.producer ?? null;
+  // A full re-montage keeps Milan's feedback on its script step; the montage itself has none (23-11-2026).
+  const shownFeedback = lastFeedback.length ? lastFeedback : (scriptJob?.payload?.feedback ?? []);
   const state_title = (id: string | undefined) => (id ? (scripts.find((s) => s.status === "approved")?.titles?.[0] ?? video?.promise ?? "Video") : "Video");
   const jumpTo = (ms: number) => {
     const v = player.current;
@@ -213,10 +215,10 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
             {item.kind === "final" && older && (
               <section className="space-y-1 rounded-md border border-cyan-200 p-3 text-xs">
                 <p className="font-medium">Wat is er veranderd</p>
-                {(renderJob?.result?.changes ?? []).length ? <p>{renderJob!.result!.changes!.join(" · ")}</p> : <p className="text-slate-500">{renderJob?.payload?.mode === "volledig" ? "Volledig nieuwe montage (nieuw script)." : "Geen wijzigingen vastgelegd bij deze versie."}</p>}
-                {lastFeedback.length > 0 && (
+                {(renderJob?.result?.changes ?? []).length ? <p>{renderJob!.result!.changes!.join(" · ")}</p> : <p className="text-slate-500">{scriptJob?.result?.newMoment ? (scriptJob.result.newMoment.to !== null ? `Volledig nieuwe montage: ander moment uit de opname (${clock(scriptJob.result.newMoment.from)} → ${clock(scriptJob.result.newMoment.to)}: ${scriptJob.result.newMoment.why}).` : `Volledig nieuwe montage: ${scriptJob.result.newMoment.why}`) : renderJob?.payload?.mode === "volledig" || scriptJob?.payload?.mode === "volledig" ? "Volledig nieuwe montage (nieuw script)." : "Geen wijzigingen vastgelegd bij deze versie."}</p>}
+                {shownFeedback.length > 0 && (
                   <div className="flex flex-wrap gap-1">
-                    {lastFeedback.map((f, k) => (
+                    {shownFeedback.map((f, k) => (
                       <button key={k} type="button" onClick={() => compareFrom(f.atMs)} className="rounded border border-slate-300 px-2 py-0.5">
                         ▶ beide vanaf {clock(f.atMs)}
                       </button>

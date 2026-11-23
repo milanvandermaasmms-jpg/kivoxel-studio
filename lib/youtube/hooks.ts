@@ -18,7 +18,14 @@ export type Hook = { type: HookType; first_line: string; overlay: string; cold_o
 
 const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().replace(/\s+/g, " ").slice(0, max) : null);
 
-/** Checks the hook variants the AI returns; keeps at most three valid ones. */
+/**
+ * 23-11-2026 (Milan's norm, praktijktest "Glitch artifacts flashing on screen!"): a first line that only describes what
+ * everyone already sees, or a generic exclamation that fits any clip, is no hook.
+ */
+export const weakFirstLine = (line: string) =>
+  /\b(on (the )?screen|flashing|appears? on|this is (absolutely )?insane|you (won't|will not) believe|check this out|watch this|wait for it|guys)\b/i.test(line);
+
+/** Checks the hook variants the AI returns; keeps at most three valid ones (never a weak first line). */
 export function parseHooks(raw: unknown): Hook[] {
   if (!Array.isArray(raw)) return [];
   const out: Hook[] = [];
@@ -27,7 +34,7 @@ export function parseHooks(raw: unknown): Hook[] {
     const type = r && HOOK_TYPES.includes(r.type as HookType) ? (r.type as HookType) : null;
     const first = r ? text(r.first_line, 120) : null;
     const overlay = r ? text(r.overlay, 60) : null;
-    if (type && first && overlay) out.push({ type, first_line: first, overlay: overlay.toUpperCase(), cold_open: r?.cold_open === true || type === "cold_open" });
+    if (type && first && overlay && !weakFirstLine(first)) out.push({ type, first_line: first, overlay: overlay.toUpperCase(), cold_open: r?.cold_open === true || type === "cold_open" });
     if (out.length === 3) break;
   }
   return out;
@@ -46,6 +53,8 @@ export function applyHook(
   peakMs: number | null,
 ): { topLine: string | null; hook: string; lines: ScriptLine[]; segments: Segment[]; targetMs: number } {
   if (!hook) return { topLine: script.top_line, hook: script.hook, lines: script.lines, segments: script.edit_plan, targetMs: script.target_ms };
+  // A stored hook whose first line only describes the screen keeps its overlay and cold open, but the script's own lines speak.
+  if (weakFirstLine(hook.first_line)) hook = { ...hook, first_line: "" };
   const shift = hook.cold_open && peakMs !== null ? COLD_OPEN_MS : 0;
   const segments: Segment[] = shift
     ? [
@@ -56,7 +65,7 @@ export function applyHook(
   const targetMs = script.target_ms + shift;
   // The chosen first sentence replaces whatever the script said in the first 1.5 seconds.
   const body = script.lines.filter((l) => l.at_ms >= 1500).map((l) => ({ ...l, at_ms: l.at_ms + shift }));
-  const lines: ScriptLine[] = [{ at_ms: 0, text: hook.first_line }, ...body];
+  const lines: ScriptLine[] = hook.first_line ? [{ at_ms: 0, text: hook.first_line }, ...body] : script.lines.map((l) => ({ ...l, at_ms: l.at_ms + shift }));
   if (script.loop_line && targetMs > 6000) {
     const at = targetMs - 2500;
     while (lines.length > 1 && lines[lines.length - 1].at_ms >= at - 1200) lines.pop();
