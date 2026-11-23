@@ -23,7 +23,7 @@ const TONE: Record<Activity["status"], string> = {
   RENDERING: "text-cyan-600",
   UPLOADING: "text-cyan-600",
   REVIEW: "text-violet-600",
-  COMPLETED: "text-emerald-600",
+  COMPLETED: "text-emerald-700",
   FAILED: "text-red-600",
 };
 

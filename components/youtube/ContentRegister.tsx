@@ -74,7 +74,7 @@ export function ContentRegister({ workerOnline, channelName, onOpen }: { workerO
         <>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Filter op actie">
             {(["alle", ...ACTIONS] as const).map((a) => (
-              <button key={a} type="button" aria-pressed={action === a} onClick={() => setAction(a)} className={`min-h-9 rounded-full border px-3 text-xs ${action === a ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 bg-surface text-slate-700"}`}>
+              <button key={a} type="button" aria-pressed={action === a} onClick={() => setAction(a)} className={`min-h-9 rounded-full border px-3 text-xs ${action === a ? "border-ink bg-ink text-ink-fg" : "border-slate-300 bg-surface text-slate-700"}`}>
                 {a === "alle" ? "Alle" : `${a} (${counts[a]})`}
               </button>
             ))}

@@ -37,7 +37,8 @@
   --color-slate-100: #172033;
   --color-slate-200: #243044;
   --color-slate-300: #334155;
-  --color-slate-400: #64748b;
+  /* 23-11-2026: lighter than before (#64748b): small grey side texts were too dark to read on the dark background. */
+  --color-slate-400: #8b9bb3;
   --color-slate-500: #94a3b8;
   --color-slate-600: #b6c2d2;
   --color-slate-700: #d5dde8;
