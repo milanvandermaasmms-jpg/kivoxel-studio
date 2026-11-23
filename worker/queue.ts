@@ -961,7 +961,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (reset.error) throw new Error(reset.error.message);
       const ok = await db.from("yt_scripts").update({ status: "approved" }).eq("id", mine.data.id);
       if (ok.error) throw new Error(ok.error.message);
-      await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${mine.data.id}:remontage`, payload: { script_id: mine.data.id } });
+      // A correction (editor_fix / viral_fix) stays marked in its montage, so it is never corrected again (no loop).
+      const carry = Object.fromEntries((["editor_fix", "viral_fix", "viral_prev"] as const).filter((k) => job.payload?.[k] !== undefined).map((k) => [k, job.payload![k]]));
+      await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${mine.data.id}:remontage`, payload: { script_id: mine.data.id, ...carry } });
       await db.from("yt_videos").update({ status: "rendering" }).eq("id", video.data.id).in("status", ["idea", "scripted", "review", "approved"]);
       remontaged = true;
     }
@@ -1587,6 +1589,25 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         } catch (e) {
           if (e instanceof CancelledError) throw e;
           await lv.event("error", `Eindredacteur kon de export niet beoordelen: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      // 23-11-2026 (superprompt V6, fase 30.3): below 8.0 a targeted repair of the weakest part, once (viral_fix), only for
+      // what a new montage can really change; the new version is compared with this score, never raised by hand.
+      const prevViral = typeof job.payload?.viral_prev === "number" ? job.payload.viral_prev : null;
+      if (viral && prevViral !== null && viral.total !== null) await lv.event("note", viral.total > prevViral ? `Viralscore verbeterd: ${prevViral} → ${viral.total}` : `Viralscore niet verbeterd (${prevViral} → ${viral.total}): deze versie wordt niet als beter aanbevolen`);
+      if (viral?.status === "onder 8,0" && isShort && !job.payload?.viral_fix && !job.payload?.editor_fix && !video.data.is_test) {
+        const weak = viral.weakest[0]?.key;
+        if (weak === "payoff") {
+          await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${scriptId}:viral:${job.id}`, payload: { ...job.payload, viral_fix: 1, viral_prev: viral.total, fixes: { ...((job.payload?.fixes as object) ?? {}), payoffExtraMs: 2500 } } });
+          await lv.event("note", `Viralscore ${viral.total} < 8,0, zwakst: einde. Eén nieuwe montage met een langere uitkomst (gratis).`);
+          return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, viral: { status: viral.status, total: viral.total, summary: viral.summary }, viralFix: "langere uitkomst", audioMode: kSettings.audio_mode, voicePlan };
+        }
+        if (weak === "fragment" || weak === "hook") {
+          const next = Math.max(s.data.version + 1, 2);
+          await queueStep(job.studio_id, { video_id: video.data.id, step: "script", idempotency_key: `script:${video.data.id}:v${next}`, payload: { version: next, remontage: true, new_moment: true, editor_fix: 1, viral_fix: 1, viral_prev: viral.total, note: `Viralscore ${viral.total}: ${viral.weakest[0].label} ${viral.weakest[0].score} — ${viral.weakest[0].fix}`.slice(0, 500) } });
+          await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).in("status", ["rendering"]);
+          await lv.event("note", `Viralscore ${viral.total} < 8,0, zwakst: ${viral.weakest[0].label}. Eén nieuwe montage met een ander moment (script ± 2–4 cent, binnen het maandplafond).`);
+          return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, viral: { status: viral.status, total: viral.total, summary: viral.summary }, viralFix: "ander moment", audioMode: kSettings.audio_mode, voicePlan };
         }
       }
       // Correct the cause once, never in a loop (editor_fix marks a version that already is a correction).
