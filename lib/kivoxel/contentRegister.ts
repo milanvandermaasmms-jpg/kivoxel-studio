@@ -43,6 +43,8 @@ export type Facts = {
   /** YouTube: average % watched (latest snapshot), for live videos. */
   avgViewPct: number | null;
   views: number | null;
+  /** 23-11-2026: Milan judged the content (viral judgement, approval, or a rejection with his own reason). */
+  milanJudged?: boolean;
 };
 
 export type ScoreKey = "script" | "montage" | "audio" | "beeld" | "techniek";
@@ -66,7 +68,25 @@ export type Entry = {
   createdAt: string;
   avgViewPct: number | null;
   views: number | null;
+  /**
+   * 23-11-2026 (vervolgopdracht, prioriteit 5): how far this production is checked. Technisch = the pc measured the
+   * export; inhoudelijk = Milan judged the content (approval, rejection with a reason, or his viral judgement); the pc
+   * itself cannot judge content (story, originality) without an AI check, which costs money.
+   */
+  stage: Stage;
 };
+export type Stage = "volledig goedgekeurd" | "inhoudelijk gecontroleerd" | "technisch gecontroleerd" | "herstel nodig" | "nog niet beoordeeld";
+export const STAGES: Stage[] = ["herstel nodig", "technisch gecontroleerd", "inhoudelijk gecontroleerd", "volledig goedgekeurd", "nog niet beoordeeld"];
+
+/** Where a production stands in the check, from what is really known about it. */
+export function stageOf(e: Pick<Entry, "action" | "status">, measured: boolean, milanJudged: boolean): Stage {
+  if (e.action === "opnieuw maken" || e.action === "verbeteren") return "herstel nodig";
+  const approved = ["approved", "scheduled", "published"].includes(e.status);
+  if (approved && measured) return "volledig goedgekeurd";
+  if (approved || milanJudged) return "inhoudelijk gecontroleerd";
+  if (measured) return "technisch gecontroleerd";
+  return "nog niet beoordeeld";
+}
 
 /** Weights of the total (techniek and audio first: a broken file is never ok). Validate later with channel results. */
 export const WEIGHTS: Record<ScoreKey, number> = { techniek: 0.2, audio: 0.2, beeld: 0.25, montage: 0.2, script: 0.15 };
@@ -154,6 +174,12 @@ function script(f: Facts): Score {
 
 /** One production in the register. */
 export function assess(f: Facts): Entry {
+  const e = assessCore(f);
+  const judged = !!f.milanJudged || (!!f.reviewNote && f.status === "archived");
+  return { ...e, stage: stageOf(e, !!f.measure, judged) };
+}
+
+function assessCore(f: Facts): Omit<Entry, "stage"> {
   const base = { videoId: f.videoId, channel: f.channel, title: f.title, type: (f.format === "C" ? "Lang" : "Short") as Entry["type"], status: f.status, source: (f.source === null ? "geen opname" : f.source ? "beschikbaar" : "ontbreekt") as Entry["source"], renderName: f.renderName, createdAt: f.createdAt, avgViewPct: f.avgViewPct, views: f.views };
   const none = (why: string): Record<ScoreKey, Score> => ({ script: { value: null, reasons: [why] }, montage: { value: null, reasons: [why] }, audio: { value: null, reasons: [why] }, beeld: { value: null, reasons: [why] }, techniek: { value: null, reasons: [why] } });
   const live = LIVE.has(f.status) || f.publication === "published" || f.publication === "scheduled";
@@ -201,10 +227,12 @@ export function assess(f: Facts): Entry {
   return { ...base, scores, total, action, why, control: action === "behouden" || action === "afgekeurd (archief)" ? "afgerond" : "open" };
 }
 
-export type Register = { builtAt: string; measuredAt: string | null; entries: Entry[]; counts: Record<Action, number>; running?: { done: number; total: number } | null };
+export type Register = { builtAt: string; measuredAt: string | null; entries: Entry[]; counts: Record<Action, number>; stages?: Record<Stage, number>; running?: { done: number; total: number } | null };
 
 export function summarize(entries: Entry[], builtAt: string): Register {
   const counts = { behouden: 0, verbeteren: 0, "opnieuw maken": 0, "niet beoordeeld": 0, "live (alleen info)": 0, "afgekeurd (archief)": 0 } as Record<Action, number>;
   for (const e of entries) counts[e.action] += 1;
-  return { builtAt, measuredAt: builtAt, entries, counts };
+  const stages = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
+  for (const e of entries) stages[e.stage] += 1;
+  return { builtAt, measuredAt: builtAt, entries, counts, stages };
 }

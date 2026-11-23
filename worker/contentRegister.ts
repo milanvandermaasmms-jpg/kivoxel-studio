@@ -62,6 +62,8 @@ export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string
       all<{ video_id: string; status: string; title: string }>((a, b) => db.from("yt_publications").select("video_id, status, title").eq("studio_id", sid).range(a, b)),
       all<{ video_id: string; views: number | null; avg_view_pct: number | null; taken_at: string }>((a, b) => db.from("yt_video_snapshots").select("video_id, views, avg_view_pct, taken_at").eq("studio_id", sid).not("video_id", "is", null).order("taken_at", { ascending: false }).range(a, b)),
     ]);
+    // Milan's own content judgements (viral score parts he judged in the review).
+    const judged = new Set((await all<{ metadata: { video_id?: string } }>((a, b) => db.from("studio_events").select("metadata").eq("studio_id", sid).eq("action", "viral_oordeel").range(a, b)).catch(() => [])).map((x) => x.metadata.video_id).filter((x): x is string => !!x));
     const onDisk = new Set((await readdir(join(opts.dataDir, "recordings")).catch(() => [] as string[])).map((n) => n.replace(/\.[^.]+$/, "")));
     const visualCache = new Map<string, VisualSignals | null>();
     /** The stored measurement; for productions still in play (not live, not archived) the newest one is made first. */
@@ -135,6 +137,7 @@ export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string
         reviewNote: v.review_note,
         avgViewPct: st?.pct ?? null,
         views: st?.views ?? null,
+        milanJudged: judged.has(v.id),
       };
       entries.push(assess(facts));
       running = { done: entries.length, total: gaming.length };

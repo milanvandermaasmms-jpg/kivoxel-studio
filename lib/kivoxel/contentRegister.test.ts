@@ -60,4 +60,11 @@ describe("contentregister", () => {
     const r = summarize([assess(facts()), assess(facts({ gameplayShare: 0.2 }))], "2026-11-23T12:00:00Z");
     expect(r.counts).toMatchObject({ behouden: 1, "opnieuw maken": 1 });
   });
+  it("says how far each production is checked: technically, by content (Milan), fully approved, repair, or not yet", () => {
+    expect(assess(facts()).stage).toBe("technisch gecontroleerd");
+    expect(assess(facts({ milanJudged: true })).stage).toBe("inhoudelijk gecontroleerd");
+    expect(assess(facts({ status: "approved" })).stage).toBe("volledig goedgekeurd");
+    expect(assess(facts({ gameplayShare: 0.2 })).stage).toBe("herstel nodig");
+    expect(assess(facts({ renderFile: null, measure: null })).stage).toBe("nog niet beoordeeld");
+  });
 });

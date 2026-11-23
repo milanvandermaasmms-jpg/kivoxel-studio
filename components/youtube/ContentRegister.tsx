@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Fold } from "@/components/settings/Section";
 import { Button } from "@/components/ui/Dialog";
-import { NORM, SCORE_LABEL, type Action, type Entry, type Register, type ScoreKey } from "@/lib/kivoxel/contentRegister";
+import { NORM, SCORE_LABEL, STAGES, type Action, type Entry, type Register, type ScoreKey, type Stage } from "@/lib/kivoxel/contentRegister";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
 type State = (Register & { running?: { done: number; total: number } | null }) | { entries: []; builtAt: null; running?: { done: number; total: number } | null };
@@ -21,6 +21,7 @@ export function ContentRegister({ workerOnline, channelName, onOpen }: { workerO
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<Action | "alle">("alle");
   const [type, setType] = useState<"alle" | "Short" | "Lang">("alle");
+  const [stage, setStage] = useState<Stage | "alle">("alle");
   const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,7 +51,7 @@ export function ContentRegister({ workerOnline, channelName, onOpen }: { workerO
     setTimeout(() => void load(), 1000);
   };
 
-  const entries = useMemo(() => (reg?.entries ?? []).filter((e) => (!channelName || e.channel === channelName) && (action === "alle" || e.action === action) && (type === "alle" || e.type === type)), [reg, channelName, action, type]);
+  const entries = useMemo(() => (reg?.entries ?? []).filter((e) => (!channelName || e.channel === channelName) && (action === "alle" || e.action === action) && (type === "alle" || e.type === type) && (stage === "alle" || e.stage === stage)), [reg, channelName, action, type, stage]);
   const counts = useMemo(() => {
     const c = Object.fromEntries(ACTIONS.map((a) => [a, 0])) as Record<Action, number>;
     for (const e of reg?.entries ?? []) if (!channelName || e.channel === channelName) c[e.action] += 1;
@@ -77,6 +78,14 @@ export function ContentRegister({ workerOnline, channelName, onOpen }: { workerO
                 {a === "alle" ? "Alle" : `${a} (${counts[a]})`}
               </button>
             ))}
+            <select aria-label="Controle" className="min-h-9 rounded-md border border-slate-300 bg-surface px-2 text-xs" value={stage} onChange={(e) => setStage(e.target.value as Stage | "alle")}>
+              <option value="alle">Elke controle</option>
+              {STAGES.map((s) => (
+                <option key={s} value={s}>
+                  {s} ({(reg?.entries ?? []).filter((e) => (!channelName || e.channel === channelName) && e.stage === s).length})
+                </option>
+              ))}
+            </select>
             <select aria-label="Type" className="min-h-9 rounded-md border border-slate-300 bg-surface px-2 text-xs" value={type} onChange={(e) => setType(e.target.value as typeof type)}>
               <option value="alle">Shorts en lang</option>
               <option value="Short">Alleen Shorts</option>
@@ -125,7 +134,7 @@ function RegisterRow({ e, open, onToggle, onOpen }: { e: Entry; open: boolean; o
             ))}
           </ul>
           <p className="text-slate-600">
-            Bronmateriaal: {e.source} · Controle: {e.control}
+            Bronmateriaal: {e.source} · Stand: {e.stage ?? "—"} · Controle: {e.control}
             {e.avgViewPct !== null ? ` · YouTube: ${Math.round(e.avgViewPct)}% bekeken, ${e.views ?? 0} weergaven` : ""}
           </p>
           {onOpen && e.status === "review" && (
