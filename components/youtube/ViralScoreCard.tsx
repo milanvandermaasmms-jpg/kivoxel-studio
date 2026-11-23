@@ -19,7 +19,7 @@ export function ViralScoreCard({ result, onJudge }: { result: ViralResult; onJud
         <p className="font-semibold">
           Viralscore {fmt(result.total)} <span className="font-normal">/ 10 · minimum {fmt(MINIMUM)}</span>
         </p>
-        <span className="rounded bg-white/70 px-2 py-0.5 text-xs font-medium">{result.status}</span>
+        <span className="rounded bg-surface px-2 py-0.5 text-xs font-medium">{result.status}</span>
       </div>
       <p>{result.summary}</p>
       {result.blocks.length > 0 && (
@@ -40,7 +40,7 @@ export function ViralScoreCard({ result, onJudge }: { result: ViralResult; onJud
       {open && (
         <ul className="space-y-1.5 text-xs">
           {result.parts.map((p) => (
-            <li key={p.key} className="rounded bg-white/60 p-2 text-slate-800">
+            <li key={p.key} className="rounded bg-surface p-2 text-slate-800">
               <div className="flex flex-wrap items-center gap-x-2">
                 <span className="font-medium">{p.label}</span>
                 <span className="text-slate-500">({Math.round(p.weight * 100)}%)</span>

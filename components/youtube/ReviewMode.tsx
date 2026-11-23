@@ -14,6 +14,7 @@ import { reviewBlockers } from "@/lib/youtube/review";
 import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import { EditorPanel } from "@/components/youtube/EditorPanel";
 import { ViralScoreCard } from "@/components/youtube/ViralScoreCard";
+import { DecisionCard } from "@/components/youtube/DecisionCard";
 import { applyAi, applyJudgement, type PartKey, type ViralResult } from "@/lib/kivoxel/viralScore";
 import { loadJudgements, requestContentCheck, saveJudgement } from "@/lib/youtube/viralJudgement";
 import { aiForViral, AI_PARTS, type ContentCheck } from "@/lib/kivoxel/contentCheck";
@@ -282,6 +283,12 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
             )}
             {item.kind === "final" && render && workerOnline && <FeedbackPanel player={() => player.current} items={feedback} onChange={setFeedback} mode={mode} onMode={setMode} />}
             {done && <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">{done}</p>}
+            <details className="group rounded-xl border border-slate-200 bg-surface" open={item.kind === "concept"}>
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                {item.kind === "concept" ? "Script" : "Script, geluid en techniek"}
+                <span aria-hidden className="text-slate-400 transition-transform group-open:rotate-180">▾</span>
+              </summary>
+              <div className="space-y-3 border-t border-slate-100 p-3">
             {item.kind === "final" && render && script?.status === "approved" && !renderBusy && (
               <AudioModeSwitch
                 studioId={studioId}
@@ -336,6 +343,8 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               </ul>
             )}
             {item.kind === "final" && render && <MiniReport qc={render.qc as Parameters<typeof MiniReport>[0]["qc"]} topLine={script?.top_line ?? null} model={(script as { model?: string | null } | undefined)?.model} short={render.height > render.width} />}
+              </div>
+            </details>
             {item.kind === "concept" && <p className="text-xs text-slate-500">Goedkeuren start meteen de montage op de pc. Publiceren blijft altijd een aparte klik.</p>}
             {item.kind === "final" && <p className="text-xs text-slate-500">Goedkeuren zet de video klaar om te publiceren. Publiceren of inplannen doe je daarna zelf.</p>}
 
@@ -351,8 +360,21 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
               </p>
             )}
           </div>
-          <aside aria-label="Kwaliteit" className="mt-4 space-y-4 lg:sticky lg:top-0 lg:mt-0">
-              {item.kind === "final" && render && viral && <ViralScoreCard result={viral} onJudge={judge} />}
+          <aside aria-label="Kwaliteit" className="mt-4 space-y-3 lg:sticky lg:top-0 lg:mt-0">
+            {item.kind === "final" && render && <DecisionCard viral={viral} editor={editor} briefing={briefing?.checks ?? []} onJump={jumpTo} />}
+            {item.kind === "final" && render && (
+              <button type="button" onClick={() => askIvar(viral && viral.status !== "publicatiegereed" ? `Waarom haalt deze video ${viral.total !== null ? viral.total.toFixed(1).replace(".", ",") : "geen score"} en wat is de beste verbetering?` : "Wat vind je van deze video, en welke van de drie audio-opties past het best?")} className="w-full rounded-md border border-violet-300 px-3 py-2 text-left text-sm text-violet-800 hover:bg-violet-50">
+                Vraag Ivar om advies over deze video
+              </button>
+            )}
+            {item.kind === "final" && render && (
+            <details className="group rounded-xl border border-slate-200 bg-surface">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                Details: score per onderdeel, AI-oordeel, eindredacteur, briefing, dossier
+                <span aria-hidden className="text-slate-400 transition-transform group-open:rotate-180">▾</span>
+              </summary>
+              <div className="space-y-3 border-t border-slate-100 p-3">
+              {viral && <ViralScoreCard result={viral} onJudge={judge} />}
             {item.kind === "final" && render && (
               <section aria-label="AI-inhoudscheck" className="space-y-1 rounded-md border border-slate-200 p-3 text-xs">
                 <p className="text-sm font-semibold">AI-inhoudscheck</p>
@@ -376,11 +398,6 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                   </button>
                 )}
               </section>
-            )}
-            {item.kind === "final" && render && (
-              <button type="button" onClick={() => askIvar(viral && viral.status !== "publicatiegereed" ? `Waarom haalt deze video ${viral.total !== null ? viral.total.toFixed(1).replace(".", ",") : "geen score"} en wat is de beste verbetering?` : "Wat vind je van deze video, en welke van de drie audio-opties past het best?")} className="w-full rounded-md border border-violet-300 px-3 py-2 text-left text-sm text-violet-800 hover:bg-violet-50">
-                Vraag Ivar om advies over deze video
-              </button>
             )}
               {item.kind === "final" && render && <EditorPanel editor={editor} voicePlan={voicePlan} producer={producer} onJump={jumpTo} briefing={briefing} onWaive={waive} />}
               {item.kind === "final" && render && script && (
@@ -409,6 +426,9 @@ export function ReviewMode({ studioId, board, items, workerOnline, onClose, onEd
                   })}
                 />
               )}
+              </div>
+            </details>
+            )}
           </aside>
           </div>
         )}

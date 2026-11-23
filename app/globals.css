@@ -80,6 +80,25 @@
   --color-orange-100: #3d1d06;
   --color-orange-800: #fdba74;
 
+  /* 23-11-2026 (Milan: "het groene vak is niet leesbaar"): the remaining tints that panels use. Dark text tints
+     (…-900/-950) become light; border tints (…-300/-400) stay visible on a dark background. */
+  --color-emerald-300: #10b981;
+  --color-emerald-900: #d1fae5;
+  --color-red-300: #b91c1c;
+  --color-red-400: #ef4444;
+  --color-red-900: #fee2e2;
+  --color-red-950: #fff1f2;
+  --color-sky-200: #0c4a6e;
+  --color-sky-900: #e0f2fe;
+  --color-violet-300: #6d28d9;
+  --color-violet-400: #8b5cf6;
+  --color-cyan-50: #082f3a;
+  --color-cyan-200: #155e75;
+  --color-cyan-300: #0e7490;
+  --color-cyan-700: #67e8f9;
+  --color-cyan-800: #a5f3fc;
+  --color-cyan-900: #cffafe;
+
   --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.02);
   --shadow-pop: 0 10px 30px -10px rgb(0 0 0 / 0.7);
 }
