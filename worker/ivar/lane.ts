@@ -50,7 +50,7 @@ export function cardNote(c: Card): string {
   }
 }
 
-export function createIvarLane(opts: { db: SupabaseClient; workerName: string; log: (msg: string) => void; model: IvarModel | null; json?: JsonModel | null; poke?: () => void; dreamnest: boolean; intervalMs?: number }) {
+export function createIvarLane(opts: { db: SupabaseClient; workerName: string; log: (msg: string) => void; model: IvarModel | null; json?: JsonModel | null; poke?: () => void; dreamnest: boolean; intervalMs?: number; /** 23-11-2026: Ivar's first-aid log. */ health?: () => Promise<unknown> }) {
   const { db, workerName, log, model } = opts;
   let busy = false;
   let timer: NodeJS.Timeout | null = null;
@@ -144,6 +144,7 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
       cards,
       poke: opts.poke,
       dreamnest: opts.dreamnest,
+      health: opts.health,
     };
 
     // Stop button: the database asks, this lane listens every 2 seconds and breaks off the call to Gemini.

@@ -39,6 +39,7 @@ import { createMediaLibrary } from "./mediaLibrary.ts";
 import { importTrack, type ImportMeta } from "./musicImport.ts";
 import { createVoiceLedger } from "./voiceLedger.ts";
 import { createContentRegister } from "./contentRegister.ts";
+import { createIncidentMonitor } from "./incidentMonitor.ts";
 import { visualFor } from "./visualSignals.ts";
 import { bestLocalTts, chatterboxTts, findClone } from "./localTts.ts";
 import { configProblems, resolveSettings } from "../lib/kivoxel/config.ts";
@@ -225,6 +226,8 @@ const ivar = queue
       json: ai?.gemini ?? null,
       poke: () => queue.poke(),
       dreamnest: dreamnestEnabled(env),
+      // The monitor is created further down; it is only read when Ivar answers.
+      health: () => (incidentMonitor ? incidentMonitor.get() : Promise.resolve(null)),
     })
   : null;
 
@@ -251,6 +254,10 @@ const inbox =
 
 const health = (): WorkerHealth => ({ ok: true, version: VERSION, ffmpeg: version, queue: queue ? "supabase" : "local", dataDir, analysis: ai?.gemini.model ?? null, voice: !!montage?.voice, youtube: youtube.configured, inbox: inbox?.status() ?? null, ...(dreamnest ? { multiChannel: true, dreamnest: true } : {}) });
 
+// 23-11-2026 (superprompt V6, fase 28): Ivar's first aid, every two minutes (level-1 repairs only).
+const incidentMonitor = supabaseUrl && serviceKey ? createIncidentMonitor({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), dataDir, log, startedAt: new Date().toISOString(), youtube: youtube.configured ? async () => { const s = await youtube.status(); return { connected: s.connected, scopes: s.scopes ?? [] }; } : undefined }) : null;
+incidentMonitor?.start();
+
 const server = createWorkerServer({
   store,
   allowedOrigins,
@@ -258,6 +265,7 @@ const server = createWorkerServer({
   rendersDir: montage?.rendersDir,
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
   voicePlan: () => createVoiceLedger(join(dataDir, "voice-plan.json")).summary(),
+  incidents: incidentMonitor ? () => incidentMonitor.get() : undefined,
   // 23-11-2026: the content register (every production scored from measurements; no AI, changes nothing).
   register: supabaseUrl && serviceKey && montage ? createContentRegister({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), ffmpeg, dataDir, rendersDir: montage.rendersDir, log, visual: async (fp) => { const r = await store.get(fp); return r?.probe?.durationMs ? visualFor(ffmpeg, dataDir, fp, join(dataDir, "recordings", r.file), r.probe.durationMs) : null; } }) : undefined,
   // 23-11-2026: the music library and the Uppbeat import (Milan downloads, the studio imports once).

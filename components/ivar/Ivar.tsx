@@ -2,7 +2,8 @@
 // Ivar — Studio Assistant: always reachable from the shared shell (bottom right) on every studio page. The panel keeps
 // its conversation while navigating; minimising never stops a task. Answers come from the worker on the pc through the
 // normal queue (yt_jobs, step 'assistant'); this file only shows them and calls real, permission-checked functions.
-import { Brain, ChevronRight, Lightbulb, History, Loader2, Maximize2, MessageSquarePlus, Minimize2, Minus, Pencil, RotateCcw, Search, Send, Square, Trash2, X } from "lucide-react";
+import { Activity, Brain, ChevronRight, Lightbulb, History, Loader2, Maximize2, MessageSquarePlus, Minimize2, Minus, Pencil, RotateCcw, Search, Send, Square, Trash2, X } from "lucide-react";
+import { IncidentList, useStudioHealth } from "@/components/youtube/StudioHealth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStudio } from "@/lib/studio";
 import { supabase } from "@/lib/supabase";
@@ -75,7 +76,7 @@ function IvarShell({ studioId }: { studioId: string }) {
   const page = usePageContext();
   const [open, setOpenState] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [view, setView] = useState<"chat" | "history" | "memory" | "scope" | "insights">("chat");
+  const [view, setView] = useState<"chat" | "history" | "memory" | "scope" | "insights" | "health">("chat");
   const [newInsights, setNewInsights] = useState(0);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [convId, setConvIdState] = useState<string | null>(null);
@@ -279,7 +280,10 @@ function IvarShell({ studioId }: { studioId: string }) {
       ),
     [live.jobs, messages, seenAt],
   );
-  const shownSignal: LauncherSignal = signal === "idle" && newInsights > 0 ? "ready" : signal;
+  // 23-11-2026 (superprompt V6, fase 28): Ivar's first aid. An open fault or warning makes the button orange.
+  const health = useStudioHealth(workerOnline);
+  const healthAlert = !!health && health.health.status !== "operationeel";
+  const shownSignal: LauncherSignal = healthAlert && signal !== "busy" ? "attention" : signal === "idle" && newInsights > 0 ? "ready" : signal;
 
   // ---------- keyboard ----------
   useEffect(() => {
@@ -306,7 +310,7 @@ function IvarShell({ studioId }: { studioId: string }) {
   const sendRef = useRef<((text: string) => Promise<boolean>) | null>(null);
 
   const panelStyle: React.CSSProperties = mobile ? { height: vvh ? `${vvh}px` : "100dvh" } : {};
-  const statusText = shownSignal === "busy" ? "taak bezig" : shownSignal === "ready" ? (signal === "idle" ? `${newInsights} nieuwe inzichten` : "resultaat klaar") : shownSignal === "attention" ? "heeft aandacht nodig" : "";
+  const statusText = shownSignal === "busy" ? "taak bezig" : shownSignal === "ready" ? (signal === "idle" ? `${newInsights} nieuwe inzichten` : "resultaat klaar") : shownSignal === "attention" ? (healthAlert ? health!.health.text : "heeft aandacht nodig") : "";
 
   return (
     <>
@@ -358,6 +362,12 @@ function IvarShell({ studioId }: { studioId: string }) {
                 {newInsights > 0 && <span aria-hidden className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-emerald-500" />}
               </span>
             </IconButton>
+            <IconButton label={health ? `Studio-gezondheid: ${health.health.status}` : "Studio-gezondheid"} onClick={() => setView(view === "health" ? "chat" : "health")} active={view === "health"}>
+              <span className="relative">
+                <Activity className="h-4 w-4" />
+                {healthAlert && <span aria-hidden className={`absolute -right-1 -top-1 h-2 w-2 rounded-full ${health!.health.status === "storing" ? "bg-red-600" : "bg-amber-500"}`} />}
+              </span>
+            </IconButton>
             <IconButton label="Geheugen" onClick={() => setView(view === "memory" ? "chat" : "memory")} active={view === "memory"}>
               <Brain className="h-4 w-4" />
             </IconButton>
@@ -402,6 +412,14 @@ function IvarShell({ studioId }: { studioId: string }) {
                 setTimeout(() => void sendRef.current?.(text), 50);
               }}
             />
+          )}
+          {view === "health" && (
+            <div className="flex-1 space-y-2 overflow-y-auto p-3 text-sm">
+              <p className="font-semibold">{health ? `Studio-gezondheid: ${health.health.status}` : workerOnline ? "Studio-gezondheid laden…" : "Studio-gezondheid: onbekend (de werker antwoordt niet)"}</p>
+              {health && <p className="text-slate-700">{health.health.text}</p>}
+              <p className="text-xs text-slate-500">Ivar kijkt elke 2 minuten op de pc. Zelf herstellen doet hij alleen veilig en omkeerbaar (een wees-stap vrijgeven, een tijdelijke fout één keer opnieuw). Kosten, verwijderen, publiceren of een lopende FFmpeg stoppen: altijd eerst jij.</p>
+              {health && <IncidentList incidents={health.incidents} compact />}
+            </div>
           )}
           {view === "memory" && <MemoryView studioId={studioId} channels={channels} scope={scope} />}
           {view === "scope" && (

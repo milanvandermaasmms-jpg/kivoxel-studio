@@ -31,6 +31,8 @@ export type ToolEnv = {
   cards: Card[];
   /** Wakes the queue in this worker, so a queued step starts at once. */
   poke?: () => void;
+  /** 23-11-2026: the incident log of this worker (Ivar's first aid). */
+  health?: () => Promise<unknown>;
   dreamnest: boolean;
 };
 
@@ -307,6 +309,13 @@ async function analytics(env: ToolEnv, a: { video_id?: string }) {
   const latestPerVideo = (vids.data ?? []).filter((v) => !seen.has(v.youtube_video_id) && seen.add(v.youtube_video_id)).slice(0, 15);
   if (!snap.data && !latestPerVideo.length) return { channel: ch.name, note: "Nog geen cijfers voor dit kanaal (YouTube niet gekoppeld of nog niet opgehaald)." };
   return { channel: ch.name, channel_numbers: snap.data, videos: latestPerVideo, reliability: latestPerVideo.length < 5 ? "Weinig video's: patronen zijn nog niet betrouwbaar." : "Vergelijk alleen video's van dezelfde soort (Short met Short)." };
+}
+
+async function studioHealth(env: ToolEnv) {
+  const h = env.health ? ((await env.health()) as { checkedAt: string | null; health: { status: string; text: string }; incidents: { title: string; severity: string; domain: string; cause: string; action: { level: number; what: string; auto: boolean } | null; done?: { what: string; verified: boolean | null }; resolvedAt?: string; resolution?: string }[] } | null) : null;
+  if (!h) return { ok: false, result: { error: "De gezondheidscontrole draait (nog) niet op deze werker." }, summary: "Studio-gezondheid niet beschikbaar" };
+  const open = h.incidents.filter((i) => !i.resolvedAt);
+  return { ok: true, result: { checked_at: h.checkedAt, status: h.health.status, summary: h.health.text, open: open.map((i) => ({ title: i.title, severity: i.severity, domain: i.domain, cause: i.cause, ivar_did: i.done?.what ?? null, verified: i.done?.verified ?? null, next: i.action ? `${i.action.auto ? "Ivar zelf" : i.action.level === 3 ? "Milan beslist" : "voorstel"}: ${i.action.what}` : null })), recently_solved: h.incidents.filter((i) => i.resolvedAt).slice(0, 5).map((i) => ({ title: i.title, resolution: i.resolution })) }, summary: `Studio-gezondheid: ${h.health.status}` };
 }
 
 async function listTasks(env: ToolEnv, a: { active_only?: boolean }) {
@@ -763,6 +772,7 @@ const HANDLERS: Record<string, Handler> = {
   get_quality_report: qualityReport as Handler,
   get_analytics: analytics as Handler,
   list_tasks: listTasks as Handler,
+  get_studio_health: studioHealth as Handler,
   save_idea: saveIdea as Handler,
   propose_titles: proposeTitles as Handler,
   update_metadata_draft: updateMetadata as Handler,
@@ -797,6 +807,7 @@ const SUMMARY: Record<string, string> = {
   get_quality_report: "Kwaliteitsgegevens gelezen",
   get_analytics: "Cijfers gelezen",
   list_tasks: "Taken bekeken",
+  get_studio_health: "Studio-gezondheid bekeken",
   save_idea: "Idee opgeslagen",
   propose_titles: "Titelvoorstellen klaargezet",
   update_metadata_draft: "Publicatieconcept bijgewerkt",
@@ -829,6 +840,7 @@ export const STATUS_NOTE: Record<string, string> = {
   get_quality_report: "Bekijkt de meetwaarden",
   get_analytics: "Leest de cijfers",
   list_tasks: "Kijkt naar de taken",
+  get_studio_health: "Controleert de studio",
   start_render: "Zet de montage klaar",
   start_analysis: "Bekijkt de analyse",
   propose_edit: "Maakt een editvoorstel",

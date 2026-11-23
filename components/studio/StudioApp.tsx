@@ -26,6 +26,7 @@ import { WorkerQueue } from "@/components/youtube/WorkerQueue";
 import { MusicLibrary } from "@/components/youtube/MusicLibrary";
 import { VoiceSplit } from "@/components/youtube/EditorPanel";
 import { ContentRegister } from "@/components/youtube/ContentRegister";
+import { StudioHealth } from "@/components/youtube/StudioHealth";
 import { CandidateList } from "@/components/youtube/ProducerDossier";
 import type { Candidate } from "@/lib/kivoxel/producerGate";
 import type { Briefing } from "@/lib/kivoxel/briefing";
@@ -462,6 +463,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   videos={flowReady.board.input.videos}
                 />
               )}
+              <StudioHealth workerOnline={!!health} />
               {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
               <VoiceSplit channels={channelsNow.map((c) => ({ id: c.id, name: c.name }))} workerOnline={!!health} />
               <ContentRegister workerOnline={!!health} channelName={ivarChannel?.name ?? null} onOpen={(id) => (setReviewStart(id), setReviewing(true))} />

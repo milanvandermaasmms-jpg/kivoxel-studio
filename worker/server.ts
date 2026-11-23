@@ -53,6 +53,8 @@ export type ServerOptions = {
   voicePlan?: () => Promise<unknown>;
   /** 23-11-2026: the content register (GET /register; POST /register/run builds a new one in the background). */
   register?: { get: () => Promise<unknown>; run: () => string };
+  /** 23-11-2026: Ivar's incident log (GET /incidents). */
+  incidents?: () => Promise<unknown>;
 };
 
 /** The whole request body, at most `max` bytes. */
@@ -106,7 +108,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, incidents, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -155,6 +157,7 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
           return send(400, { error: e instanceof Error ? e.message : String(e) });
         }
       }
+      if (req.method === "GET" && url.pathname === "/incidents" && incidents) return send(200, await incidents());
       if (req.method === "GET" && url.pathname === "/register" && register) return send(200, await register.get());
       if (req.method === "POST" && url.pathname === "/register/run" && register) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });
