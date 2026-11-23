@@ -78,13 +78,15 @@ const TABS = [
   { key: "waiting", label: "Wachtrij YouTube", icon: "⏳", hash: "wachtrij" },
   { key: "scheduled", label: "Ingepland", icon: "🗓️", hash: "ingepland" },
   { key: "live", label: "Live op YouTube", icon: "✅", hash: "live" },
+  // 23-11-2026 (superprompt V6, fase 34.3): everything about the content library in one place.
+  { key: "library", label: "Bibliotheek", icon: "📚", hash: "bibliotheek" },
   { key: "insights", label: "Inzichten", icon: "📈", hash: "inzichten" },
   { key: "settings", label: "Instellingen", icon: "⚙", hash: "instellingen" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 const OLD_HASH: Record<string, Tab> = { klaar: "action", review: "action", pijplijn: "action", bord: "production", overzicht: "insights", gameplay: "upload", maker: "upload", kalender: "scheduled", youtube: "live", cijfers: "insights" };
 /** Buttons inside older parts still name their old tab; this is where those parts live now. */
-const OLD_TAB: Record<string, Tab> = { library: "upload", maker: "upload", pipeline: "action", review: "action", ready: "action", live: "production", stats: "insights", settings: "settings", board: "production", overview: "insights", calendar: "scheduled", youtube: "live" };
+const OLD_TAB: Record<string, Tab> = { library: "library", maker: "upload", pipeline: "action", review: "action", ready: "action", live: "production", stats: "insights", settings: "settings", board: "production", overview: "insights", calendar: "scheduled", youtube: "live" };
 const FLOW_TAB: Record<Flow, Tab | null> = { production: "production", review: "action", ready: "action", waiting: "waiting", uploading: "action", failed: "action", scheduled: "scheduled", live: "live", archived: null };
 
 const STEP_TONE: Record<StepState, { mark: string; tone: string }> = {
@@ -453,6 +455,8 @@ export function StudioApp({ route }: { route?: string } = {}) {
 
           {tab === "production" && (
             <>
+              {/* 23-11-2026: first whether the studio is healthy (Ivar's first aid), then what runs now. */}
+              <StudioHealth workerOnline={!!health} />
               {/* 18-11-2026: the overview first: what runs now (with %), what waits, per recording from analysis to montage. */}
               {flowReady && (
                 <ProductionOverview
@@ -463,10 +467,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   videos={flowReady.board.input.videos}
                 />
               )}
-              <StudioHealth workerOnline={!!health} />
               {flowError ?? (!flowReady ? loading : <ProductionList state={flowReady} channel={channel} onOpenAction={() => chooseTab("action")} studioId={studio.id} act={act} />)}
-              <VoiceSplit channels={channelsNow.map((c) => ({ id: c.id, name: c.name }))} workerOnline={!!health} />
-              <ContentRegister workerOnline={!!health} channelName={ivarChannel?.name ?? null} onOpen={(id) => (setReviewStart(id), setReviewing(true))} />
               {flowReady && (
                 <CandidateList
                   items={(flowReady.board.jobs as unknown as { step: string; status: string; recording_id: string | null; created_at: string; result?: { candidates?: { enough: boolean; candidates: Candidate[] } | null } | null }[])
@@ -524,6 +525,14 @@ export function StudioApp({ route }: { route?: string } = {}) {
                   </>
                 )}
               </Fold>
+            </>
+          )}
+
+          {tab === "library" && (
+            <>
+              <ContentRegister workerOnline={!!health} channelName={ivarChannel?.name ?? null} onOpen={(id) => (setReviewStart(id), setReviewing(true))} />
+              <MusicLibrary state={flowReady} workerOnline={!!health} />
+              <VoiceSplit channels={channelsNow.map((c) => ({ id: c.id, name: c.name }))} workerOnline={!!health} />
             </>
           )}
 
@@ -639,7 +648,6 @@ export function StudioApp({ route }: { route?: string } = {}) {
         <>
           <ChannelCard studioId={studio.id} onError={setError} allowAdd={!!route} />
           <StudioPreferences prefs={learning.prefs} channels={channelsNow} onChanged={learning.refresh} />
-          <MusicLibrary state={flowReady} workerOnline={!!health} />
           {flowReady && <ArchivedList state={flowReady} act={act} />}
           <PrivateTermsSettings studioId={studio.id} onError={setError} />
           <Section title="Werker op de pc" intro="De werker doet het zware werk op de pc van Milan: bestanden ontvangen, FFmpeg en later montage en uploaden. Hij werkt alleen als de pc aanstaat.">

@@ -5,13 +5,15 @@
 ## De balk bovenaan
 **🚀 X klaar voor YouTube** staat altijd bovenaan. Klik erop en je ziet wat je kunt publiceren. Daarnaast staan de aantallen per status en de keuze van het kanaal (Kivoxel nu, Dreamnest NL later).
 
-## De zes stappen (links, op de telefoon bovenaan)
-1. **📤 Uploaden**: zet een opname in de Studio. Dat kan met de uploadknop, of door het bestand in de inbox-map op de pc te zetten.
-2. **⚙️ In productie**: het bord met alle projecten en wat de werker nu doet. De werker is het zwarte venster op de pc; laat dat open.
+## De stappen (links, op de telefoon bovenaan)
+1. **📤 Uploaden**: zet een opname in de Studio. Dat kan met de uploadknop, of door het bestand in de inbox-map op de pc te zetten. Open **Briefing voor de montage** om aan te geven wat er gebeurt, de belangrijkste gebeurtenis, tijdcodes, sfeer, output, stem en muziek. De studio zoekt die gebeurtenis in beeld en meldt het eerlijk als hij hem niet ziet.
+2. **⚙️ In productie**: bovenaan **Studio-gezondheid** (wat Ivar elke 2 minuten op de pc controleert en zelf herstelt), daarna wat de werker nu doet. De werker is het zwarte venster op de pc; laat dat open.
 3. **👀 Review**: klik op **Start met keuren**. Je ziet één video tegelijk, met grote knoppen.
-   - Bij elke montage staat de **Viral-score**: stem, voice-over/script en gameplay, elk van 1 tot 10. Je ziet wat goed gaat en verbeterpunten met tijden ("0:12–0:25 te traag").
-   - **Script laten herschrijven** en **Saaie stukken wegknippen** maken een nieuwe versie die je eerst zelf bekijkt en goedkeurt.
-   - De score is een voorspelling, geen garantie.
+   - **Viralscore** (minimaal 8,0): per onderdeel een cijfer, waar het vandaan komt en het bewijs. Originaliteit beoordeel jij; zonder jouw oordeel staat er nooit "publicatiegereed".
+   - **Audio: drie opties**: A is deze versie, B energiek, C naturel. Of combineer zelf stem, muziek en effecten. **Kies deze audio** maakt de echte versie.
+   - **Briefing**: per instructie ✓ / ✗ / ?, met **Laat vervallen**.
+   - **Feedback op een tijdcode**, daarna **Afkeuren en opnieuw monteren** (gericht of volledig). **Vraag Ivar om advies** zet een vraag klaar bij Ivar.
+   - De score is een inschatting, geen garantie op weergaven.
 4. **🚀 Klaar voor YouTube**: per video een kaart. Klik **Naar YouTube sturen** en kies:
    - **Zichtbaarheid**: 🔒 Privé, 🔗 Niet vermeld of 🌍 Openbaar. Bij Openbaar vraagt de Studio het nog een keer.
    - **🗓️ Inplannen** (Nederlandse tijd): YouTube zet de video op dat moment zelf openbaar; de pc hoeft niet aan te staan.
@@ -24,6 +26,8 @@
    - **💡 Studio-tips**: voorstellen uit wat je vaak doet, bijvoorbeeld "Je zet Shorts altijd om 18:00 openbaar. Inplannen als standaard?" Kies Toepassen, Negeren of Nooit meer tonen.
    - **Wat werkt bij jouw kanaal**: de voorspelde score naast de echte views na 24 uur en 7 dagen.
    - **Wat nu goed loopt in je niche**: elke week de best presterende Minecraft-video's. De zoektermen kun je aanpassen.
+
+7. **📚 Bibliotheek** (23-11-2026): het **contentregister** (elke video en Short beoordeeld, met de stand van de controle), de **muziekbibliotheek** (Uppbeat-tracks importeren, met licentie en vermelding) en de **stemverdeling** (1 op 3 Shorts, 1 op 5 lange video's).
 
 **⚙ Instellingen**: kanalen, privé-woorden, de werker, stem en het maandplafond. Onder **Wat de Studio heeft geleerd** draai je toegepaste tips terug.
 
