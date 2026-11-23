@@ -189,6 +189,10 @@ export function createVisualParser(durationMs: number) {
       }
       buffer = joined.slice(offset);
     },
+    /** Frames read so far (cheap; finish() computes the HUD template over the whole recording, so call it once). */
+    count(): number {
+      return frames.length;
+    },
     finish(): VisualSignals {
       const overlay = overlayScores(bands);
       overlay.forEach((o, i) => (frames[i].overlay = o));

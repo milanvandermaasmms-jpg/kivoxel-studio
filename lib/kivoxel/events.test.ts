@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bestFrame, buildEvents, gameplayShareOf, isGameplay, overlayReliable, findDamage, findDead, findDeaths, findLowHealth, mergeEvents, topPayoffs, type GameEvent } from "./events";
-import { frameMetrics, heartHealth, HEART_H, OVERLAY_H, overlayScores, VISUAL_W, type FrameMetrics, type VisualSignals } from "./visual";
+import { createVisualParser, FRAME_BYTES, frameMetrics, heartHealth, HEART_H, OVERLAY_H, overlayScores, VISUAL_W, type FrameMetrics, type VisualSignals } from "./visual";
 import { outToSource, sourceThumbMs, thumbFromSourceArgs } from "./thumbFrame";
 import type { Segment } from "../youtube/analysis";
 
@@ -203,5 +203,12 @@ describe("HUD template (23-11-2026, menus in any colour)", () => {
     const unknown = visual(20, () => ({ overlay: -1, health: -1 }));
     expect(overlayReliable(unknown)).toBe(false);
     expect(isGameplay(unknown, 10)).toBe(true);
+  });
+  it("counting frames is cheap and separate from finish (finish builds the template once)", () => {
+    const parser = createVisualParser(10_000);
+    const frame = new Uint8Array(FRAME_BYTES).fill(90);
+    for (let i = 0; i < 40; i++) parser.feed(frame);
+    expect(parser.count()).toBe(40);
+    expect(parser.finish().frames).toHaveLength(40);
   });
 });

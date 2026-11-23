@@ -16,7 +16,9 @@ export function detectVisual(ffmpeg: string, file: string, durationMs: number, o
     options.signal?.addEventListener("abort", abort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
       parser.feed(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-      const now = parser.finish().frames.length;
+      // 23-11-2026: count() and not finish(): finish() builds the HUD template over all frames, and calling it for every
+      // chunk made a long recording quadratic (the worker stopped answering while measuring).
+      const now = parser.count();
       if (options.onFrames && now - frames >= 40) options.onFrames((frames = now));
     });
     child.stderr.on("data", (c: Buffer) => (errors = (errors + c.toString()).slice(-2000)));
