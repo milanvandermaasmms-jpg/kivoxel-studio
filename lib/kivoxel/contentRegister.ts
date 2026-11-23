@@ -5,8 +5,8 @@
 // measured problem) or opnieuw maken (the moment or the footage itself is the problem). Live videos are never touched:
 // for them the register only informs. Pure, tested.
 
-import { ATTENTION_MS, OUTCOME_MS, quietestStretch, type ExportMeasure } from "./editorReview";
-import { weakFirstLine } from "../youtube/hooks";
+import { ATTENTION_MS, OUTCOME_MS, quietestStretch, type ExportMeasure } from "./editorReview.ts";
+import { weakFirstLine } from "../youtube/hooks.ts";
 
 export type Facts = {
   videoId: string;
