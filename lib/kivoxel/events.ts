@@ -27,7 +27,8 @@ export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" |
 /** `rules`: version of the detection rules; a stored timeline with older rules is built again. */
 // 4 (22-11-2026): moments that are mostly menu/inventory lose 35 points (see menuShare).
 // 5 (23-11-2026): without recognisable hearts only the menu panel counts as menu (heartsReliable).
-export const EVENT_RULES = 5;
+// 6 (23-11-2026): a covered HUD (the recording's own HUD template, any menu colour) counts as menu (overlayReliable).
+export const EVENT_RULES = 6;
 export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game). */ hud?: "minecraft" | "none"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
@@ -128,7 +129,9 @@ export function findDead(v: VisualSignals, s: Signals | null, minMs = 700): Dead
   // Menus, inventory, chests and loading screens: in gameplay the hearts are always in view. No hearts for at least
   // 1 s while the picture barely moves = a menu (measured on "Hardcore Dane!!": world list, crafting, chest).
   // "Barely moves" keeps gameplay with odd hearts (poison, frozen) from being cut.
-  const menuLike = f.map((x) => x.health < 0 && x.motion < 3);
+  // 23-11-2026: or the recording's own HUD is covered (menus of any add-on colour), when that is measurable.
+  const overlayOk = overlayReliable(v);
+  const menuLike = f.map((x) => (x.health < 0 && x.motion < 3) || (overlayOk && (x.overlay ?? 1000) >= 0 && (x.overlay ?? 1000) < OVERLAY_OFF));
   const inMenu = menuLike.map(() => false);
   for (let i = 0; i < f.length; ) {
     let j = i;
@@ -168,7 +171,7 @@ export function bestFrame(v: VisualSignals, fromMs: number, toMs: number): numbe
   const hud = v.frames.slice(a, b + 1).some((x) => x.health >= 0);
   for (let i = a; i <= b; i++) {
     const x = v.frames[i];
-    if (!x || x.ui >= 120 || x.luma < 25 || (hud && x.health < 0)) continue;
+    if (!x || x.ui >= 120 || x.luma < 25 || (hud && x.health < 0) || ((x.overlay ?? 1000) >= 0 && (x.overlay ?? 1000) < OVERLAY_OFF && overlayReliable(v))) continue;
     // Sharp beats blurry; a lighter frame reads better as a small thumbnail (caves are dark).
     const s = x.sharp - 0.6 * x.motion + (x.health >= 0 ? 4 : 0) + Math.min(3, Math.max(0, (x.luma - 50) / 20));
     if (s > score) {
@@ -215,6 +218,40 @@ export function mergeEvents(events: GameEvent[], gapMs = 3000): GameEvent[] {
  * another HUD scale). Then "no hearts" means nothing; only the grey menu panel counts. True when hearts are seen in at
  * least 30% of the frames.
  */
+/** 23-11-2026: the HUD template (overlay) is measured in this recording and the HUD is in view most of the time. */
+export function overlayReliable(v: VisualSignals): boolean {
+  if (!v.frames.length) return false;
+  let seen = 0;
+  for (const f of v.frames) if ((f.overlay ?? -1) >= 600) seen++;
+  return seen / v.frames.length >= 0.5;
+}
+/** Below this the HUD is covered: a menu, chest, death or loading screen, in any colour. */
+export const OVERLAY_OFF = 300;
+
+/** Is frame i gameplay? Menu panel, missing hearts (when hearts are reliable) or a covered HUD (when measurable) say no. */
+export function isGameplay(v: VisualSignals, i: number, rel: { hearts: boolean; overlay: boolean } = { hearts: heartsReliable(v), overlay: overlayReliable(v) }): boolean {
+  const f = v.frames[i];
+  if (!f) return false;
+  if (f.ui >= 120) return false;
+  if (rel.hearts && f.health < 0) return false;
+  if (rel.overlay && (f.overlay ?? 1000) >= 0 && (f.overlay ?? 1000) < OVERLAY_OFF) return false;
+  return true;
+}
+
+/** Share of the source frames inside these ranges that are gameplay; null when nothing is measured there. */
+export function gameplayShareOf(v: VisualSignals | null, ranges: { startMs: number; endMs: number }[]): number | null {
+  if (!v?.frames?.length || !ranges.length) return null;
+  const rel = { hearts: heartsReliable(v), overlay: overlayReliable(v) };
+  let tot = 0;
+  let game = 0;
+  for (const r of ranges)
+    for (let i = Math.floor((r.startMs / 1000) * v.fps); i < Math.ceil((r.endMs / 1000) * v.fps) && i < v.frames.length; i++) {
+      tot++;
+      if (isGameplay(v, i, rel)) game++;
+    }
+  return tot ? game / tot : null;
+}
+
 export function heartsReliable(v: VisualSignals): boolean {
   if (!v.frames.length) return false;
   let seen = 0;
@@ -227,7 +264,8 @@ export function menuShare(v: VisualSignals, peakMs: number, hearts = heartsRelia
   const b = Math.min(v.frames.length - 1, Math.ceil(((peakMs + 3000) / 1000) * v.fps));
   if (b < a) return 0;
   let n = 0;
-  for (let i = a; i <= b; i++) if ((hearts && v.frames[i].health < 0) || v.frames[i].ui >= 120) n++;
+  const rel = { hearts, overlay: overlayReliable(v) };
+  for (let i = a; i <= b; i++) if (!isGameplay(v, i, rel)) n++;
   return n / (b - a + 1);
 }
 /** Above this share a moment is mostly menu: it loses MENU_PENALTY points (it can still win when nothing better exists). */

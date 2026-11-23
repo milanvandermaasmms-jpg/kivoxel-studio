@@ -16,8 +16,12 @@ export const VISUAL_FPS = 4;
 export const HEART_H = 8;
 export const HEART_CROP = { x: 0.311, y: 0.844, w: 0.168, h: 0.025 };
 /** Raise when the HUD recognition changes, so recordings without recognized hearts are measured again. */
-export const HUD_VERSION = 2;
-export const FRAME_BYTES = VISUAL_W * (VISUAL_H + HEART_H) * 3;
+export const HUD_VERSION = 3;
+/** 23-11-2026 (HUD_VERSION 3): the bottom 20% of the picture, where the HUD (hotbar, hearts) always sits. */
+export const OVERLAY_H = 12;
+export const FRAME_BYTES = VISUAL_W * (VISUAL_H + HEART_H + OVERLAY_H) * 3;
+/** Fewer stable HUD pixels than this: the recording has no fixed HUD (hidden HUD, moving camera UI); not measurable. */
+export const OVERLAY_MIN_STABLE = 40;
 
 /** One frame, small numbers so a long recording stays a small file. */
 export type FrameMetrics = {
@@ -33,6 +37,11 @@ export type FrameMetrics = {
   ui: number;
   /** Mean red minus mean of green and blue, -255..255: a red-tinted screen (the hardcore "GAME OVER" screen) is clearly positive. */
   tint: number;
+  /**
+   * 23-11-2026: how much of this recording's own fixed HUD is in view, 0-1000 (-1 = not measurable). Colour- and
+   * position-free: menus of any add-on (teal, green, light blue), death and loading screens cover the HUD.
+   */
+  overlay?: number;
   /** Health bar 0-1000 (full = 1000), or -1 when no heart row is visible (menu, loading, death screen). */
   health: number;
 };
@@ -125,11 +134,44 @@ export function heartHealth(strip: Uint8Array, width = VISUAL_W, height = HEART_
   return halves === 0 ? -1 : halves * 50;
 }
 
+/**
+ * 23-11-2026: the recording's own HUD as a template. Per pixel of the bottom band the median over the recording (one
+ * frame per second); "stable" pixels are those that match it in at least 60% of the frames (the HUD, not the world
+ * behind it). Per frame: the share of stable pixels that match. Measured on "22/11 minecraft": menus 0-100, gameplay
+ * 700-1000; on two other recordings gameplay 380-1000. Fewer than OVERLAY_MIN_STABLE stable pixels: -1 for every frame.
+ */
+export function overlayScores(bands: Uint8Array[], width = VISUAL_W, height = OVERLAY_H, tolerance = 18): number[] {
+  if (!bands.length) return [];
+  const step = Math.max(1, Math.floor(bands.length / 1200));
+  const sample = bands.filter((_, i) => i % step === 0);
+  const n = width * height * 3;
+  const median = new Uint8Array(n);
+  const column = new Uint8Array(sample.length);
+  for (let k = 0; k < n; k++) {
+    for (let j = 0; j < sample.length; j++) column[j] = sample[j][k];
+    median[k] = column.slice().sort()[sample.length >> 1];
+  }
+  const close = (b: Uint8Array, p: number) => Math.abs(b[p * 3] - median[p * 3]) < tolerance && Math.abs(b[p * 3 + 1] - median[p * 3 + 1]) < tolerance && Math.abs(b[p * 3 + 2] - median[p * 3 + 2]) < tolerance;
+  const stable: number[] = [];
+  for (let p = 0; p < width * height; p++) {
+    let hits = 0;
+    for (const b of sample) if (close(b, p)) hits++;
+    if (hits >= 0.6 * sample.length) stable.push(p);
+  }
+  if (stable.length < OVERLAY_MIN_STABLE) return bands.map(() => -1);
+  return bands.map((b) => {
+    let m = 0;
+    for (const p of stable) if (close(b, p)) m++;
+    return Math.round((m / stable.length) * 1000);
+  });
+}
+
 /** Reads a stream of RGB24 frames (FFmpeg rawvideo) in chunks of any size. */
 export function createVisualParser(durationMs: number) {
   let buffer = new Uint8Array(0);
   let previous: Float32Array | null = null;
   const frames: FrameMetrics[] = [];
+  const bands: Uint8Array[] = [];
   return {
     feed(chunk: Uint8Array) {
       const joined = new Uint8Array(buffer.length + chunk.length);
@@ -141,12 +183,15 @@ export function createVisualParser(durationMs: number) {
         const strip = joined.subarray(offset + VISUAL_W * VISUAL_H * 3, offset + FRAME_BYTES);
         const { metrics, luma } = frameMetrics(picture, previous);
         frames.push({ ...metrics, health: heartHealth(strip) });
+        bands.push(joined.slice(offset + VISUAL_W * (VISUAL_H + HEART_H) * 3, offset + FRAME_BYTES));
         previous = luma;
         offset += FRAME_BYTES;
       }
       buffer = joined.slice(offset);
     },
     finish(): VisualSignals {
+      const overlay = overlayScores(bands);
+      overlay.forEach((o, i) => (frames[i].overlay = o));
       return { version: 3, hud: HUD_VERSION, fps: VISUAL_FPS, width: VISUAL_W, height: VISUAL_H, durationMs, frames };
     },
   };
@@ -155,7 +200,7 @@ export function createVisualParser(durationMs: number) {
 /** FFmpeg arguments: tiny frames with the heart strip underneath, raw RGB on stdout. */
 export function visualArgs(input: string): string[] {
   const c = HEART_CROP;
-  const graph = `[0:v]fps=${VISUAL_FPS},split[a][b];[a]scale=${VISUAL_W}:${VISUAL_H}:flags=area[p];[b]crop=iw*${c.w}:ih*${c.h}:iw*${c.x}:ih*${c.y},scale=${VISUAL_W}:${HEART_H}:flags=area[h];[p][h]vstack=2,format=rgb24[out]`;
+  const graph = `[0:v]fps=${VISUAL_FPS},split=3[a][b][c];[a]scale=${VISUAL_W}:${VISUAL_H}:flags=area[p];[b]crop=iw*${c.w}:ih*${c.h}:iw*${c.x}:ih*${c.y},scale=${VISUAL_W}:${HEART_H}:flags=area[h];[c]crop=iw:ih*0.2:0:ih*0.8,scale=${VISUAL_W}:${OVERLAY_H}:flags=area[o];[p][h][o]vstack=3,format=rgb24[out]`;
   return ["-hide_banner", "-loglevel", "error", "-i", input, "-an", "-filter_complex", graph, "-map", "[out]", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"];
 }
 
@@ -163,7 +208,7 @@ export function visualArgs(input: string): string[] {
 export function perSecond(v: VisualSignals, key: keyof FrameMetrics, how: "mean" | "max" = "mean"): number[] {
   const out: number[] = [];
   for (let i = 0; i < v.frames.length; i += v.fps) {
-    const slice = v.frames.slice(i, i + v.fps).map((f) => f[key]);
+    const slice = v.frames.slice(i, i + v.fps).map((f) => f[key] ?? -1);
     out.push(how === "max" ? Math.max(...slice) : slice.reduce((a, b) => a + b, 0) / slice.length);
   }
   return out;

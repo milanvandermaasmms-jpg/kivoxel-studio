@@ -10,6 +10,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { assess, summarize, type Entry, type Facts, type Register } from "../lib/kivoxel/contentRegister.ts";
 import type { ExportMeasure } from "../lib/kivoxel/editorReview.ts";
 import { profileFor } from "../lib/youtube/gameProfile.ts";
+import { gameplayShareOf } from "../lib/kivoxel/events.ts";
+import { HUD_VERSION, type VisualSignals } from "../lib/kivoxel/visual.ts";
 import { measureExport } from "./editorMeasure.ts";
 
 type Video = { id: string; status: string; format: "A" | "B" | "C"; channel_id: string | null; recording_id: string | null; review_note: string | null; created_at: string; promise: string | null };
@@ -26,7 +28,7 @@ async function all<T>(q: (from: number, to: number) => PromiseLike<{ data: T[] |
   }
 }
 
-export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string; dataDir: string; rendersDir: string; log: (m: string) => void }) {
+export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string; dataDir: string; rendersDir: string; log: (m: string) => void; /** 23-11-2026: measure a recording's picture signals again (newest HUD recognition); null when it is not on the pc. */ visual?: (fingerprint: string) => Promise<VisualSignals | null> }) {
   const dir = join(opts.dataDir, "register");
   const file = join(dir, "register.json");
   let running: { done: number; total: number } | null = null;
@@ -45,18 +47,6 @@ export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string
     return m;
   }
 
-  function gameplayShareOf(vis: { fps: number; frames: { health: number; ui: number }[] } | null, segs: Script["edit_plan"]): number | null {
-    if (!vis?.frames?.length || !segs?.length) return null;
-    const hearts = vis.frames.filter((f) => f.health >= 0).length / vis.frames.length >= 0.3;
-    let tot = 0;
-    let game = 0;
-    for (const g of segs)
-      for (let i = Math.floor((g.src_start_ms / 1000) * vis.fps); i < Math.ceil((g.src_end_ms / 1000) * vis.fps) && i < vis.frames.length; i++) {
-        tot++;
-        if ((!hearts || vis.frames[i].health >= 0) && vis.frames[i].ui < 120) game++;
-      }
-    return tot ? game / tot : null;
-  }
 
   async function build(): Promise<Register> {
     const db = opts.db;
@@ -73,9 +63,14 @@ export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string
       all<{ video_id: string; views: number | null; avg_view_pct: number | null; taken_at: string }>((a, b) => db.from("yt_video_snapshots").select("video_id, views, avg_view_pct, taken_at").eq("studio_id", sid).not("video_id", "is", null).order("taken_at", { ascending: false }).range(a, b)),
     ]);
     const onDisk = new Set((await readdir(join(opts.dataDir, "recordings")).catch(() => [] as string[])).map((n) => n.replace(/\.[^.]+$/, "")));
-    const visualCache = new Map<string, { fps: number; frames: { health: number; ui: number }[] } | null>();
-    const visualOf = async (fp: string) => {
-      if (!visualCache.has(fp)) visualCache.set(fp, await readFile(join(opts.dataDir, "visual", `${fp}.json`), "utf8").then((t) => JSON.parse(t)).catch(() => null));
+    const visualCache = new Map<string, VisualSignals | null>();
+    /** The stored measurement; for productions still in play (not live, not archived) the newest one is made first. */
+    const visualOf = async (fp: string, fresh: boolean) => {
+      if (!visualCache.has(fp)) {
+        let v = (await readFile(join(opts.dataDir, "visual", `${fp}.json`), "utf8").then((t) => JSON.parse(t) as VisualSignals).catch(() => null));
+        if (fresh && opts.visual && v?.hud !== HUD_VERSION) v = (await opts.visual(fp).catch((e) => (opts.log(`Register: beeldmeting ${fp.slice(0, 12)} mislukt: ${e instanceof Error ? e.message : e}`), null))) ?? v;
+        visualCache.set(fp, v);
+      }
       return visualCache.get(fp)!;
     };
     const stat1 = new Map<string, { views: number | null; pct: number | null }>();
@@ -128,7 +123,7 @@ export function createContentRegister(opts: { db: SupabaseClient; ffmpeg: string
         height: render?.height ?? null,
         durationMs: render?.duration_ms ?? null,
         measure,
-        gameplayShare: minecraftOnly && rec ? gameplayShareOf(await visualOf(rec.fingerprint), segs) : null,
+        gameplayShare: minecraftOnly && rec && segs?.length ? gameplayShareOf(await visualOf(rec.fingerprint, !["archived", "published", "scheduled"].includes(v.status) && pub?.status !== "published"), segs.map((g) => ({ startMs: g.src_start_ms, endMs: g.src_end_ms }))) : null,
         hasVoice: !!render?.voice_name,
         topLine: sc?.top_line ?? null,
         lines: render?.voice_name ? (sc?.lines ?? []).map((l) => ({ atMs: l.at_ms, text: l.text })) : [],

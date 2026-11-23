@@ -37,7 +37,8 @@ export async function visualFor(ffmpeg: string, dataDir: string, fingerprint: st
   try {
     const stored = JSON.parse(await readFile(cache, "utf8")) as VisualSignals;
     // HUD recognition improved (23-11-2026): only caches in which no heart was ever recognized are measured again.
-    if (stored.version === 3 && (stored.hud === HUD_VERSION || stored.frames.some((f) => f.health >= 0))) return stored;
+    // 23-11-2026 (HUD_VERSION 3): every recording is measured again once, for the HUD template (menus of any colour).
+    if (stored.version === 3 && stored.hud === HUD_VERSION) return stored;
   } catch {
     // not measured yet
   }

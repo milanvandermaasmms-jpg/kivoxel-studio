@@ -71,7 +71,8 @@ import type { Tts } from "./tts.ts";
 import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
 import type { EventStore } from "./eventTimeline.ts";
 import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
-import { topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
+import { gameplayShareOf, topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
+import type { VisualSignals } from "../lib/kivoxel/visual.ts";
 import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
 import { FREE_ENGINE_MODEL, fillSilences, forGame, freeScript, pick, seeded, templates } from "../lib/kivoxel/voiceScript.ts";
@@ -1506,18 +1507,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const peakOutMs = slow ? slow.out_start_ms + Math.round((slow.src_end_ms - slow.src_start_ms) / (slow.speed || 1)) : payoffSeg ? payoffSeg.out_start_ms : null;
           let gameplayShare: number | null = null;
           if ((await hudOf(video.data.recording_id!, job.studio_id)) === "minecraft") {
-            const vis = JSON.parse(await readFile(join(montage.rendersDir, "..", "visual", `${rec.data.fingerprint}.json`), "utf8").catch(() => "null")) as { fps: number; frames: { health: number; ui: number }[] } | null;
-            if (vis?.frames?.length) {
-              // Without recognisable hearts in this recording (frozen hearts, other HUD) only the menu panel counts.
-              const hearts = vis.frames.filter((f) => f.health >= 0).length / vis.frames.length >= 0.3;
-              let tot = 0;
-              let game = 0;
-              for (const g of cut.segments) for (let i = Math.floor((g.src_start_ms / 1000) * vis.fps); i < Math.ceil((g.src_end_ms / 1000) * vis.fps) && i < vis.frames.length; i++) {
-                tot++;
-                if ((!hearts || vis.frames[i].health >= 0) && vis.frames[i].ui < 120) game++;
-              }
-              gameplayShare = tot ? game / tot : null;
-            }
+            // Menu panel, missing hearts (when reliable) and a covered HUD of any colour (23-11-2026) are no gameplay.
+            const vis = JSON.parse(await readFile(join(montage.rendersDir, "..", "visual", `${rec.data.fingerprint}.json`), "utf8").catch(() => "null")) as VisualSignals | null;
+            gameplayShare = gameplayShareOf(vis, cut.segments.map((g) => ({ startMs: g.src_start_ms, endMs: g.src_end_ms })));
           }
           const measuredEvents = timeline ? timeline.events.filter((e) => e.payoff >= 30 && cut.segments.some((g) => e.t_peak >= g.src_start_ms && e.t_peak <= g.src_end_ms)).length : null;
           const measure = await measureExport(montage.ffmpeg ?? "ffmpeg", outFile, plan.durationMs, existsSync(srt) ? srt : null);

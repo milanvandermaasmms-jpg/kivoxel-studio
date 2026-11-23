@@ -39,6 +39,7 @@ import { createMediaLibrary } from "./mediaLibrary.ts";
 import { importTrack, type ImportMeta } from "./musicImport.ts";
 import { createVoiceLedger } from "./voiceLedger.ts";
 import { createContentRegister } from "./contentRegister.ts";
+import { visualFor } from "./visualSignals.ts";
 import { bestLocalTts, chatterboxTts, findClone } from "./localTts.ts";
 import { configProblems, resolveSettings } from "../lib/kivoxel/config.ts";
 import { brandProblems } from "../lib/kivoxel/brand.ts";
@@ -258,7 +259,7 @@ const server = createWorkerServer({
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
   voicePlan: () => createVoiceLedger(join(dataDir, "voice-plan.json")).summary(),
   // 23-11-2026: the content register (every production scored from measurements; no AI, changes nothing).
-  register: supabaseUrl && serviceKey && montage ? createContentRegister({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), ffmpeg, dataDir, rendersDir: montage.rendersDir, log }) : undefined,
+  register: supabaseUrl && serviceKey && montage ? createContentRegister({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), ffmpeg, dataDir, rendersDir: montage.rendersDir, log, visual: async (fp) => { const r = await store.get(fp); return r?.probe?.durationMs ? visualFor(ffmpeg, dataDir, fp, join(dataDir, "recordings", r.file), r.probe.durationMs) : null; } }) : undefined,
   // 23-11-2026: the music library and the Uppbeat import (Milan downloads, the studio imports once).
   music: {
     list: async () => (await createMediaLibrary(dataDir, join(import.meta.dirname, "..", "assets", "kivoxel", "sfx"), log).music()).tracks,

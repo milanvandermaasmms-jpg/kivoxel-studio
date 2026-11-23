@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bestFrame, buildEvents, findDamage, findDead, findDeaths, findLowHealth, mergeEvents, topPayoffs, type GameEvent } from "./events";
-import { frameMetrics, heartHealth, HEART_H, VISUAL_W, type FrameMetrics, type VisualSignals } from "./visual";
+import { bestFrame, buildEvents, gameplayShareOf, isGameplay, overlayReliable, findDamage, findDead, findDeaths, findLowHealth, mergeEvents, topPayoffs, type GameEvent } from "./events";
+import { frameMetrics, heartHealth, HEART_H, OVERLAY_H, overlayScores, VISUAL_W, type FrameMetrics, type VisualSignals } from "./visual";
 import { outToSource, sourceThumbMs, thumbFromSourceArgs } from "./thumbFrame";
 import type { Segment } from "../youtube/analysis";
 
@@ -169,5 +169,39 @@ describe("hartjes niet herkenbaar (23-11-2026)", () => {
     expect(menuShare(frozen, 10_000)).toBe(0);
     const panel = { ...frozen, frames: [...Array(20)].map((_, i) => frame(-1, i >= 8 ? 200 : 0)) } as unknown as Parameters<typeof menuShare>[0];
     expect(menuShare(panel, 10_000)).toBeGreaterThan(0.5);
+  });
+});
+
+describe("HUD template (23-11-2026, menus in any colour)", () => {
+  const band = (fill: (p: number) => [number, number, number]) => {
+    const b = new Uint8Array(VISUAL_W * OVERLAY_H * 3);
+    for (let p = 0; p < VISUAL_W * OVERLAY_H; p++) b.set(fill(p), p * 3);
+    return b;
+  };
+  // The HUD: the bottom rows are a fixed hotbar; above it the world changes every frame.
+  const hud = (seed: number) => band((p) => (Math.floor(p / VISUAL_W) >= 8 ? [90, 160, 170] : [(seed * 37 + p * 11) % 255, (seed * 53 + p * 7) % 255, (seed * 17 + p * 3) % 255]));
+  const menu = () => band(() => [40, 170, 60]);
+
+  it("scores the recording's own HUD high and a covered HUD low, whatever its colour", () => {
+    const frames = [...Array.from({ length: 40 }, (_, i) => hud(i)), ...Array.from({ length: 10 }, menu)];
+    const s = overlayScores(frames);
+    expect(Math.min(...s.slice(0, 40))).toBeGreaterThanOrEqual(900);
+    expect(Math.max(...s.slice(40))).toBeLessThan(100);
+  });
+
+  it("says 'not measurable' when nothing at the bottom stays the same", () => {
+    const s = overlayScores(Array.from({ length: 30 }, (_, i) => band((p) => [(i * 31 + p) % 255, (i * 17 + p * 5) % 255, (i * 7 + p * 9) % 255])));
+    expect(s.every((x) => x === -1)).toBe(true);
+  });
+
+  it("a covered HUD is no gameplay, only when the template is reliable for this recording", () => {
+    const v = visual(20, (sec) => ({ overlay: sec >= 15 ? 50 : 950, health: -1 }));
+    expect(overlayReliable(v)).toBe(true);
+    expect(isGameplay(v, 4 * 16)).toBe(false);
+    expect(isGameplay(v, 4 * 5)).toBe(true);
+    expect(gameplayShareOf(v, [{ startMs: 10_000, endMs: 20_000 }])).toBeCloseTo(0.5, 1);
+    const unknown = visual(20, () => ({ overlay: -1, health: -1 }));
+    expect(overlayReliable(unknown)).toBe(false);
+    expect(isGameplay(unknown, 10)).toBe(true);
   });
 });
