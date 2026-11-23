@@ -81,7 +81,7 @@ import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/
 import { gameplayShareOf, topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
 import type { VisualSignals } from "../lib/kivoxel/visual.ts";
 import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
-import { hookFile, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
+import { hookFile, looksDutch, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
 import { FREE_ENGINE_MODEL, fillSilences, forGame, freeScript, pick, seeded, templates } from "../lib/kivoxel/voiceScript.ts";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
 import type { GameEvent } from "../lib/kivoxel/events.ts";
@@ -751,6 +751,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     let newMoment: { from: number; to: number | null; why: string } | null = null;
     /** 23-11-2026: the producer gate's verdict on the moment of this Short. */
     let producer: GateResult | null = null;
+    /** The English template engine of this script (set below), as a fallback when an AI script contains Dutch. */
+    let englishFallback: (() => ScriptDraft) | null = null;
     /** 23-11-2026: lessons from Milan's rejections that this script got (and the hypotheses that it did not). */
     let lessons: Lesson[] = [];
     // KIVOXEL fase 1: "ai" = Gemini writes the lines, "free" = the template engine (no credits needed).
@@ -827,6 +829,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const approved = await db.from("yt_scripts").select("top_line, lines").eq("studio_id", job.studio_id).eq("status", "approved").order("created_at", { ascending: false }).limit(40).returns<ApprovedScript[]>();
       const learned = approved.error ? undefined : learnFrom(approved.data ?? []);
       learnedFrom = learned?.from ?? 0;
+      englishFallback = () => free();
       const free = () => {
         const f = freeScript({ segments: plan.segments, targetMs: plan.targetMs, timeline, language: VIDEO_LANGUAGE, settings: kSettings, seed: `${video.data.id}:${version}`, recent, short, learned, game });
         const overlay = shortHook ?? pick(hookFile.hooks[f.mainType], recent, seeded(`${video.data.id}:hook:${version}`));
@@ -926,6 +929,21 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     // 20-11-2026: a Fortnite/Roblox/GTA/CoD video never says "Minecraft" (titles, hooks, overlay, lines).
     const fx = (t: string) => fixGameName(t, game);
     draft = { ...draft, topLine: fixGameName(draft.topLine, game), hook: fx(draft.hook), loopLine: fixGameName(draft.loopLine, game), titles: draft.titles?.map(fx), lines: draft.lines.map((l) => ({ ...l, text: fx(l.text) })), hooks: draft.hooks.map((h) => ({ ...h, first_line: fx(h.first_line), overlay: fixGameName(h.overlay, game) })) };
+    // Video content is ALWAYS English (Milan, 16-11-2026). 23-11-2026: a Dutch briefing once led to a Dutch title; Dutch
+    // titles are dropped, and Dutch spoken text falls back to the English template engine.
+    const dutchTitles = (draft.titles ?? []).filter(looksDutch);
+    if (dutchTitles.length) {
+      draft = { ...draft, titles: (draft.titles ?? []).filter((t) => !looksDutch(t)) };
+      log(`Script ${video.data.id}: Nederlandse titel(s) weggelaten: ${dutchTitles.join(" | ").slice(0, 200)}`);
+    }
+    if (looksDutch(draft.hook) || looksDutch(draft.topLine ?? "") || draft.lines.some((l) => looksDutch(l.text))) {
+      log(`Script ${video.data.id}: Nederlandse tekst in het script; Engelse sjabloon-engine gebruikt`);
+      if (englishFallback) {
+        draft = englishFallback();
+        engine = "free";
+        engineNote = "Het AI-script bevatte Nederlands; Engelse sjabloontekst gebruikt";
+      } else throw new Error("Het script bevat Nederlandse tekst; video's zijn altijd Engels");
+    }
     const row = {
       studio_id: job.studio_id,
       video_id: video.data.id,

@@ -204,7 +204,8 @@ export function filterPlans<T extends { format: string }>(plans: T[], b: Briefin
 /** For the script writer (English): the arc, the edit notes, the mood, and what was or was not found of the key event. */
 export function briefingScriptLines(b: Briefing | null, key: KeyEventFind | null): string[] {
   if (!b) return [];
-  const out = ["The owner's briefing for this recording (in Dutch; follow it, but only describe what the event list really shows):"];
+  // 23-11-2026: the briefing is Dutch, the video never is (first real test gave the Dutch title "Horror Nacht in de Sneeuw").
+  const out = ["The owner's briefing for this recording (in Dutch; follow it, but only describe what the event list really shows). Write EVERYTHING you produce (titles, hook, lines, overlay) in English, never in Dutch:"];
   if (b.story) out.push(`- What happens: "${b.story}"`);
   if (b.editNotes) out.push(`- Edit instructions: "${b.editNotes}"`);
   if (b.moods?.length) out.push(`- Mood: ${b.moods.map((m) => MOOD_EN[m]).join(", ")}.`);
