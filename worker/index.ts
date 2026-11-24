@@ -286,6 +286,13 @@ const tiktokApi = {
   },
   disconnect: () => tiktok.disconnect(),
   items: async () => (tiktokQueue ? (await tiktokQueue.read()).items : []),
+  sendable: async () => (tiktokQueue ? tiktokQueue.sendable() : []),
+  sendAll: async () => {
+    if (!tiktokQueue) throw new Error("De TikTok-rij draait niet op deze werker");
+    const r = await tiktokQueue.addAll();
+    void tiktokQueue.tick();
+    return r;
+  },
   send: async (videoId: string) => {
     if (!tiktokQueue) throw new Error("De TikTok-rij draait niet op deze werker");
     const item = await tiktokQueue.add(videoId);

@@ -1,7 +1,7 @@
 // 24-11-2026: the TikTok send line on this pc (<data>/tiktok/queue.json, no migration). Every Short that goes to YouTube
 // after TikTok was connected joins it by itself; Milan can also add a Short by hand. One at a time, to Milan's TikTok
 // inbox as a draft; a refusal (TikTok's daily limit) is tried again an hour later, at most 3 times.
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TikTok } from "./tiktok.ts";
@@ -37,10 +37,19 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
     await rename(`${file}.tmp`, file);
   }
 
-  /** Newest export and first title of a video; null when it is no Short or has no export. */
+  const exists = (f: string) => access(f).then(() => true, () => false);
+  /** The TikTok account is @kivoxel: only the KIVOXEL channel's Shorts go there (not SpawnNado or Dreamnest). */
+  let kivoxelChannel: string | null = null;
+  async function channelId() {
+    if (!kivoxelChannel) kivoxelChannel = (await o.db.from("yt_channels").select("id").eq("is_default", true).maybeSingle<{ id: string }>()).data?.id ?? null;
+    return kivoxelChannel;
+  }
+
+  /** Newest export and first title of a video; null when it is no KIVOXEL Short or has no export. */
   async function videoInfo(videoId: string): Promise<{ title: string; file: string } | null> {
-    const v = await o.db.from("yt_videos").select("format, promise").eq("id", videoId).maybeSingle<{ format: string; promise: string | null }>();
-    if (!v.data || v.data.format === "C") return null;
+    const v = await o.db.from("yt_videos").select("format, promise, channel_id").eq("id", videoId).maybeSingle<{ format: string; promise: string | null; channel_id: string | null }>();
+    const kx = await channelId();
+    if (!v.data || v.data.format === "C" || (kx && v.data.channel_id !== kx)) return null;
     const r = await o.db.from("yt_renders").select("file_name").eq("video_id", videoId).order("created_at", { ascending: false }).limit(1).maybeSingle<{ file_name: string }>();
     if (!r.data) return null;
     const s = await o.db.from("yt_scripts").select("titles").eq("video_id", videoId).order("version", { ascending: false }).limit(1).maybeSingle<{ titles: string[] | null }>();
@@ -52,7 +61,8 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
     const have = q.items.find((i) => i.videoId === videoId && i.status !== "mislukt");
     if (have) return have;
     const info = await videoInfo(videoId);
-    if (!info) throw new Error("Alleen een Short met een montage kan naar TikTok");
+    if (!info) throw new Error("Alleen een KIVOXEL-Short met een montage kan naar TikTok");
+    if (!(await exists(info.file))) throw new Error("Het videobestand van deze Short staat niet meer op de pc");
     const item: TikTokItem = { videoId, title: info.title, file: info.file, status: "wacht", publishId: null, error: null, addedAt: new Date().toISOString(), tryAfter: null, attempts: 0 };
     q.items = [...q.items.filter((i) => i.videoId !== videoId), item];
     await write(q);
@@ -113,9 +123,39 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
     }
   }
 
+  /**
+   * The KIVOXEL Shorts whose export is still on this pc and that Milan approved (ready, scheduled or live). Not the ones
+   * still to judge or archived. This is what "Naar TikTok" can send.
+   */
+  async function sendable(): Promise<string[]> {
+    const kx = await channelId();
+    if (!kx) return [];
+    const v = await o.db.from("yt_videos").select("id").eq("channel_id", kx).neq("format", "C").in("status", ["approved", "scheduled", "published"]).limit(2000).returns<{ id: string }[]>();
+    const ids = (v.data ?? []).map((x) => x.id);
+    const out: string[] = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const r = await o.db.from("yt_renders").select("video_id, file_name, created_at").in("video_id", ids.slice(i, i + 200)).order("created_at", { ascending: false }).returns<{ video_id: string; file_name: string }[]>();
+      const newest = new Map<string, string>();
+      for (const x of r.data ?? []) if (!newest.has(x.video_id)) newest.set(x.video_id, x.file_name);
+      for (const [id, f] of newest) if (await exists(join(o.rendersDir, f))) out.push(id);
+    }
+    return out;
+  }
+
   return {
     read,
     add,
+    sendable,
+    /** Every Short that can go (see sendable) and is not in the line yet joins it. */
+    async addAll() {
+      const q = await read();
+      let added = 0;
+      for (const id of await sendable()) {
+        if (q.items.some((i) => i.videoId === id && i.status !== "mislukt")) continue;
+        await add(id).then(() => (added += 1)).catch(() => undefined);
+      }
+      return { added };
+    },
     tick,
     /** From this moment on, every new Short for YouTube also goes to TikTok. */
     async enable() {

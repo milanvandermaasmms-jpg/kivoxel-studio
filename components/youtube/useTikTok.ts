@@ -5,17 +5,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
-export type TikTokState = { connected: boolean; sent: Record<string, string> };
-const EMPTY: TikTokState = { connected: false, sent: {} };
+/** sendable: the KIVOXEL Shorts whose video file is still on the pc (only those can go to TikTok). */
+export type TikTokState = { connected: boolean; sent: Record<string, string>; sendable: Set<string> };
+const EMPTY: TikTokState = { connected: false, sent: {}, sendable: new Set() };
 let cache: { at: number; value: Promise<TikTokState> } | null = null;
 
 async function fetchState(): Promise<TikTokState> {
   try {
-    const [s, i] = await Promise.all([fetch(`${WORKER_URL}/tiktok/status`, { cache: "no-store" }), fetch(`${WORKER_URL}/tiktok/items`, { cache: "no-store" })]);
+    const [s, i, a] = await Promise.all([fetch(`${WORKER_URL}/tiktok/status`, { cache: "no-store" }), fetch(`${WORKER_URL}/tiktok/items`, { cache: "no-store" }), fetch(`${WORKER_URL}/tiktok/sendable`, { cache: "no-store" })]);
     if (!s.ok || !i.ok) return EMPTY;
+    const sendable = new Set(a.ok ? ((await a.json()) as string[]) : []);
     const status = (await s.json()) as { connected?: boolean };
     const items = (await i.json()) as { videoId: string; status: string }[];
-    return { connected: !!status.connected, sent: Object.fromEntries(items.map((x) => [x.videoId, x.status])) };
+    return { connected: !!status.connected, sent: Object.fromEntries(items.map((x) => [x.videoId, x.status])), sendable };
   } catch {
     return EMPTY;
   }

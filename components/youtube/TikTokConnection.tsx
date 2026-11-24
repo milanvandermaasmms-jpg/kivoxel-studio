@@ -45,6 +45,24 @@ export function TikTokConnection({ workerOnline }: { workerOnline: boolean }) {
     }
   };
 
+  const [note, setNote] = useState<string | null>(null);
+  /** Every approved KIVOXEL Short whose file is still on the pc joins the send line (a few per day, by TikTok's limit). */
+  const sendAll = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`${WORKER_URL}/tiktok/all`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      const j = (await r.json()) as { added?: number; error?: string };
+      if (!r.ok) throw new Error(j.error ?? "Lukte niet");
+      setNote(j.added ? `${j.added} Shorts staan in de rij naar je TikTok-inbox. Ze gaan een paar per dag.` : "Alle Shorts op de pc staan al in de rij of in je TikTok-inbox.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveApp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -96,6 +114,12 @@ export function TikTokConnection({ workerOnline }: { workerOnline: boolean }) {
           <button type="button" disabled={busy} onClick={() => void connect()} className="min-h-10 rounded-md bg-ink px-4 text-sm font-medium text-ink-fg disabled:opacity-50">
             {status.connected ? "Opnieuw koppelen" : "TikTok koppelen"}
           </button>
+          {status.connected && (
+            <button type="button" disabled={busy} onClick={() => void sendAll()} className="ml-2 min-h-10 rounded-md border border-slate-300 px-4 text-sm font-medium disabled:opacity-50">
+              Alle Shorts op de pc naar TikTok
+            </button>
+          )}
+          {note && <p className="text-sm text-emerald-700">{note}</p>}
           {items.length > 0 && (
             <ul className="divide-y divide-slate-100 text-sm">
               {[...items].reverse().slice(0, 30).map((i) => (

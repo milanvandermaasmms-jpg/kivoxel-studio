@@ -260,7 +260,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [busy, setBusy] = useState(false);
   // 24-11-2026: a Short also goes to the TikTok inbox (as a draft) once it is on YouTube, when TikTok is connected.
   const tiktok = useTikTok(workerOnline);
-  const alsoTikTok = kind === "short" && tiktok.connected;
+  const alsoTikTok = kind === "short" && tiktok.connected && tiktok.sendable.has(videoId);
   const [upload, setUpload] = useState<UploadProgress | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [fromTip, setFromTip] = useState<string | null>(null);

@@ -62,6 +62,8 @@ export type ServerOptions = {
     disconnect: () => Promise<void>;
     items: () => Promise<unknown>;
     send: (videoId: string) => Promise<unknown>;
+    sendable: () => Promise<string[]>;
+    sendAll: () => Promise<unknown>;
   } | null;
   /** 24-11-2026: Ivar's lessons (GET /lessons; POST /lessons/run builds them again; POST /lessons/toggle switches one off/on). */
   lessons?: { get: () => Promise<unknown>; run: () => Promise<unknown>; toggle: (id: string, off: boolean) => Promise<unknown> } | null;
@@ -190,6 +192,7 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
         const what = url.pathname.slice("/tiktok/".length);
         if (req.method === "GET" && what === "status") return send(200, await tiktok.status());
         if (req.method === "GET" && what === "items") return send(200, await tiktok.items());
+        if (req.method === "GET" && what === "sendable") return send(200, await tiktok.sendable());
         if (req.method === "POST") {
           let body: Record<string, unknown> = {};
           try {
@@ -203,6 +206,7 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
               return send(200, { ok: true });
             }
             if (what === "connect") return send(200, { url: await tiktok.connect() });
+            if (what === "all") return send(200, await tiktok.sendAll());
             if (what === "disconnect") {
               await tiktok.disconnect();
               return send(200, { ok: true });

@@ -71,7 +71,7 @@ export function LiveList({ state, channel, workerOnline, studioId, onOpenProduct
         </label>
       </div>
       {ttError && <p className="text-sm text-red-700">TikTok: {ttError}</p>}
-      {tiktok.connected && kind !== "long" && <p className="text-xs text-slate-500">&quot;Naar TikTok&quot; zet een Short als concept in je TikTok-inbox; publiceren doe je zelf in de TikTok-app. TikTok neemt er per dag maar een paar aan: de rest wacht en gaat later vanzelf.</p>}
+      {tiktok.connected && kind !== "long" && <p className="text-xs text-slate-500">&quot;Naar TikTok&quot; zet een Short als concept in je TikTok-inbox; publiceren doe je zelf in de TikTok-app. TikTok neemt er per dag maar een paar aan: de rest wacht en gaat later vanzelf. Alleen Shorts waarvan het videobestand nog op de pc staat, kunnen mee.</p>}
       {items.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">{total ? "Niets gevonden met dit filter." : "Nog niets op YouTube."}</p>
       ) : (
@@ -111,7 +111,7 @@ export function LiveList({ state, channel, workerOnline, studioId, onOpenProduct
                                   YouTube <ExternalLink className="h-3 w-3" aria-hidden />
                                 </a>
                               )}
-                              {tiktok.connected && i.kind === "short" &&
+                              {tiktok.connected && i.kind === "short" && (tiktok.sendable.has(i.videoId) || !!tiktok.sent[i.videoId]) &&
                                 (tiktok.sent[i.videoId] && tiktok.sent[i.videoId] !== "mislukt" ? (
                                   <span className="text-emerald-700">{TIKTOK_LABEL[tiktok.sent[i.videoId]] ?? tiktok.sent[i.videoId]}</span>
                                 ) : (
