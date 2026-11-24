@@ -24,6 +24,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
+import { backupDir, createBackup } from "./backup.ts";
 import { dreamnestEnabled } from "../lib/dreamnest/core.ts";
 import { createDreamnestLane } from "./dreamnest/lane.ts";
 import { createDnHandlers } from "./dreamnest/steps.ts";
@@ -256,6 +257,12 @@ const health = (): WorkerHealth => ({ ok: true, version: VERSION, ffmpeg: versio
 
 // 23-11-2026 (superprompt V6, fase 28): Ivar's first aid, every two minutes (level-1 repairs only).
 const incidentMonitor = supabaseUrl && serviceKey ? createIncidentMonitor({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), dataDir, log, startedAt: new Date().toISOString(), youtube: youtube.configured ? async () => { const s = await youtube.status(); return { connected: s.connected, scopes: s.scopes ?? [] }; } : undefined }) : null;
+// 24-11-2026 (opdracht 6): weekly database backup (tables as gzipped JSON, last 8 weeks), checked every 6 hours.
+const backup = supabaseUrl && serviceKey ? createBackup({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), dir: backupDir(dataDir), log }) : null;
+if (backup) {
+  setTimeout(() => void backup.tick(), 5 * 60_000);
+  setInterval(() => void backup.tick(), 6 * 3_600_000);
+}
 incidentMonitor?.start();
 
 const server = createWorkerServer({
