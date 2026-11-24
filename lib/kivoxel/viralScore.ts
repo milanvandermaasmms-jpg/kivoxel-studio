@@ -22,6 +22,22 @@ export const PARTS: { key: PartKey; label: string; weight: number }[] = [
 ];
 export const MINIMUM = 8.0;
 
+/**
+ * 24-11-2026 (Milan, definitieve acceptatie): three scores that stand on their own. Content (what happens), Edit (how it
+ * is cut and mixed) and Technical (is the file sound). Each must reach GROUP_MINIMUM by itself: a high Technical score
+ * never makes up for weak content. The AI may block a production from "publicatiegereed", never Milan's own decision.
+ */
+export type GroupKey = "content" | "edit" | "technical";
+export const GROUP_MINIMUM = 7.0;
+export const GROUPS: { key: GroupKey; label: string; parts: PartKey[] }[] = [
+  { key: "content", label: "Content", parts: ["hook", "fragment", "verhaal", "originaliteit", "payoff"] },
+  { key: "edit", label: "Montage", parts: ["montage", "muziek_sfx", "stem_audio"] },
+  { key: "technical", label: "Techniek", parts: [] },
+];
+/** Parts that must reach the minimum by themselves: something really happens (fragment) and its outcome is shown (payoff). */
+export const MANDATORY: PartKey[] = ["fragment", "payoff"];
+export type GroupScore = { key: GroupKey; label: string; score: number | null; ok: boolean | null; evidence: string[] };
+
 export type Source = "gemeten" | "inschatting" | "AI" | "Milan";
 export type Part = { key: PartKey; label: string; weight: number; score: number | null; source: Source | null; evidence: string[] };
 export type ViralResult = {
@@ -31,6 +47,10 @@ export type ViralResult = {
   /** Share of the weight that is scored (1 = everything judged). */
   coverage: number;
   blocks: string[];
+  /** 24-11-2026: Content, Edit and Technical, each with its own minimum (older stored results have none). */
+  groups?: GroupScore[];
+  /** The measured Technical score (file soundness), kept so applyJudgement/applyAi can recompute the groups. */
+  technical?: { score: number; evidence: string[] };
   status: "publicatiegereed" | "onder 8,0" | "oordeel nodig" | "geblokkeerd";
   /** The weakest parts, with what would help (for the targeted repair). */
   weakest: { key: PartKey; label: string; score: number; fix: string }[];
@@ -62,7 +82,25 @@ export type ViralInput = {
   briefingOk: boolean | null;
   /** Milan's own judgement per part (0-10), from the review. */
   milan?: Partial<Record<PartKey, number>>;
+  /** 24-11-2026: the Content Value Gate of the moment (lib/kivoxel/contentValue.ts); "afgewezen" blocks. */
+  contentValue?: { level: "bevestigd" | "onbevestigd" | "afgewezen"; summary: string } | null;
 };
+
+/** Is the file itself sound: distortion, frozen or black picture, holes in the sound, voice out of sync. Measured only. */
+function technical(i: ViralInput): { score: number; evidence: string[] } {
+  const ev: string[] = [];
+  let s = 10;
+  const m = i.measure;
+  if (m.clippedSamples > 50 || (m.peakDb !== null && m.peakDb > -0.1)) (s -= 4), ev.push(`Vervorming (piek ${m.peakDb?.toFixed(1) ?? "?"} dBFS)`);
+  const frozen = m.frozen.filter((x) => len(x) >= 1000);
+  if (frozen.length) (s -= 3), ev.push(`Bevroren beeld op ${frozen.map((x) => clock(x.startMs)).join(", ")}`);
+  if (m.black.some((b) => len(b) >= 300)) (s -= 3), ev.push("Zwart beeld");
+  const holes = m.silence.filter((x) => len(x) >= 1500 && x.startMs > 300 && x.endMs < m.durationMs - 300);
+  if (holes.length) (s -= Math.min(3, holes.length * 1.5)), ev.push(`Onverwachte stilte op ${holes.map((x) => clock(x.startMs)).join(", ")}`);
+  if (i.hasVoice && i.voiceSyncRed) (s -= 4), ev.push("Stem loopt niet gelijk met het beeld");
+  if (!ev.length) ev.push("Geen vervorming, geen bevroren of zwart beeld, geen gaten, stem in de maat");
+  return { score: r1(s), evidence: ev };
+}
 
 const r1 = (n: number) => Math.round(Math.max(0, Math.min(10, n)) * 10) / 10;
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
@@ -208,7 +246,8 @@ export function viralScore(i: ViralInput): ViralResult {
   if (i.briefingOk === false) blocks.push("Briefing niet gevolgd");
   if (i.voiceSyncRed && i.hasVoice) blocks.push("Stem en beeld lopen niet gelijk (script past niet bij het beeld)");
   if (i.music && !i.music.licensed) blocks.push("Muziek zonder vastgelegde licentie");
-  return finish(parts, blocks);
+  if (i.contentValue?.level === "afgewezen") blocks.push(`Content Value Gate: ${i.contentValue.summary}`);
+  return finish(parts, blocks, technical(i));
 }
 
 /** Milan's judgement in the review, applied to a stored result (the measured parts and the blocks stay as they are). */
@@ -219,7 +258,7 @@ export function applyJudgement(r: ViralResult, milan: Partial<Record<PartKey, nu
     const measured = p.source === "Milan" ? p.evidence.slice(1) : p.evidence;
     return { ...p, score: r1(own), source: "Milan" as const, evidence: [`Jouw oordeel: ${r1(own)}`, ...measured] };
   });
-  return finish(parts, r.blocks);
+  return finish(parts, r.blocks, r.technical);
 }
 
 /** The AI content check (lib/kivoxel/contentCheck.ts) for parts nobody judged yet; labelled "AI", Milan can overrule. */
@@ -229,25 +268,45 @@ export function applyAi(r: ViralResult, ai: Partial<Record<PartKey, number>>, ev
     if (typeof s !== "number" || p.score !== null) return p;
     return { ...p, score: r1(s), source: "AI" as const, evidence: [`AI-oordeel: ${evidence[p.key] ?? r1(s)}`, ...p.evidence] };
   });
-  return finish(parts, r.blocks);
+  return finish(parts, r.blocks, r.technical);
 }
 
-function finish(parts: Part[], blocks: string[]): ViralResult {
+/** Each group on its own: the weighted mean of its scored parts (Technical: the measured file check). */
+export function groupScores(parts: Part[], tech: { score: number; evidence: string[] } | undefined): GroupScore[] {
+  return GROUPS.map((g) => {
+    if (g.key === "technical") return { key: g.key, label: g.label, score: tech?.score ?? null, ok: tech ? tech.score >= GROUP_MINIMUM : null, evidence: tech?.evidence ?? ["Niet gemeten"] };
+    const own = parts.filter((p) => g.parts.includes(p.key) && p.score !== null);
+    const w = own.reduce((a, p) => a + p.weight, 0);
+    const score = w ? Math.round((own.reduce((a, p) => a + p.score! * p.weight, 0) / w) * 10) / 10 : null;
+    const weak = own.filter((p) => p.score! < GROUP_MINIMUM).map((p) => `${p.label} ${p.score}`);
+    // Mandatory checks inside a group count on their own: a strong hook never lifts a fragment in which nothing happens.
+    const failedMust = own.filter((p) => MANDATORY.includes(p.key) && p.score! < GROUP_MINIMUM);
+    const ok = score === null ? null : score >= GROUP_MINIMUM && !failedMust.length;
+    return { key: g.key, label: g.label, score, ok, evidence: failedMust.length ? [`Verplicht onderdeel onder ${GROUP_MINIMUM}: ${failedMust.map((p) => `${p.label} ${p.score}`).join(", ")}`] : weak.length ? [`Onder ${GROUP_MINIMUM}: ${weak.join(", ")}`] : own.length ? ["Alle beoordeelde onderdelen op of boven de norm"] : ["Nog niets beoordeeld"] };
+  });
+}
+
+function finish(parts: Part[], blocks: string[], tech?: { score: number; evidence: string[] }): ViralResult {
   const scored = parts.filter((p) => p.score !== null);
   const w = scored.reduce((a, p) => a + p.weight, 0);
   const total = w ? Math.round((scored.reduce((a, p) => a + p.score! * p.weight, 0) / w) * 10) / 10 : null;
   const coverage = Math.round(w * 100) / 100;
   const weakest = scored.filter((p) => p.score! < MINIMUM).sort((a, b) => a.score! - b.score!).map((p) => ({ key: p.key, label: p.label, score: p.score!, fix: FIX[p.key] }));
   const open = parts.filter((p) => p.score === null);
-  const status: ViralResult["status"] = blocks.length ? "geblokkeerd" : total !== null && total < MINIMUM ? "onder 8,0" : open.length ? "oordeel nodig" : total !== null && total >= MINIMUM ? "publicatiegereed" : "oordeel nodig";
+  const groups = groupScores(parts, tech);
+  // A group under its own minimum keeps the production from "publicatiegereed", whatever the total (no compensation).
+  const groupFail = groups.filter((g) => g.ok === false);
+  const status: ViralResult["status"] = blocks.length ? "geblokkeerd" : (total !== null && total < MINIMUM) || groupFail.length ? "onder 8,0" : open.length ? "oordeel nodig" : total !== null && total >= MINIMUM ? "publicatiegereed" : "oordeel nodig";
   const fmt = (n: number) => n.toFixed(1).replace(".", ",");
   const summary =
     status === "geblokkeerd"
       ? `Geblokkeerd: ${blocks[0]}`
       : status === "onder 8,0"
-        ? `${fmt(total!)} — onder 8,0. Zwakst: ${weakest.slice(0, 2).map((p) => `${p.label} ${fmt(p.score)}`).join(", ")}`
+        ? groupFail.length && !(total !== null && total < MINIMUM)
+          ? `${total !== null ? fmt(total) : "?"} totaal, maar ${groupFail.map((g) => `${g.label} ${fmt(g.score!)}`).join(" en ")} onder ${fmt(GROUP_MINIMUM)}: een hoog cijfer elders compenseert dat niet`
+          : `${fmt(total!)} — onder 8,0. Zwakst: ${weakest.slice(0, 2).map((p) => `${p.label} ${fmt(p.score)}`).join(", ")}`
         : status === "oordeel nodig"
           ? `${total !== null ? `${fmt(total)} op het gemeten deel (${Math.round(coverage * 100)}%)` : "Nog niets gemeten"}; jouw oordeel nodig voor: ${open.map((p) => p.label).join(", ")}`
           : `${fmt(total!)} — publicatiegereed (alles beoordeeld, geen blokkade)${parts.some((p) => p.source === "AI") ? `; ${parts.filter((p) => p.source === "AI").map((p) => p.label).join(", ")} door de AI beoordeeld, nog niet door jou` : ""}`;
-  return { parts, total, coverage, blocks, status, weakest, summary };
+  return { parts, total, coverage, blocks, groups, ...(tech ? { technical: tech } : {}), status, weakest, summary };
 }

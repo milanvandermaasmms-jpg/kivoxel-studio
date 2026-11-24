@@ -80,4 +80,32 @@ describe("viralscore 8,0", () => {
     expect(late.parts.find((p) => p.key === "hook")!.score).toBeLessThan(teased.parts.find((p) => p.key === "hook")!.score!);
     expect(teased.parts.find((p) => p.key === "hook")!.evidence.join(" ")).toMatch(/teaser van het hoogtepunt/);
   });
+
+  it("three scores stand on their own: perfect technique and edit never make up for weak content (24-11-2026)", () => {
+    // Weak content (a weak moment, no build-up), but a flawless file and a well-mixed edit.
+    const r = viralScore(input({ payoff: 35, gameplayShare: 0.97, milan: { originaliteit: 6, verhaal: 6 } }));
+    const g = Object.fromEntries((r.groups ?? []).map((x) => [x.key, x]));
+    expect(g.technical.score).toBe(10);
+    expect(g.edit.ok).toBe(true);
+    expect(g.content.ok).toBe(false);
+    expect(r.status).toBe("onder 8,0");
+    expect(r.status).not.toBe("publicatiegereed");
+  });
+
+  it("a total above 8.0 with one group under 7.0 is still not publication ready, and says why", () => {
+    const r = viralScore(input({ measure: measure({ frozen: [{ startMs: 4000, endMs: 6000 }], black: [{ startMs: 9000, endMs: 9500 }] }), milan: { originaliteit: 9, verhaal: 9, hook: 9, fragment: 9, payoff: 9, montage: 9, muziek_sfx: 9, stem_audio: 9 } }));
+    expect(r.total).toBeGreaterThanOrEqual(8);
+    expect(r.groups!.find((x) => x.key === "technical")!.ok).toBe(false);
+    expect(r.status).toBe("onder 8,0");
+    expect(r.summary).toMatch(/Techniek .* onder 7,0: een hoog cijfer elders compenseert dat niet/);
+  });
+
+  it("the Content Value Gate blocks a moment with nothing to see", () => {
+    const r = viralScore(input({ contentValue: { level: "afgewezen", summary: "Geen interessante gebeurtenis: niets gemeten" }, milan: { originaliteit: 9 } }));
+    expect(r.status).toBe("geblokkeerd");
+    expect(r.blocks[0]).toMatch(/Content Value Gate/);
+    // Milan's own judgement of the parts never lifts a block: blocks stay (the AI cannot decide for him either way).
+    expect(applyJudgement(r, { fragment: 10 }).status).toBe("geblokkeerd");
+  });
 });
+

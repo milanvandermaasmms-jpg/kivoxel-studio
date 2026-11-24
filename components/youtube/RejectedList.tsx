@@ -7,10 +7,20 @@ import { FeedbackPanel } from "@/components/youtube/FeedbackPanel";
 import type { FlowState } from "@/lib/youtube/flowData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { remountWithFeedback } from "@/lib/youtube/remountData";
+import { supabase } from "@/lib/supabase";
 import type { FeedbackItem, RemountMode } from "@/lib/youtube/reviewFeedback";
 
 type Ready = Extract<NonNullable<FlowState>, { board: unknown }>;
 type Act = (a: () => Promise<unknown>) => Promise<void>;
+
+/** 24-11-2026: held back by the Content Value Gate or the AI content check; shown here so Milan can overrule it. */
+const STUDIO_NOTE = /^Studio \((inhoud|Content Value Gate)\): /;
+
+/** Back to "Te keuren": Milan's own decision beats the studio's (only for a video the studio held back). */
+async function backToReview(videoId: string): Promise<void> {
+  const { error } = await supabase.from("yt_videos").update({ status: "review" }).eq("id", videoId).eq("status", "archived");
+  if (error) throw new Error(error.message);
+}
 
 /** Notes the studio wrote itself when it archived a video (not Milan's rejections). */
 const SYSTEM_NOTE = /^(Niet gebruikt|Vervangen|test$)/i;
@@ -70,10 +80,16 @@ export function RejectedList({ state, channel, studioId, workerOnline, act }: { 
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{titleOf(v.id)}</span>
                 <span className="block text-xs text-slate-600">
-                  {v.format === "C" ? "Lange video" : "Short"} · {renders.length} {renders.length === 1 ? "versie" : "versies"} · jouw reden: {v.review_note}
+                  {v.format === "C" ? "Lange video" : "Short"} · {renders.length} {renders.length === 1 ? "versie" : "versies"} · {STUDIO_NOTE.test(v.review_note ?? "") ? "afgekeurd door de studio" : "jouw reden"}: {v.review_note?.replace(STUDIO_NOTE, "")}
                 </span>
                 {missing.length > 0 && <span className="block text-xs text-amber-800">Ontbreekt: {missing.join(", ")}</span>}
               </span>
+              {/* 24-11-2026: what the studio held back is never final; Milan decides (the AI never overrules him). */}
+              {STUDIO_NOTE.test(v.review_note ?? "") && last && (
+                <Button variant="secondary" onClick={() => void act(() => backToReview(v.id))}>
+                  Toch keuren
+                </Button>
+              )}
               <Button variant="secondary" disabled={!script || sourceThere === false || !workerOnline} onClick={() => setOpen(v.id)} title={!workerOnline ? "Start de werker op de pc" : undefined}>
                 <RotateCcw className="h-4 w-4" aria-hidden /> Opnieuw monteren
               </Button>

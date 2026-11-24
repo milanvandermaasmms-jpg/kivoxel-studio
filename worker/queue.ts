@@ -55,10 +55,10 @@ import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
 import { lessonPrompt, lessonsFrom, type Lesson } from "../lib/kivoxel/lessons.ts";
-import { viralScore, type ViralResult } from "../lib/kivoxel/viralScore.ts";
+import { applyAi, viralScore, type ViralResult } from "../lib/kivoxel/viralScore.ts";
 import { musicPick, sfxAdjust, type SfxChoice } from "../lib/kivoxel/audioOptions.ts";
 import { musicFit, rankForMontage } from "../lib/kivoxel/musicFit.ts";
-import { contentPrompt, parseContentCheck } from "../lib/kivoxel/contentCheck.ts";
+import { aiForViral, contentPrompt, parseContentCheck } from "../lib/kivoxel/contentCheck.ts";
 import { MOOD_FOR } from "../lib/kivoxel/media.ts";
 import { weakFirstLine as weakOpening } from "../lib/youtube/hooks.ts";
 import type { GateResult as ProducerGate } from "../lib/kivoxel/producerGate.ts";
@@ -102,6 +102,7 @@ import { learnFrom, type ApprovedScript } from "../lib/kivoxel/learn.ts";
 import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { checkLine, lineCheckQc, repairLines, type LineCheck } from "../lib/kivoxel/lineCheck.ts";
+import { contentValue, reviewDecision, type AiContent, type ContentValue } from "../lib/kivoxel/contentValue.ts";
 import { speakWithGate } from "./voiceGate.ts";
 
 /**
@@ -825,7 +826,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const others = await db.from("yt_videos").select("id, status, yt_video_moments(yt_moments(peak_ms, start_ms, end_ms))").eq("recording_id", video.data.recording_id).neq("id", video.data.id).neq("status", "archived").returns<{ id: string; status: string; yt_video_moments: { yt_moments: { peak_ms: number | null; start_ms: number; end_ms: number } | null }[] }[]>();
           const used = [main.peakMs, ...(others.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments?.peak_ms ?? (m.yt_moments ? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2) : null)).filter((x): x is number => x !== null))];
           // Only a moment the producer gate would not reject (gameplay at the peak and in the outcome).
-          const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000) && producerGate({ event: e, timeline: timeline!, sourceOnPc: true }).status !== "AFGEKEURD").sort((a, b) => b.payoff - a.payoff)[0];
+          const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000) && producerGate({ event: e, timeline: timeline!, sourceOnPc: true }).status !== "AFGEKEURD" && contentValue(timeline!, e.t_peak).level !== "afgewezen").sort((a, b) => b.payoff - a.payoff)[0];
           if (alt) {
             newMoment = { from: main.peakMs, to: alt.t_peak, why: alt.description };
             near = alt;
@@ -839,6 +840,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const note = `Producer: AFGEKEURD — ${producer.summary}${producer.directions.length ? ` Richting: ${producer.directions[0]}` : ""}`.slice(0, 500);
           await db.from("yt_videos").update({ status: "archived", review_note: note }).eq("id", video.data.id).in("status", ["idea", "scripted"]);
           return { version, producer, archived: true };
+        }
+        // 24-11-2026 (Milan: "geen Shorts meer ter keuring waarin niets interessants gebeurt"): the Content Value Gate.
+        // Nothing measured, or mostly dead picture: no script, no montage, no review. Milan's own request still goes through.
+        const cv = contentValue(timeline, shortEvent.t_peak);
+        if (cv.level === "afgewezen" && job.payload?.remontage !== true && !job.payload?.feedback) {
+          await db.from("yt_videos").update({ status: "archived", review_note: `Studio (Content Value Gate): ${cv.reasons[0]}`.slice(0, 500) }).eq("id", video.data.id).in("status", ["idea", "scripted"]);
+          return { version, producer, contentValue: cv, archived: true };
         }
         const previousBucket = await previousShortBucket(job.studio_id, video.data, kSettings);
         const sp = planShort(shortEvent, timeline, kSettings, seeded(`${video.data.id}:len:${version}`), previousBucket);
@@ -1007,7 +1015,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const ok = await db.from("yt_scripts").update({ status: "approved" }).eq("id", mine.data.id);
       if (ok.error) throw new Error(ok.error.message);
       // A correction (editor_fix / viral_fix) stays marked in its montage, so it is never corrected again (no loop).
-      const carry = Object.fromEntries((["editor_fix", "viral_fix", "viral_prev"] as const).filter((k) => job.payload?.[k] !== undefined).map((k) => [k, job.payload![k]]));
+      const carry: Record<string, unknown> = Object.fromEntries((["editor_fix", "viral_fix", "viral_prev"] as const).filter((k) => job.payload?.[k] !== undefined).map((k) => [k, job.payload![k]]));
+      // 24-11-2026: Milan's own request (no automatic correction) always comes back to his review.
+      if (job.payload?.editor_fix === undefined && job.payload?.viral_fix === undefined) carry.milan_asked = true;
       await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${mine.data.id}:remontage`, payload: { script_id: mine.data.id, ...carry } });
       await db.from("yt_videos").update({ status: "rendering" }).eq("id", video.data.id).in("status", ["idea", "scripted", "review", "approved"]);
       remontaged = true;
@@ -1275,6 +1285,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const isShort = video.data.format !== "C";
       const inMontage = eventsInMontage(cut.segments, timeline);
       const mainEvent = isShort ? [...inMontage].sort((a, b) => b.payoff - a.payoff)[0] ?? null : null;
+      // 24-11-2026: the Content Value Gate of the main moment (a Short only), measured on the recording's timeline.
+      const contentGate: ContentValue | null = isShort && timeline && mainEvent ? contentValue(timeline, mainEvent.t_peak) : null;
       const montageMs = cut.segments.reduce((sum, sg) => sum + Math.round((sg.src_end_ms - sg.src_start_ms) / sg.speed), 0);
       // KIVOXEL fase 1, section 7.3/7.8: pattern interrupts, with a zoom style that rotates between videos.
       const recentStyles = (await montage.phrases?.recent().catch(() => [] as string[])) ?? [];
@@ -1635,6 +1647,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
               sfxCount: mixPlan?.sfx.filter((c) => c.kind !== "motif").length ?? 0,
               musicChosenOff: !modeSpec.music || fixes?.music === "none" || brief?.music === "none",
               briefingOk: briefCheck ? briefCheck.verdict.ok : null,
+              contentValue: contentGate,
             });
             await lv.event("note", `Viralscore: ${viral.summary}`.slice(0, 500));
           } catch (e) {
@@ -1695,6 +1708,36 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${scriptId}:qc:${job.id}`, payload: { ...job.payload, qc_retry: qcRetry + 1 } });
         await lv.event("note", `Kwaliteitscontrole niet gehaald (${qcSummary!.red} rood): de montage wordt automatisch nog één keer gemaakt`);
         return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, qcRetry: true, audioMode: kSettings.audio_mode };
+      }
+      // 24-11-2026 (Milan, definitieve acceptatie): before a Short reaches "Te keuren", the AI content check watches the
+      // export (about 2 cent, within the monthly ceiling). What it does not confirm goes to "Afgekeurd" with the reason;
+      // Milan can always bring it back. His own requests (feedback, re-montage) always go to his review.
+      if (isShort && !video.data.is_test && !preview && contentGate) {
+        const milanAsked = !!job.payload?.feedback || job.payload?.milan_asked === true;
+        let aiContent: AiContent = null;
+        if (!milanAsked && ai && montage) {
+          try {
+            await lv.phase("AI-inhoudscheck: Gemini bekijkt de export", 0.95);
+            await reserve(job, 2);
+            const gameName = GAMES[await videoGame(video.data.id, job.studio_id)].name;
+            const { json } = await paid(job, () => ai.gemini.analyseVideo(join(montage.rendersDir, fileName), contentPrompt({ kind: "short", game: gameName, script: [cut.hook, ...cut.lines.map((l) => l.text)].filter(Boolean), briefing: brief ? briefingSummary(brief) : null })));
+            const check = parseContentCheck(json, ai.gemini.model);
+            aiContent = { fragment: check.parts.fragment.score, verhaal: check.parts.verhaal.score, hook: check.parts.hook.score, summary: check.summary };
+            if (viral) viral = applyAi(viral, aiForViral(viral, check), Object.fromEntries(Object.entries(check.parts).map(([k, v]) => [k, v.evidence ?? ""])));
+            const cur2 = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
+            await db.from("yt_renders").update({ qc: { ...(cur2.data?.qc ?? {}), content: check, contentValue: contentGate, ...(viral ? { viral } : {}) } }).eq("job_id", job.id);
+            await lv.event("note", `AI-inhoudscheck: fragment ${aiContent.fragment ?? "?"}, verhaal ${aiContent.verhaal ?? "?"}, hook ${aiContent.hook ?? "?"}. ${check.summary}`.slice(0, 500));
+          } catch (e) {
+            if (e instanceof CancelledError) throw e;
+            await lv.event("error", `AI-inhoudscheck niet gelukt: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+          }
+        }
+        const decision = reviewDecision(contentGate, aiContent, milanAsked);
+        await lv.event(decision.toReview ? "note" : "milestone", `Content Value Gate: ${decision.toReview ? "naar Te keuren" : "niet naar Te keuren"}. ${decision.reason}`.slice(0, 500));
+        if (!decision.toReview) {
+          await db.from("yt_videos").update({ status: "archived", review_note: `Studio (inhoud): ${decision.reason}`.slice(0, 500) }).eq("id", video.data.id).in("status", ["idea", "scripted", "rendering", "review"]);
+          return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, viral: viral ? { status: viral.status, total: viral.total, summary: viral.summary } : null, contentValue: contentGate, studioRejected: decision.reason, audioMode: kSettings.audio_mode, voicePlan };
+        }
       }
       if (["idea", "scripted", "rendering"].includes(video.data.status)) await db.from("yt_videos").update({ status: "review" }).eq("id", video.data.id);
       // Voice-over split: this production is delivered (counts once, whatever versions follow).
