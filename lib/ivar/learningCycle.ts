@@ -61,7 +61,7 @@ export function deriveLessons(input: { videos: LearnVideo[]; feedback: LearnFeed
           action: { type: "kind_boost", kind: k, boost: -15 },
         });
       } else if (approved.length >= 6 && rejected.length === 0) {
-        out.push({ id: `meer:${ch ?? "alle"}:${k}`, channelId: ch, title: `${kindName(k)[0].toUpperCase()}${kindName(k).slice(1)} werken goed`, evidence: [`${approved.length} goedgekeurd, geen enkele afgekeurd`], count: approved.length, status: "actief", action: { type: "kind_boost", kind: k, boost: 5 } });
+        out.push({ id: `meer:${ch ?? "alle"}:${k}`, channelId: ch, title: `${kindName(k)[0].toUpperCase()}${kindName(k).slice(1)} werken goed`, evidence: [`${approved.length} goedgekeurd, geen enkele afgekeurd`], count: approved.length, status: "voorstel", action: { type: "kind_boost", kind: k, boost: 5 } });
       }
     }
 

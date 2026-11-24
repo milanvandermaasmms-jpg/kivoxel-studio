@@ -21,6 +21,8 @@ export const CV_AFTER_MS = 3000;
 export const CV_MAX_DEAD = 0.35;
 /** A Gemini moment counts as a claim from this score on (weaker ones are no evidence at all). */
 export const CV_AI_MIN = 70;
+/** A sound counts as evidence from this rise above the background (LU); quieter peaks are everyday game sound. */
+export const CV_SOUND_MIN_LU = 15;
 
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}`;
 
@@ -30,7 +32,11 @@ function evidenceOf(e: GameEvent): ContentEvidence[] {
     if (s === "beeld:doodscherm") out.push({ source: "beeld", atMs: e.t_peak, text: "doodscherm in beeld", strong: true });
     else if (s.startsWith("beeld:") && e.kind === "damage") out.push({ source: "beeld", atMs: e.t_peak, text: e.description, strong: e.payoff >= 60 });
     else if (s.startsWith("beeld:")) out.push({ source: "beeld", atMs: e.t_peak, text: e.description, strong: false });
-    else if (s.startsWith("geluid:")) out.push({ source: "geluid", atMs: e.t_peak, text: e.description.split(" + ")[0].startsWith("Hard geluid") ? e.description.split(" + ")[0] : "hard geluid", strong: false });
+    else if (s.startsWith("geluid:")) {
+      // 24-11-2026 (praktijktest: pickaxe sounds of +10 LU "confirmed" a mining clip): only a clearly loud sound counts.
+      const lu = Number(/Hard geluid \(\+(\d+) LU\)/.exec(e.description)?.[1] ?? NaN);
+      if (Number.isFinite(lu) && lu >= CV_SOUND_MIN_LU) out.push({ source: "geluid", atMs: e.t_peak, text: `hard geluid (+${lu} LU)`, strong: false });
+    }
     else if (s.startsWith("spraak:")) out.push({ source: "kinderen", atMs: e.t_peak, text: "reactie van de kinderen", strong: false });
     else if (s.startsWith("ai:") && e.kind === "ai_moment" && e.payoff >= CV_AI_MIN) out.push({ source: "ai", atMs: e.t_peak, text: e.description.slice(0, 120), strong: false });
   }

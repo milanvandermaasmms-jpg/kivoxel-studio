@@ -25,6 +25,13 @@ describe("Content Value Gate", () => {
     expect(contentValue(tl([ev({}), ev({ kind: "kid_reaction", sources: ["spraak:kinderen"], t_peak: 61_000 })]), 60_000).level).toBe("bevestigd");
   });
 
+  it("a quiet game sound (pickaxe, +10 LU) is no confirmation of a Gemini claim (praktijktest 24-11-2026)", () => {
+    const mining = [ev({ kind: "ai_moment", sources: ["ai:discovery", "geluid:piek"], payoff: 72, description: "Uncovers gold ore + Hard geluid (+10 LU)" })];
+    expect(contentValue(tl(mining), 60_000).level).toBe("onbevestigd");
+    const loud = [ev({ kind: "ai_moment", sources: ["ai:near_death", "geluid:piek"], payoff: 90, description: "Falls off the cliff + Hard geluid (+23 LU)" })];
+    expect(contentValue(tl(loud), 60_000).level).toBe("bevestigd");
+  });
+
   it("ignores evidence far from the moment and weak Gemini moments", () => {
     expect(contentValue(tl([ev({ kind: "death", sources: ["beeld:doodscherm"], t_peak: 90_000 })]), 60_000).level).toBe("afgewezen");
     expect(contentValue(tl([ev({ kind: "ai_moment", sources: ["ai:surprise"], payoff: 50 })]), 60_000).level).toBe("afgewezen");

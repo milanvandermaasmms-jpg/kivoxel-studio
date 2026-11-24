@@ -11,17 +11,29 @@ export type AiPart = (typeof AI_PARTS)[number];
 export type AiVerdict = { score: number | null; evidence: string };
 export type ContentCheck = { parts: Record<AiPart, AiVerdict>; summary: string; checkedAt: string; model: string };
 
-export function contentPrompt(input: { kind: "short" | "long"; game: string; script: string[]; briefing?: string | null }): string {
+/**
+ * `gameplayOnly` (24-11-2026, praktijktest): for the Content Value Gate the AI judges the game itself. The studio's own
+ * voice-over and on-screen text may exaggerate ("Gold blocks everywhere!" over plain digging fooled it into an 8), so the
+ * script is not given and the AI is told to ignore narration and captions.
+ */
+export function contentPrompt(input: { kind: "short" | "long"; game: string; script: string[]; briefing?: string | null; gameplayOnly?: boolean }): string {
+  const strict = input.gameplayOnly === true;
   return [
     `You review a finished ${input.kind === "short" ? "YouTube Short (vertical)" : "long YouTube video"} of ${input.game} gameplay for a kids' gaming channel (faceless, English voice-over or none).`,
     "Watch and listen to the whole video. Judge ONLY what you really see and hear. Never guess; if something is unclear, give score null and say why.",
+    ...(strict
+      ? [
+          "IMPORTANT: ignore the voice-over, the captions and any text on screen. The studio wrote them itself and they may exaggerate. Judge only the gameplay: what the player does and what happens in the game.",
+          "Plain digging or mining through blocks, walking, inventory or crafting menus, placing blocks without danger = a weak fragment (5 or lower), however the narration sells it. Strong = real danger, damage, a mob, a fall, a fight, an explosion, or a rare item that is clearly shown.",
+        ]
+      : []),
     "Score 0-10 (10 = excellent, 8 = good enough to publish) for:",
     "- hook: do the first 3 seconds make a viewer stay (something happens or is promised right away)?",
     "- fragment: is this a strong moment of the game (action, danger, surprise, a find), not menus, inventory, walking or empty sky?",
     "- verhaal: is there a build-up and a clear outcome a viewer understands without context?",
     "- originaliteit: is it entertaining and does it feel fresh, not generic?",
     "For each give evidence: one or two short sentences IN DUTCH with time codes (m:ss) of what you saw or heard.",
-    ...(input.script.length ? ["Voice-over / text lines of this video (check that they match the picture):", ...input.script.slice(0, 30).map((l) => `- ${l}`)] : []),
+    ...(input.script.length && !strict ? ["Voice-over / text lines of this video (check that they match the picture):", ...input.script.slice(0, 30).map((l) => `- ${l}`)] : []),
     ...(input.briefing ? [`The owner's briefing (direction only): ${input.briefing}`] : []),
     'Answer JSON only: {"hook":{"score":n|null,"evidence":"..."},"fragment":{...},"verhaal":{...},"originaliteit":{...},"summary":"one sentence in Dutch"}',
   ].join("\n");

@@ -24,4 +24,11 @@ describe("AI-inhoudscheck", () => {
     const c = parseContentCheck({ hook: { score: 5, evidence: "x" }, originaliteit: { score: 8, evidence: "0:03 grappige val" }, verhaal: { score: 9, evidence: "y" } }, "m");
     expect(aiForViral(v, c)).toEqual({ originaliteit: 8 });
   });
+
+  it("for the Content Value Gate: no script, and narration and captions are ignored (praktijktest 24-11-2026)", () => {
+    const p = contentPrompt({ kind: "short", game: "Minecraft", script: ["Gold blocks everywhere!"], gameplayOnly: true });
+    expect(p).not.toContain("Gold blocks everywhere!");
+    expect(p).toMatch(/ignore the voice-over, the captions/);
+    expect(p).toMatch(/Plain digging or mining/);
+  });
 });

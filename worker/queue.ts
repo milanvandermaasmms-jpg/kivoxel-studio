@@ -853,6 +853,23 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         // 23-11-2026, producer gate: does this moment earn a script and a montage? AFGEKEURD = no production time
         // (archived with the reason); Milan's own re-montage request still goes through, with the warning kept.
         producer = producerGate({ event: shortEvent, timeline, sourceOnPc: true });
+        // 24-11-2026 (praktijktest: the plan picked a crafting menu and the recording with a real fall got no Short): a moment
+        // that the producer gate or the Content Value Gate rejects first makes way for the strongest other moment of this
+        // recording that passes both and no other video of it uses. Only when there is none, the video is archived.
+        if (job.payload?.remontage !== true && !job.payload?.feedback && (producer.status === "AFGEKEURD" || contentValue(timeline, shortEvent.t_peak).level === "afgewezen") && video.data.recording_id) {
+          const sibs = await db.from("yt_videos").select("id, yt_video_moments(yt_moments(peak_ms, start_ms, end_ms))").eq("recording_id", video.data.recording_id).neq("id", video.data.id).neq("status", "archived").returns<{ id: string; yt_video_moments: { yt_moments: { peak_ms: number | null; start_ms: number; end_ms: number } | null }[] }[]>();
+          const taken = (sibs.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments ? (m.yt_moments.peak_ms ?? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2)) : null).filter((x): x is number => x !== null));
+          const tl = timeline;
+          const better = tl.events
+            .filter((e) => e.type && e.payoff >= 40 && Math.abs(e.t_peak - shortEvent!.t_peak) > 8000 && taken.every((p) => Math.abs(p - e.t_peak) > 15_000))
+            .filter((e) => producerGate({ event: e, timeline: tl, sourceOnPc: true }).status !== "AFGEKEURD" && contentValue(tl, e.t_peak).level !== "afgewezen")
+            .sort((a, b) => (contentValue(tl, b.t_peak).level === "bevestigd" ? 1 : 0) - (contentValue(tl, a.t_peak).level === "bevestigd" ? 1 : 0) || b.payoff - a.payoff)[0];
+          if (better) {
+            newMoment = { from: shortEvent.t_peak, to: better.t_peak, why: `Het gekozen moment werd afgekeurd (${producer.status === "AFGEKEURD" ? producer.summary : "geen interessante gebeurtenis"}); sterker moment: ${better.description}`.slice(0, 300) };
+            shortEvent = better;
+            producer = producerGate({ event: shortEvent, timeline, sourceOnPc: true });
+          }
+        }
         if (producer.status === "AFGEKEURD" && job.payload?.remontage !== true && !job.payload?.feedback) {
           const note = `Producer: AFGEKEURD — ${producer.summary}${producer.directions.length ? ` Richting: ${producer.directions[0]}` : ""}`.slice(0, 500);
           await db.from("yt_videos").update({ status: "archived", review_note: note }).eq("id", video.data.id).in("status", ["idea", "scripted"]);
@@ -1748,7 +1765,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             await lv.phase("AI-inhoudscheck: Gemini bekijkt de export", 0.95);
             await reserve(job, 2);
             const gameName = GAMES[await videoGame(video.data.id, job.studio_id)].name;
-            const { json } = await paid(job, () => ai.gemini.analyseVideo(join(montage.rendersDir, fileName), contentPrompt({ kind: "short", game: gameName, script: [cut.hook, ...cut.lines.map((l) => l.text)].filter(Boolean), briefing: brief ? briefingSummary(brief) : null })));
+            const { json } = await paid(job, () => ai.gemini.analyseVideo(join(montage.rendersDir, fileName), contentPrompt({ kind: "short", game: gameName, script: [], briefing: brief ? briefingSummary(brief) : null, gameplayOnly: true })));
             const check = parseContentCheck(json, ai.gemini.model);
             aiContent = { fragment: check.parts.fragment.score, verhaal: check.parts.verhaal.score, hook: check.parts.hook.score, summary: check.summary };
             if (viral) viral = applyAi(viral, aiForViral(viral, check), Object.fromEntries(Object.entries(check.parts).map(([k, v]) => [k, v.evidence ?? ""])));
