@@ -2165,7 +2165,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const brief = await briefingOf(video.data.recording_id);
       await lv.phase("AI-inhoudscheck: Gemini bekijkt de video", 0.2);
       const gameName = GAMES[await videoGame(video.data.id, job.studio_id)].name;
-      const { json } = await paid(job, () => ai.gemini.analyseVideo(file, contentPrompt({ kind, game: gameName, script: [cut.hook, ...cut.lines.map((l) => l.text)].filter(Boolean), briefing: brief ? briefingSummary(brief) : null })));
+      const { json } = await paid(job, () => ai.gemini.analyseVideo(file, contentPrompt({ kind, game: gameName, script: [], briefing: brief ? briefingSummary(brief) : null, gameplayOnly: true })));
       const check = parseContentCheck(json, ai.gemini.model);
       const cur = await db.from("yt_renders").select("qc").eq("id", render.data.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
       await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), content: check } }).eq("id", render.data.id);
