@@ -1,6 +1,6 @@
 // 24-11-2026 (opdracht 6): weekly backup of the studio database, without any key in Git. The worker already has its
-// own key in worker/.env.local; it exports every table as gzipped JSON to the backup folder (D:\KIVOXEL-studio\backups
-// when that drive is there, else <data>/backups), keeps the last 8 weeks and writes a manifest with row counts. The
+// own key in worker/.env.local; it exports every table as gzipped JSON to the backup folder (<data>/backups or KIVOXEL_BACKUP_DIR
+// on this pc), keeps the last 8 weeks and writes a manifest with row counts. The
 // structure itself is in supabase/migrations (in Git); restoring = migrations first, then these rows (docs/backup.md).
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
@@ -32,8 +32,9 @@ export function backupDue(last: string | null, now = new Date()): boolean {
 }
 
 export function backupDir(dataDir: string, env: Record<string, string | undefined> = process.env): string {
-  if (env.KIVOXEL_BACKUP_DIR) return env.KIVOXEL_BACKUP_DIR;
-  return existsSync("D:\\KIVOXEL-studio") ? "D:\\KIVOXEL-studio\\backups" : join(dataDir, "backups");
+  // 24-11-2026: not on the external drive by default: during the copy it dropped out three times and Windows asks for a
+  // full repair (chkdsk). The database export is small; it stays on the pc unless KIVOXEL_BACKUP_DIR says otherwise.
+  return env.KIVOXEL_BACKUP_DIR || join(dataDir, "backups");
 }
 
 export function createBackup(o: { db: SupabaseClient; dir: string; log: (m: string) => void }) {

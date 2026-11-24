@@ -14,7 +14,7 @@ describe("wekelijkse back-up", () => {
     expect(backupDue("2026-11-17", new Date("2026-11-24T12:00:00Z"))).toBe(true);
   });
 
-  it("goes where Milan says, else to the backup drive or the data folder", () => {
+  it("goes where Milan says, else to the data folder on the pc", () => {
     expect(backupDir("C:/data", { KIVOXEL_BACKUP_DIR: "E:/bk" })).toBe("E:/bk");
     expect(backupDir("C:/data", {})).toMatch(/backups$/);
   });
