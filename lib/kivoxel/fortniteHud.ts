@@ -10,6 +10,9 @@ export const FN_H = 32;
 export const FN_FPS = 4;
 /** The bottom-left corner in which both bars sit on every recording seen so far. */
 export const FN_CROP = { x: 0, y: 0.82, w: 0.3, h: 0.16 };
+/** 24-11-2026: Roblox (Rivals and other shooters): a green health bar in the bottom-left corner, lower than Fortnite's. */
+export const RB_CROP = { x: 0, y: 0.88, w: 0.3, h: 0.12 };
+export type Crop = { x: number; y: number; w: number; h: number };
 export const FN_FRAME_BYTES = FN_W * FN_H * 3;
 
 export type Run = { row: number; start: number; end: number };
@@ -159,8 +162,7 @@ export function createFortniteParser() {
 }
 
 /** FFmpeg arguments: only the bottom-left corner, small, 4 frames per second, raw RGB on stdout. */
-export function fortniteArgs(input: string): string[] {
-  const c = FN_CROP;
+export function fortniteArgs(input: string, c: Crop = FN_CROP): string[] {
   return ["-hide_banner", "-loglevel", "error", "-i", input, "-an", "-vf", `fps=${FN_FPS},crop=iw*${c.w}:ih*${c.h}:iw*${c.x}:ih*${c.y},scale=${FN_W}:${FN_H}:flags=area,format=rgb24`, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"];
 }
 

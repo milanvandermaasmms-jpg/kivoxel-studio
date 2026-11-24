@@ -30,9 +30,9 @@ export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" |
 // 6 (23-11-2026): a covered HUD (the recording's own HUD template, any menu colour) counts as menu (overlayReliable).
 export const EVENT_RULES = 6;
 /** Which HUD the picture signals come from: Minecraft hearts, Fortnite's health bar (24-11-2026), or none. */
-export type Hud = "minecraft" | "none" | "fortnite";
+export type Hud = "minecraft" | "none" | "fortnite" | "roblox";
 
-export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game); "fortnite": with Fortnite's health bar. */ hud?: Hud; /** "fortnite" when Fortnite's bar was looked for but not found (so it is not measured again every time). */ hudTried?: "fortnite"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
+export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game); "fortnite": with Fortnite's health bar. */ hud?: Hud; /** "fortnite" when Fortnite's bar was looked for but not found (so it is not measured again every time). */ hudTried?: "fortnite" | "roblox"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
 export type AiMoment = { kind: string; type: EventType; startMs: number; peakMs: number; endMs: number; score: number; reason: string };
@@ -298,7 +298,8 @@ export function withFortniteHud(v: VisualSignals, health: number[]): VisualSigna
 export function buildEvents(input: { visual: VisualSignals; signals: Signals | null; ai?: AiMoment[]; reactions?: Reaction[]; now?: Date; hud?: Hud }): EventTimeline {
   const signals = input.signals;
   const v = input.hud === "none" ? withoutMinecraftHud(input.visual) : input.visual;
-  const fn = input.hud === "fortnite";
+  // Fortnite and Roblox: a health bar of 100 (24-11-2026), on the same 0-1000 scale as the hearts.
+  const fn = input.hud === "fortnite" || input.hud === "roblox";
   // Fortnite has 100 health points, Minecraft 10 hearts; both are 0-1000 in the signals.
   const amount = (h: number) => (fn ? `${Math.round(h / 10)} levens` : `${hearts(h)} hartjes`);
   const bar = fn ? "beeld:levensbalk" : "beeld:hartjes";

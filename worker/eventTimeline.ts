@@ -4,7 +4,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
 import { buildEvents, EVENT_RULES, withFortniteHud, type AiMoment, type EventTimeline, type Hud } from "../lib/kivoxel/events.ts";
-import { fortniteReliable } from "../lib/kivoxel/fortniteHud.ts";
+import { fortniteReliable, RB_CROP } from "../lib/kivoxel/fortniteHud.ts";
+import { heartsReliable } from "../lib/kivoxel/events.ts";
 import { fortniteFor } from "./fortniteSignals.ts";
 import type { Moment } from "../lib/youtube/analysis.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
@@ -25,7 +26,7 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
     try {
       const t = JSON.parse(await readFile(file(fingerprint), "utf8")) as EventTimeline;
       // Older detection rules (e.g. before menus were found by the missing hearts): build it again.
-      const same = (t.hud ?? "minecraft") === hud || (hud === "fortnite" && t.hud === "none" && t.hudTried === "fortnite");
+      const same = (t.hud ?? "minecraft") === hud || ((hud === "fortnite" || hud === "roblox") && t.hud === "none" && t.hudTried === hud);
       return t.version === 1 && t.rules === EVENT_RULES && same ? t : null;
     } catch {
       return null;
@@ -59,6 +60,19 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
         });
         if (fn && fortniteReliable(fn)) visual = withFortniteHud(visual, fn.health);
         else hud = "none";
+      } else if (hud === "roblox") {
+        // 24-11-2026: Roblox differs per game. Blocky PvP games show hearts like Minecraft's; Rivals-like shooters a green bar
+        // bottom left. Hearts first: in a blocky game the bar finder mistakes a green item for a bar ("20-11 Roblox": a fixed
+        // 25%), while in Rivals no hearts are found. Neither: as before, no HUD (sound and Gemini only).
+        if (heartsReliable(visual)) visual = withFortniteHud(visual, visual.frames.map((f) => f.health));
+        else {
+          const rb = await fortniteFor(ffmpeg, dataDir, fingerprint, path, { signal: options.signal, crop: RB_CROP, name: "roblox" }).catch((e: unknown) => {
+            if (options.signal?.aborted) throw e;
+            return null;
+          });
+          if (rb && fortniteReliable(rb)) visual = withFortniteHud(visual, rb.health);
+          else hud = "none";
+        }
       }
       let t = buildEvents({ visual, signals, ai, hud });
       if (speech && signals) {
@@ -68,7 +82,7 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
         if (reactions.length) t = buildEvents({ visual, signals, ai, reactions, hud });
       }
       await mkdir(join(dataDir, "events"), { recursive: true });
-      if (hud !== "minecraft") t = { ...t, hud, ...(options.hud === "fortnite" && hud === "none" ? { hudTried: "fortnite" as const } : {}) };
+      if (hud !== "minecraft") t = { ...t, hud, ...((options.hud === "fortnite" || options.hud === "roblox") && hud === "none" ? { hudTried: options.hud } : {}) };
       await writeFile(file(fingerprint), JSON.stringify(t));
       return t;
     },

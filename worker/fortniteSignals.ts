@@ -3,13 +3,13 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createFortniteParser, fortniteArgs, type FortniteSignals } from "../lib/kivoxel/fortniteHud.ts";
+import { createFortniteParser, FN_CROP, fortniteArgs, type Crop, type FortniteSignals } from "../lib/kivoxel/fortniteHud.ts";
 import { CancelledError } from "./ffmpeg.ts";
 
-export function detectFortnite(ffmpeg: string, file: string, options: { signal?: AbortSignal } = {}): Promise<FortniteSignals> {
+export function detectFortnite(ffmpeg: string, file: string, options: { signal?: AbortSignal; crop?: Crop } = {}): Promise<FortniteSignals> {
   return new Promise((resolve, reject) => {
     const parser = createFortniteParser();
-    const child = spawn(ffmpeg, fortniteArgs(file), { windowsHide: true });
+    const child = spawn(ffmpeg, fortniteArgs(file, options.crop ?? FN_CROP), { windowsHide: true });
     let errors = "";
     const abort = () => child.kill();
     options.signal?.addEventListener("abort", abort, { once: true });
@@ -25,9 +25,10 @@ export function detectFortnite(ffmpeg: string, file: string, options: { signal?:
   });
 }
 
-export async function fortniteFor(ffmpeg: string, dataDir: string, fingerprint: string, file: string, options: { signal?: AbortSignal } = {}): Promise<FortniteSignals> {
+/** `name`: "fortnite" or "roblox" (each its own corner and its own cache file). */
+export async function fortniteFor(ffmpeg: string, dataDir: string, fingerprint: string, file: string, options: { signal?: AbortSignal; crop?: Crop; name?: string } = {}): Promise<FortniteSignals> {
   const dir = join(dataDir, "visual");
-  const cache = join(dir, `${fingerprint}.fortnite.json`);
+  const cache = join(dir, `${fingerprint}.${options.name ?? "fortnite"}.json`);
   try {
     const stored = JSON.parse(await readFile(cache, "utf8")) as FortniteSignals;
     if (stored.version === 1) return stored;
