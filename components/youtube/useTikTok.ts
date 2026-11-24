@@ -6,8 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
 /** sendable: the KIVOXEL Shorts whose video file is still on the pc (only those can go to TikTok). */
-export type TikTokState = { connected: boolean; sent: Record<string, string>; sendable: Set<string> };
-const EMPTY: TikTokState = { connected: false, sent: {}, sendable: new Set() };
+export type TikTokState = { connected: boolean; sent: Record<string, string>; captions: Record<string, string>; sendable: Set<string> };
+const EMPTY: TikTokState = { connected: false, sent: {}, captions: {}, sendable: new Set() };
 let cache: { at: number; value: Promise<TikTokState> } | null = null;
 
 async function fetchState(): Promise<TikTokState> {
@@ -16,8 +16,8 @@ async function fetchState(): Promise<TikTokState> {
     if (!s.ok || !i.ok) return EMPTY;
     const sendable = new Set(a.ok ? ((await a.json()) as string[]) : []);
     const status = (await s.json()) as { connected?: boolean };
-    const items = (await i.json()) as { videoId: string; status: string }[];
-    return { connected: !!status.connected, sent: Object.fromEntries(items.map((x) => [x.videoId, x.status])), sendable };
+    const items = (await i.json()) as { videoId: string; status: string; caption?: string }[];
+    return { connected: !!status.connected, sent: Object.fromEntries(items.map((x) => [x.videoId, x.status])), captions: Object.fromEntries(items.filter((x) => x.caption).map((x) => [x.videoId, x.caption!])), sendable };
   } catch {
     return EMPTY;
   }

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { PrivacyBadge } from "@/components/youtube/FlowBadges";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
 import { TIKTOK_LABEL, useTikTok } from "@/components/youtube/useTikTok";
+import { CopyCaption } from "@/components/youtube/CopyCaption";
 import type { FlowState } from "@/lib/youtube/flowData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
@@ -113,7 +114,10 @@ export function LiveList({ state, channel, workerOnline, studioId, onOpenProduct
                               )}
                               {tiktok.connected && i.kind === "short" && (tiktok.sendable.has(i.videoId) || !!tiktok.sent[i.videoId]) &&
                                 (tiktok.sent[i.videoId] && tiktok.sent[i.videoId] !== "mislukt" ? (
-                                  <span className="text-emerald-700">{TIKTOK_LABEL[tiktok.sent[i.videoId]] ?? tiktok.sent[i.videoId]}</span>
+                                  <>
+                                    <span className="text-emerald-700">{TIKTOK_LABEL[tiktok.sent[i.videoId]] ?? tiktok.sent[i.videoId]}</span>
+                                    {tiktok.captions[i.videoId] && <CopyCaption text={tiktok.captions[i.videoId]} />}
+                                  </>
                                 ) : (
                                   <button type="button" disabled={ttBusy === i.videoId} onClick={() => void toTikTok(i.videoId)} className="rounded-md bg-ink px-2 py-1 font-medium text-ink-fg disabled:opacity-50">
                                     {ttBusy === i.videoId ? "Bezig…" : tiktok.sent[i.videoId] === "mislukt" ? "Opnieuw naar TikTok" : "Naar TikTok"}

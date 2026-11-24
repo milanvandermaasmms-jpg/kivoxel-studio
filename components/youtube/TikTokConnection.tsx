@@ -6,9 +6,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Section } from "@/components/settings/Section";
 import { WORKER_URL } from "@/lib/youtube/protocol";
+import { CopyCaption } from "@/components/youtube/CopyCaption";
 
 type Status = { configured: boolean; connected: boolean; username: string | null; displayName: string | null; consentedAt: string | null; redirectUri: string };
-type Item = { videoId: string; title: string; status: string; error: string | null; addedAt: string };
+type Item = { videoId: string; title: string; caption?: string; status: string; error: string | null; addedAt: string };
 
 const STATE_LABEL: Record<string, string> = { wacht: "wacht", bezig: "wordt verstuurd", "in inbox": "in je TikTok-inbox", gepubliceerd: "gepubliceerd", mislukt: "mislukt" };
 
@@ -129,6 +130,7 @@ export function TikTokConnection({ workerOnline }: { workerOnline: boolean }) {
                     {STATE_LABEL[i.status] ?? i.status}
                     {i.error && i.status !== "in inbox" ? ` · ${i.error.slice(0, 80)}` : ""}
                   </span>
+                  {i.caption && i.status !== "mislukt" && <CopyCaption text={i.caption} />}
                 </li>
               ))}
             </ul>

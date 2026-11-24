@@ -5,8 +5,10 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TikTok } from "./tiktok.ts";
+import { tiktokCaption } from "../lib/kivoxel/tiktokCaption.ts";
 
-export type TikTokItem = { videoId: string; title: string; file: string; status: "wacht" | "bezig" | "in inbox" | "gepubliceerd" | "mislukt"; publishId: string | null; error: string | null; addedAt: string; tryAfter: string | null; attempts: number };
+/** caption: the English text with hashtags Milan pastes in the TikTok app ("Kopieer TikTok-tekst"). */
+export type TikTokItem = { videoId: string; title: string; caption?: string; file: string; status: "wacht" | "bezig" | "in inbox" | "gepubliceerd" | "mislukt"; publishId: string | null; error: string | null; addedAt: string; tryAfter: string | null; attempts: number };
 /** known: the Shorts that were already on YouTube when TikTok was connected; they only go by hand ("Naar TikTok"). */
 export type TikTokQueueFile = { enabledAt: string | null; known?: string[]; items: TikTokItem[] };
 const RETRY_MS = 3_600_000;
@@ -46,14 +48,16 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
   }
 
   /** Newest export and first title of a video; null when it is no KIVOXEL Short or has no export. */
-  async function videoInfo(videoId: string): Promise<{ title: string; file: string } | null> {
+  async function videoInfo(videoId: string): Promise<{ title: string; caption: string; file: string } | null> {
     const v = await o.db.from("yt_videos").select("format, promise, channel_id").eq("id", videoId).maybeSingle<{ format: string; promise: string | null; channel_id: string | null }>();
     const kx = await channelId();
     if (!v.data || v.data.format === "C" || (kx && v.data.channel_id !== kx)) return null;
     const r = await o.db.from("yt_renders").select("file_name").eq("video_id", videoId).order("created_at", { ascending: false }).limit(1).maybeSingle<{ file_name: string }>();
     if (!r.data) return null;
     const s = await o.db.from("yt_scripts").select("titles").eq("video_id", videoId).order("version", { ascending: false }).limit(1).maybeSingle<{ titles: string[] | null }>();
-    return { title: s.data?.titles?.[0] ?? v.data.promise ?? "Short", file: join(o.rendersDir, r.data.file_name) };
+    const p = await o.db.from("yt_publications").select("title, tags").eq("video_id", videoId).maybeSingle<{ title: string; tags: string[] | null }>();
+    const titles = [p.data?.title, ...(s.data?.titles ?? []), v.data.promise];
+    return { title: p.data?.title || s.data?.titles?.[0] || v.data.promise || "Short", caption: tiktokCaption(titles, p.data?.tags ?? []), file: join(o.rendersDir, r.data.file_name) };
   }
 
   async function add(videoId: string): Promise<TikTokItem> {
@@ -63,7 +67,7 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
     const info = await videoInfo(videoId);
     if (!info) throw new Error("Alleen een KIVOXEL-Short met een montage kan naar TikTok");
     if (!(await exists(info.file))) throw new Error("Het videobestand van deze Short staat niet meer op de pc");
-    const item: TikTokItem = { videoId, title: info.title, file: info.file, status: "wacht", publishId: null, error: null, addedAt: new Date().toISOString(), tryAfter: null, attempts: 0 };
+    const item: TikTokItem = { videoId, title: info.title, caption: info.caption, file: info.file, status: "wacht", publishId: null, error: null, addedAt: new Date().toISOString(), tryAfter: null, attempts: 0 };
     q.items = [...q.items.filter((i) => i.videoId !== videoId), item];
     await write(q);
     return item;
@@ -93,6 +97,11 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
       if (!(await o.tiktok.status()).connected) return;
       await collect();
       const q = await read();
+      // Shorts that joined before the caption existed get it now (once).
+      for (const i of q.items.filter((x) => !x.caption)) {
+        const info = await videoInfo(i.videoId).catch(() => null);
+        if (info) Object.assign(i, { caption: info.caption, title: info.title });
+      }
       // Follow what is in the inbox: once Milan published it in the TikTok app, it says so.
       for (const i of q.items.filter((x) => x.status === "in inbox" && x.publishId)) {
         const s = await o.tiktok.publishStatus(i.publishId!).catch(() => null);
