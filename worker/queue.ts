@@ -101,6 +101,7 @@ import { CAPTION_STYLES, captionEvents, captionStyleLine, timedFromSpoken } from
 import { learnFrom, type ApprovedScript } from "../lib/kivoxel/learn.ts";
 import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes, planInterrupts, ZOOM_STYLES } from "../lib/kivoxel/interrupts.ts";
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
+import { checkLine, lineCheckQc, repairLines, type LineCheck } from "../lib/kivoxel/lineCheck.ts";
 import { speakWithGate } from "./voiceGate.ts";
 
 /**
@@ -1122,6 +1123,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       });
     }
     let sync: { ok: boolean; flagged: boolean; summary: string; items: GateItem[] } | null = null;
+    /** 24-11-2026: the 7-point check of every spoken line (tone rules plus timing). */
+    let lineChecks: LineCheck[] = [];
     /** Set when a local voice (no cloud) spoke this montage. */
     let localVoiceName: string | null = null;
     // KIVOXEL fase 1, section 3: the audio mode of this montage (chosen in the review, else the channel default).
@@ -1196,7 +1199,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         // Google first (free tier); without a key, with the free tier used up, or in free mode: the best local voice.
         await lv.phase("Voice-over maken");
         const preferLocal = job.payload?.engine === "free" || presetFile.channel_default.engine === "free";
-        const lines = narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[];
+        // 24-11-2026: every line checked against Milan's tone rules first (lib/kivoxel/lineCheck.ts); a line that breaks a
+        // hard rule takes a passing shorter version or is left out (silence is allowed).
+        const repaired = repairLines(narration(cut.hook, cut.lines).filter((l) => l.at_ms < cut.targetMs) as VoLine[]);
+        const lines = repaired.lines;
+        for (const c of repaired.changes.slice(0, 8)) await lv.event("note", `Stem per zin: ${c}`.slice(0, 300));
         const gateWith = (tts: Parameters<typeof speakWithGate>[0]["tts"], reserve: (n: number) => Promise<unknown>) =>
           speakWithGate({ align: montage.align, verify: tts === montage.cloneVoice, lines, segments: cut.segments, timeline, targetMs: cut.targetMs, settings: kSettings, tts, voiceName, baseRate: Number(settings.data?.speaking_rate ?? 1.1), tmp, reserve, duration: montage.duration!, run: (args, cwd, timeoutMs) => montage.run(args, cwd, timeoutMs, { signal: lv.signal }) });
         let g: Awaited<ReturnType<typeof speakWithGate>> | null = null;
@@ -1238,6 +1245,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           spoken = g.spoken;
           characters = localVoiceName ? 0 : g.characters;
           sync = { ok: g.result.gate.ok && !g.result.flagged, flagged: g.result.flagged, summary: gateSummary(g.result.gate, g.result.attempts, g.result.dropped), items: g.result.gate.items };
+          lineChecks = g.result.gate.items.map((it) => checkLine({ text: it.text, kind: lines[it.index]?.kind }, it));
           await lv.event(sync.ok ? "note" : "error", `VO-sync: ${sync.summary}${localVoiceName ? ` (stem: ${localVoiceName})` : ""}`);
         }
         if (characters) {
@@ -1500,6 +1508,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             // An empty music library is something for Milan to fill, not a broken montage: orange instead of red.
             items.push({ key: "audio_mode", label: "Audio-modus toegepast", level: m.ok ? "green" : mixNote ? "orange" : "red", value: m.value, note: mixNote ?? m.note });
           }
+          if (lineChecks.length) items.push({ key: "voice_lines", label: "Stem per zin (7 punten)", ...lineCheckQc(lineChecks) });
           if (sync) items.push({ key: "vo_sync", label: "VO-sync (stem vóór de piek)", level: sync.ok ? "green" : "red", value: sync.ok ? "op tijd" : sync.flagged ? "nakijken" : "fout", note: sync.summary.slice(0, 400) });
           // Section 9: hook and length of a Short (fase-1 scripts only; older Shorts keep their old checks).
           if (isShort && fase1) {

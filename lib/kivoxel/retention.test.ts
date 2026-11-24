@@ -122,7 +122,7 @@ describe("slow motion, teaser and long video", () => {
     const segs = [seg("cold_open", 300_000, 310_000, 0), seg("chapter", 100_000, 200_000, 10_000)];
     const s = freeScript({ segments: segs, targetMs: 110_000, timeline: tl([ev("a", 150_000)]), settings, seed: "long", short: false });
     const bridge = s.lines.find((l) => l.at_ms >= 10_000 && l.at_ms < 11_000)!;
-    expect(bridge.text).toMatch(/GET here|THIS happen|ALL started/);
+    expect(bridge.text).toMatch(/get here|this happen|all started/);
   });
 });
 

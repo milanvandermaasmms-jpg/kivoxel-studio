@@ -3,7 +3,7 @@
 import type { QcItem } from "@/lib/youtube/qc";
 
 /** The checks of section 9, in this order; anything else in the QC list is shown by the general list already. */
-const ORDER = ["vo_sync", "hook_words", "hook_type", "hook_fresh", "hook_safe", "thumbnail_header", "length_bucket", "length_varies", "dead_air", "first_frame", "interrupts", "loudness_target", "audio_mode", "chapters"];
+const ORDER = ["vo_sync", "voice_lines", "hook_words", "hook_type", "hook_fresh", "hook_safe", "thumbnail_header", "length_bucket", "length_varies", "dead_air", "first_frame", "interrupts", "loudness_target", "audio_mode", "chapters"];
 
 type Qc = { items?: QcItem[]; audio?: { label?: string; music?: string | null; voiceEngine?: string | null }; fx?: { zoom?: string; captions?: string }; chapters?: string[] } | null | undefined;
 

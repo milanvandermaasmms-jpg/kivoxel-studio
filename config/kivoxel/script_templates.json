@@ -1,40 +1,40 @@
 {
-  "$comment": "Lines for the free script engine (no AI). ENGLISH ONLY, always. Tone: explosive gamer hype, never soft. Rule 1: say what is ABOUT to happen, never what is already on screen. 'anticipation' ends just before the peak; the engine picks a shorter one when the voice does not fit. {hearts} = number of hearts. Kid-friendly: no swearing, no mocking.",
+  "$comment": "Lines for the free script engine (no AI). ENGLISH ONLY, always. Tone (Milan, 23-11-2026): sounds like someone who knows the game, one job per line, no shouting in capitals, silence allowed. Rule 1: say what is ABOUT to happen, never what is already on screen. 'anticipation' ends just before the peak; the engine picks a shorter one when the voice does not fit. {hearts} = number of hearts. Kid-friendly: no swearing, no mocking.",
   "version": 2,
   "opener": {
-    "fail": ["This is about to go SO wrong.", "He has NO idea what's coming.", "Bro. BRO. Don't do it!", "Worst. Decision. EVER.", "He's about to lose EVERYTHING."],
-    "bijna_dood": ["He is NOT surviving this!", "One more hit and it's OVER!", "This is the closest call EVER!", "He should be DEAD right now!", "Hardcore. One life. Look at his hearts."],
-    "geluk": ["Keep an eye on that chest.", "This almost NEVER happens!", "Wait. WAIT. Is that…?!", "The luckiest moment EVER!"],
-    "bouw": ["From NOTHING to THIS!", "Wait for the end. Trust me!", "This build is INSANE!"],
-    "grap": ["What is he even DOING?!", "This makes ZERO sense!", "Bro had ONE job!"],
-    "jumpscare": ["Turn your sound UP!", "Something is RIGHT behind him!", "Do NOT look away!"]
+    "fail": ["This is about to go so wrong.", "He has no idea what's coming.", "Bro. Bro. Don't do it!", "Worst. Decision. Ever.", "He's about to lose everything."],
+    "bijna_dood": ["He is not surviving this!", "One more hit and it's over!", "This is the closest call ever!", "He should be dead right now!", "Hardcore. One life. Look at his hearts."],
+    "geluk": ["Keep an eye on that chest.", "This almost never happens!", "Wait. Wait. Is that…?", "The luckiest moment ever!"],
+    "bouw": ["From nothing to this!", "Wait for the end. Trust me!", "This build is insane!"],
+    "grap": ["What is he even doing?", "This makes zero sense!", "Bro had one job!"],
+    "jumpscare": ["Turn your sound up!", "Something is right behind him!", "Do not look away!"]
   },
   "anticipation": {
     "fail": [
-      "One wrong step and it's ALL gone…",
-      "He's walking STRAIGHT into it…",
-      "No no no NO NO!",
-      "Don't jump. DON'T JUMP!",
+      "One wrong step and it's all gone…",
+      "He's walking straight into it…",
+      "No no no no no!",
+      "Don't jump. Don't jump!",
       "Here it comes!",
-      "Oh, he's DONE!"
+      "Oh, he's done!"
     ],
     "bijna_dood": [
-      "{hearts} hearts left and he's STILL going!",
-      "One more hit and the world is GONE!",
-      "Careful. CAREFUL!",
-      "Don't. Look. DOWN!",
+      "{hearts} hearts left and he's still going!",
+      "One more hit and the world is gone!",
+      "Careful. Careful!",
+      "Don't. Look. Down!",
       "He's not gonna make it!",
-      "Move. MOVE!"
+      "Move. Move!"
     ],
-    "geluk": ["Look at the RIGHT side!", "Something's shining down there!", "Wait for it… WAIT for it!", "LOOK!"],
-    "bouw": ["And now the part that took FOREVER!", "Watch it ALL come together!", "Last block!"],
-    "grap": ["He actually thinks this will work!", "Watch THIS!", "Here we GO!"],
-    "jumpscare": ["It's quiet. WAY too quiet…", "Turn around. TURN AROUND!", "Behind you!"]
+    "geluk": ["Look at the right side!", "Something's shining down there!", "Wait for it… Wait for it!", "Look!"],
+    "bouw": ["And now the part that took forever!", "Watch it all come together!", "Last block!"],
+    "grap": ["He actually thinks this will work!", "Watch this!", "Here we go!"],
+    "jumpscare": ["It's quiet. Way too quiet…", "Turn around. Turn around!", "Behind you!"]
   },
-  "open_loop": ["Watch his hearts. SERIOUSLY.", "Remember this spot. It MATTERS.", "Keep your eyes on the bottom!", "Something's off here. You'll SEE."],
-  "bridge": ["But it gets WORSE!", "And then THIS happened!", "Okay. Next disaster!", "It's NOT over yet!"],
-  "build": ["Keep watching. KEEP WATCHING.", "This is getting SKETCHY…", "I don't like this. At ALL.", "Oh, this is BAD…", "Something is about to happen…", "Careful… CAREFUL…", "He's pushing his luck!", "Any second now…"],
-  "cold_open_bridge": ["But how did we even GET here?", "Okay. Rewind. How did THIS happen?", "Let's go back. To where it ALL started…"],
-  "loop_end": ["And that's EXACTLY how it started…", "Wait. We've been here BEFORE…", "One wrong step…"],
+  "open_loop": ["Watch his hearts. Seriously.", "Remember this spot. It matters.", "Keep your eyes on the bottom!", "Something's off here. You'll see."],
+  "bridge": ["But it gets worse!", "And then this happened!", "Okay. Next disaster!", "It's not over yet!"],
+  "build": ["Keep watching. Keep watching.", "This is getting sketchy…", "I don't like this. At all.", "Oh, this is bad…", "Something is about to happen…", "Careful… Careful…", "He's pushing his luck!", "Any second now…"],
+  "cold_open_bridge": ["But how did we even get here?", "Okay. Rewind. How did this happen?", "Let's go back. To where it all started…"],
+  "loop_end": ["And that's exactly how it started…", "Wait. We've been here before…", "One wrong step…"],
   "freeze_text": ["OOF!", "RIP!", "BRUH!", "NOPE!", "WELP!", "YIKES!", "NOOO!", "OUCH!", "GG…", "WHAT?!"]
 }
