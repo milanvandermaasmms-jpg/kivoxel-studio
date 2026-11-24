@@ -69,8 +69,8 @@ import { measureExport } from "./editorMeasure.ts";
 import { createVoiceLedger } from "./voiceLedger.ts";
 import { boostOf, boostsSummary, kindBoosts, type KindBoost, type KindSample } from "../lib/youtube/learnedKinds.ts";
 import { uploadChannelProblem } from "../lib/youtube/connection.ts";
-import { firstActionMs, planChanges, needsLoudnessFix, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
-import { BOOST_LIMITS } from "./ffmpeg.ts";
+import { firstActionMs, LOUD_GREEN, planChanges, needsLoudnessFix, SAFE_PEAK_DB, parseQcLog, pickLoudnessFix, qcChecklist, type Loudness, type QcItem, type QcProbe } from "../lib/youtube/qc.ts";
+import { BOOST_LIMITS, PEAK_LIMITS } from "./ffmpeg.ts";
 import { thumbAss, thumbFileName, thumbnailPlans, THUMB_SIZE, type StoredThumb } from "../lib/youtube/thumbnails.ts";
 import { costCents, type Gemini, type Usage } from "./gemini.ts";
 import type { Store } from "./store.ts";
@@ -119,7 +119,7 @@ export type Montage = {
   run: (args: string[], cwd: string, timeoutMs: number, options?: RunOptions) => Promise<void>;
   /** Quality pass over a finished montage (fase C1); optional so older setups keep working. */
   measure?: (file: string, cwd: string, options?: RunOptions) => Promise<{ probe: QcProbe; stderr: string }>;
-  boost?: (input: string, output: string, cwd: string, options?: RunOptions & { limit?: number }) => Promise<void>;
+  boost?: (input: string, output: string, cwd: string, options?: RunOptions & { limit?: number; peakOnly?: boolean }) => Promise<void>;
   loudness?: (file: string, cwd: string) => Promise<{ integratedLufs: number | null; truePeakDb: number | null }>;
   voice: { tts: Tts; usage: { reserve: (characters: number) => Promise<unknown> } } | null;
   /** KIVOXEL fase 1: proves a thumbnail's yellow header matches brand/thumbnail_header.json. Optional for older setups. */
@@ -1522,9 +1522,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           if (needsLoudnessFix(log) && montage.boost && montage.loudness && log.integratedLufs !== null) {
             await lv.phase("Luidheid verbeteren");
             const tries: (Loudness & { id: string })[] = [];
-            for (const limit of BOOST_LIMITS) {
+            // Loud enough but peaking: only flatten the peaks; too quiet: compressor and limiter (louder).
+            const onlyPeaks = log.integratedLufs >= LOUD_GREEN && log.truePeakDb !== null && log.truePeakDb > SAFE_PEAK_DB;
+            for (const limit of onlyPeaks ? PEAK_LIMITS : BOOST_LIMITS) {
               const file = join(tmp, `louder-${limit}.mp4`);
-              await montage.boost(output, file, tmp, { signal: lv.signal, limit });
+              await montage.boost(output, file, tmp, { signal: lv.signal, limit, peakOnly: onlyPeaks });
               tries.push({ id: file, ...(await montage.loudness(file, tmp)) });
             }
             const pick = pickLoudnessFix(log, tries);

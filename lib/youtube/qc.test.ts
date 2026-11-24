@@ -97,4 +97,15 @@ describe("extra sound pass", () => {
     expect(pickLoudnessFix({ integratedLufs: -16, truePeakDb: 0.4 }, [{ id: "a", integratedLufs: -16.8, truePeakDb: -2 }])?.id).toBe("a");
     expect(pickLoudnessFix({ integratedLufs: -20, truePeakDb: -2 }, [{ id: "a", integratedLufs: -19.5, truePeakDb: -2 }])).toBeNull();
   });
+
+  it("a loud enough montage whose peaks clip takes the peak-only version (real export, 24-11-2026)", () => {
+    const before = { integratedLufs: -14.1, truePeakDb: 0.3 };
+    expect(needsLoudnessFix(before)).toBe(true);
+    const pick = pickLoudnessFix(before, [
+      { id: "peak-0.63", integratedLufs: -14.4, truePeakDb: -1.2 },
+      { id: "peak-0.79", integratedLufs: -14.1, truePeakDb: -0.4 },
+    ]);
+    expect(pick?.id).toBe("peak-0.63");
+  });
 });
+

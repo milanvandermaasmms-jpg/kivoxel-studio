@@ -290,11 +290,19 @@ export async function measureRender(ffmpeg: string, ffprobe: string, file: strin
 /** Compressor plus limiter: raises quiet game sound without clipping (tested 12-11-2026: -20,7 to about -17 LUFS). */
 /** Limiter ceilings to try, loudest first; AAC overshoots the limiter, so a lower ceiling is sometimes needed. */
 export const BOOST_LIMITS = [0.6, 0.5];
+/**
+ * 24-11-2026 ("survival-avontuur Deel 2": -14,1 LUFS but peaks of +0,3 dBFS): a montage that is loud enough but peaks
+ * too high only needs its peaks flattened, no compressor (that made it far too loud, so every try was refused). AAC
+ * raises short hits by about 2 dB again, hence the low ceilings: measured on that export, 0.63 gave -14,4 LUFS and a
+ * true peak of -1,2 dBFS.
+ */
+export const PEAK_LIMITS = [0.63, 0.56];
+export const peakOnly = (limit: number) => `alimiter=limit=${limit}:attack=0.5:release=40:level=false,aresample=48000`;
 export const loudnessBoost = (limit: number) => `acompressor=threshold=-30dB:ratio=6:attack=3:release=120:makeup=10,alimiter=limit=${limit}:attack=0.5:release=40:level=false,aresample=48000`;
 
 /** Copies the picture and runs the sound through the compressor and limiter. */
-export function boostLoudness(ffmpeg: string, input: string, output: string, cwd: string, options: RunOptions & { limit?: number } = {}): Promise<void> {
-  return runFfmpeg(ffmpeg, ["-hide_banner", "-y", "-i", input, "-c:v", "copy", "-af", loudnessBoost(options.limit ?? BOOST_LIMITS[0]), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", output], cwd, 10 * 60_000, options);
+export function boostLoudness(ffmpeg: string, input: string, output: string, cwd: string, options: RunOptions & { limit?: number; peakOnly?: boolean } = {}): Promise<void> {
+  return runFfmpeg(ffmpeg, ["-hide_banner", "-y", "-i", input, "-c:v", "copy", "-af", options.peakOnly ? peakOnly(options.limit ?? PEAK_LIMITS[0]) : loudnessBoost(options.limit ?? BOOST_LIMITS[0]), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", output], cwd, 10 * 60_000, options);
 }
 
 /** Integrated loudness and true peak of the sound only (fast: no picture is decoded). */
