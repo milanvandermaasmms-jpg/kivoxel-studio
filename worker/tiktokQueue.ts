@@ -7,8 +7,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TikTok } from "./tiktok.ts";
 
 export type TikTokItem = { videoId: string; title: string; file: string; status: "wacht" | "bezig" | "in inbox" | "gepubliceerd" | "mislukt"; publishId: string | null; error: string | null; addedAt: string; tryAfter: string | null; attempts: number };
-export type TikTokQueueFile = { enabledAt: string | null; items: TikTokItem[] };
+/** known: the Shorts that were already on YouTube when TikTok was connected; they only go by hand ("Naar TikTok"). */
+export type TikTokQueueFile = { enabledAt: string | null; known?: string[]; items: TikTokItem[] };
 const RETRY_MS = 3_600_000;
+
+/** TikTok's own limit (a few drafts per day, or too many requests): wait and try again, it is no failure. Pure, tested. */
+export function isTikTokLimit(message: string) {
+  return /spam_risk|rate_limit|too_many|reached_active_user_cap|429/i.test(message);
+}
 
 /** The next item to send: the oldest waiting one whose retry time has passed. Pure, tested. */
 export function nextToSend(items: TikTokItem[], now = Date.now()): TikTokItem | null {
@@ -55,10 +61,19 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
 
   /** Shorts that went to YouTube after TikTok was connected join the line by themselves. */
   async function collect() {
-    const q = await read();
+    let q = await read();
     if (!q.enabledAt) return;
+    if (!q.known) {
+      // Connected before this list existed: everything that was on YouTube before connecting counts as old.
+      const old = await o.db.from("yt_publications").select("video_id").not("youtube_video_id", "is", null).lt("updated_at", q.enabledAt).limit(2000).returns<{ video_id: string }[]>();
+      if (old.error) return;
+      q = { ...q, known: (old.data ?? []).map((p) => p.video_id) };
+      await write(q);
+    }
+    const known = new Set(q.known);
+    // An update to an old publication (stats, captions) changes updated_at, so the known list is what keeps old Shorts out.
     const pubs = await o.db.from("yt_publications").select("video_id, updated_at").not("youtube_video_id", "is", null).gte("updated_at", q.enabledAt).limit(200).returns<{ video_id: string; updated_at: string }[]>();
-    for (const p of pubs.data ?? []) if (!q.items.some((i) => i.videoId === p.video_id)) await add(p.video_id).catch(() => undefined);
+    for (const p of pubs.data ?? []) if (!known.has(p.video_id) && !q.items.some((i) => i.videoId === p.video_id)) await add(p.video_id).catch(() => undefined);
   }
 
   async function tick() {
@@ -84,8 +99,9 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
           next.error = null;
           o.log(`TikTok: "${next.title}" staat als concept in de TikTok-inbox`);
         } catch (e) {
-          next.attempts += 1;
           next.error = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+          // TikTok's daily limit is no failure: the Short simply waits its turn.
+          if (!isTikTokLimit(next.error)) next.attempts += 1;
           next.status = next.attempts >= 3 ? "mislukt" : "wacht";
           next.tryAfter = new Date(Date.now() + RETRY_MS).toISOString();
           o.log(`TikTok: "${next.title}" niet verstuurd: ${next.error}`);
@@ -104,7 +120,9 @@ export function createTikTokQueue(o: { db: SupabaseClient; dataDir: string; rend
     /** From this moment on, every new Short for YouTube also goes to TikTok. */
     async enable() {
       const q = await read();
-      if (!q.enabledAt) await write({ ...q, enabledAt: new Date().toISOString() });
+      if (q.enabledAt) return;
+      const old = await o.db.from("yt_publications").select("video_id").not("youtube_video_id", "is", null).limit(2000).returns<{ video_id: string }[]>();
+      await write({ ...q, enabledAt: new Date().toISOString(), known: old.error ? undefined : (old.data ?? []).map((p) => p.video_id) });
     },
   };
 }

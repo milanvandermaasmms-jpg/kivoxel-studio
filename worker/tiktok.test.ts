@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chunkPlan, tiktokAuthUrl } from "./tiktok.ts";
-import { nextToSend, type TikTokItem } from "./tiktokQueue.ts";
+import { isTikTokLimit, nextToSend, type TikTokItem } from "./tiktokQueue.ts";
 
 const MB = 1024 * 1024;
 const item = (o: Partial<TikTokItem>): TikTokItem => ({ videoId: "v", title: "t", file: "f", status: "wacht", publishId: null, error: null, addedAt: "2026-11-24T10:00:00Z", tryAfter: null, attempts: 0, ...o });
@@ -23,5 +23,11 @@ describe("TikTok", () => {
     const now = Date.parse("2026-11-24T12:00:00Z");
     expect(nextToSend([item({ videoId: "a", addedAt: "2026-11-24T11:00:00Z" }), item({ videoId: "b", addedAt: "2026-11-24T09:00:00Z", tryAfter: "2026-11-24T13:00:00Z" }), item({ videoId: "c", status: "in inbox" })], now)?.videoId).toBe("a");
     expect(nextToSend([item({ status: "gepubliceerd" })], now)).toBeNull();
+  });
+
+  it("treats TikTok's daily limit as waiting, not as a failure", () => {
+    expect(isTikTokLimit("TikTok gaf een fout: spam_risk_too_many_pending_share (User has too many pending shares)")).toBe(true);
+    expect(isTikTokLimit("TikTok gaf een fout: rate_limit_exceeded")).toBe(true);
+    expect(isTikTokLimit("TikTok gaf een fout: invalid_file_upload")).toBe(false);
   });
 });

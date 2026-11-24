@@ -4,6 +4,7 @@ import { ChevronDown, Download, ExternalLink, Rocket } from "lucide-react";
 import { useState } from "react";
 import { FlowBadge, PrivacyBadge } from "@/components/youtube/FlowBadges";
 import { PublishPanel } from "@/components/youtube/PublishPanel";
+import { useTikTok } from "@/components/youtube/useTikTok";
 import { formatTimecode } from "@/lib/youtube/analysis";
 import type { FlowState } from "@/lib/youtube/flowData";
 import type { Flow, FlowItem } from "@/lib/youtube/flow";
@@ -59,6 +60,7 @@ export function VideoQueue({ state, flows, channel, workerOnline, studioId, empt
 
 function VideoCard({ item, state, open, onOpen, workerOnline, studioId, onOpenProduction, onArchive }: { onArchive?: (videoId: string) => void; item: FlowItem; state: Ready; open: OpenMode | null; onOpen: (mode: OpenMode) => void; workerOnline: boolean; studioId: string; onOpenProduction: () => void }) {
   const onToggle = () => onOpen("send");
+  const tiktok = useTikTok(workerOnline);
   const board = state.board;
   const channel = board.channels.find((c) => c.id === item.channelId);
   const video = board.input.videos.find((v) => v.id === item.videoId) as (typeof board.input.videos)[number] & { language?: "en" | "nl" };
@@ -96,7 +98,7 @@ function VideoCard({ item, state, open, onOpen, workerOnline, studioId, onOpenPr
             {item.flow === "ready" ? (
               <>
                 <button type="button" onClick={onToggle} aria-expanded={open === "send"} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#7c3aed] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#6d28d9]">
-                  <Rocket className="h-4 w-4" aria-hidden /> {open === "send" ? "Sluiten" : "Naar YouTube sturen"}
+                  <Rocket className="h-4 w-4" aria-hidden /> {open === "send" ? "Sluiten" : tiktok.connected && item.kind === "short" ? "Naar YouTube + TikTok sturen" : "Naar YouTube sturen"}
                 </button>
                 {/* 18-11-2026: as visible as sending; uploading by hand does not count for the API quota. */}
                 <button type="button" onClick={() => onOpen("self")} aria-expanded={open === "self"} aria-controls={panelId} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[#0e7490] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#155e75]">

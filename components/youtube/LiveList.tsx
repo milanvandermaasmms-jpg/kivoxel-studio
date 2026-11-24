@@ -4,6 +4,7 @@ import { ChevronDown, ExternalLink, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PrivacyBadge } from "@/components/youtube/FlowBadges";
 import { VideoQueue } from "@/components/youtube/VideoQueue";
+import { TIKTOK_LABEL, useTikTok } from "@/components/youtube/useTikTok";
 import type { FlowState } from "@/lib/youtube/flowData";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 
@@ -23,6 +24,21 @@ export function LiveList({ state, channel, workerOnline, studioId, onOpenProduct
   const [shown, setShown] = useState(PAGE);
   const [open, setOpen] = useState<string | null>(null);
   const [closed, setClosed] = useState<Set<string>>(new Set());
+  // 24-11-2026: Shorts that were already live before TikTok was connected go to the TikTok inbox with one click.
+  const tiktok = useTikTok(workerOnline);
+  const [ttBusy, setTtBusy] = useState<string | null>(null);
+  const [ttError, setTtError] = useState<string | null>(null);
+  const toTikTok = async (videoId: string) => {
+    setTtBusy(videoId);
+    setTtError(null);
+    try {
+      await tiktok.send(videoId);
+    } catch (e) {
+      setTtError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTtBusy(null);
+    }
+  };
   const items = useMemo(
     () =>
       state.items
@@ -54,6 +70,8 @@ export function LiveList({ state, channel, workerOnline, studioId, onOpenProduct
           <input value={query} onChange={(e) => (setQuery(e.target.value), setShown(PAGE))} placeholder="Zoeken op titel" aria-label="Zoeken op titel" className="w-32 bg-transparent outline-none sm:w-44" />
         </label>
       </div>
+      {ttError && <p className="text-sm text-red-700">TikTok: {ttError}</p>}
+      {tiktok.connected && kind !== "long" && <p className="text-xs text-slate-500">&quot;Naar TikTok&quot; zet een Short als concept in je TikTok-inbox; publiceren doe je zelf in de TikTok-app. TikTok neemt er per dag maar een paar aan: de rest wacht en gaat later vanzelf.</p>}
       {items.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">{total ? "Niets gevonden met dit filter." : "Nog niets op YouTube."}</p>
       ) : (
@@ -93,6 +111,14 @@ export function LiveList({ state, channel, workerOnline, studioId, onOpenProduct
                                   YouTube <ExternalLink className="h-3 w-3" aria-hidden />
                                 </a>
                               )}
+                              {tiktok.connected && i.kind === "short" &&
+                                (tiktok.sent[i.videoId] && tiktok.sent[i.videoId] !== "mislukt" ? (
+                                  <span className="text-emerald-700">{TIKTOK_LABEL[tiktok.sent[i.videoId]] ?? tiktok.sent[i.videoId]}</span>
+                                ) : (
+                                  <button type="button" disabled={ttBusy === i.videoId} onClick={() => void toTikTok(i.videoId)} className="rounded-md bg-ink px-2 py-1 font-medium text-ink-fg disabled:opacity-50">
+                                    {ttBusy === i.videoId ? "Bezig…" : tiktok.sent[i.videoId] === "mislukt" ? "Opnieuw naar TikTok" : "Naar TikTok"}
+                                  </button>
+                                ))}
                               <button type="button" onClick={() => setOpen(open === i.videoId ? null : i.videoId)} aria-expanded={open === i.videoId} className="text-slate-600 underline underline-offset-2">
                                 {open === i.videoId ? "Sluiten" : "Details"}
                               </button>

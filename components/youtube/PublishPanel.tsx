@@ -8,6 +8,7 @@ import { Button, Dialog } from "@/components/ui/Dialog";
 import { SuggestBox, TagChips } from "@/components/youtube/SuggestBox";
 import { PRIVACY } from "@/lib/youtube/flow";
 import { PrivacyBadge } from "@/components/youtube/FlowBadges";
+import { useTikTok } from "@/components/youtube/useTikTok";
 import { amsterdamHhmm, defaultSlot, defaultTags, nextSlot } from "@/lib/youtube/learning";
 import { loadLearning, track } from "@/lib/youtube/learningData";
 import type { Hook } from "@/lib/youtube/hooks";
@@ -257,6 +258,9 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
   const [row, setRow] = useState<DbPublication | null | "migration" | undefined>(undefined);
   const [draft, setDraft] = useState<PublicationDraft>(EMPTY_DRAFT(language));
   const [busy, setBusy] = useState(false);
+  // 24-11-2026: a Short also goes to the TikTok inbox (as a draft) once it is on YouTube, when TikTok is connected.
+  const tiktok = useTikTok(workerOnline);
+  const alsoTikTok = kind === "short" && tiktok.connected;
   const [upload, setUpload] = useState<UploadProgress | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [fromTip, setFromTip] = useState<string | null>(null);
@@ -512,7 +516,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
       {!locked && !onYouTube && (
         <div className="space-y-1.5 rounded-lg border-2 border-violet-200 bg-violet-50 p-3">
           <button type="button" disabled={!primary || busy} onClick={() => primary && setConfirming(primary)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#7c3aed] px-6 text-base font-semibold text-white shadow-sm hover:bg-[#6d28d9] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto">
-            <Rocket className="h-5 w-5" aria-hidden /> Naar YouTube sturen
+            <Rocket className="h-5 w-5" aria-hidden /> {alsoTikTok ? "Naar YouTube + TikTok sturen" : "Naar YouTube sturen"}
           </button>
           <p className="text-violet-900">
             {primary
@@ -524,6 +528,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
                     ? "Gaat meteen openbaar op YouTube (je krijgt eerst nog een vraag)."
                     : "Gaat niet vermeld op YouTube: alleen met de link te zien."
               : `Nog niet klaar: ${whyNot ?? "kies eerst de zichtbaarheid."}`}
+            {primary && alsoTikTok ? " Daarna komt hij vanzelf als concept in je TikTok-inbox; daar publiceer je hem zelf." : ""}
           </p>
         </div>
       )}
@@ -721,11 +726,12 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
           />
         </>
       )}
-      <Dialog open={!!confirming} onClose={() => !busy && setConfirming(null)} title={confirming?.action === "publish" && confirming.visibility === "public" ? "🌍 Openbaar publiceren?" : "Naar YouTube sturen?"} closeOnOutside={false}>
+      <Dialog open={!!confirming} onClose={() => !busy && setConfirming(null)} title={confirming?.action === "publish" && confirming.visibility === "public" ? "🌍 Openbaar publiceren?" : alsoTikTok ? "Naar YouTube + TikTok sturen?" : "Naar YouTube sturen?"} closeOnOutside={false}>
         {confirming && (
           <div className="space-y-3 p-4 text-sm">
             {confirming.action === "publish" && confirming.visibility === "public" && <p className="font-semibold text-emerald-800">Deze video wordt voor iedereen zichtbaar.</p>}
             <p>{confirmText(confirming, onYouTube)}</p>
+            {alsoTikTok && !onYouTube && <p className="text-slate-600">Daarna gaat hij ook als concept naar je TikTok-inbox. Op TikTok publiceer je hem zelf.</p>}
             <div className="flex flex-wrap gap-2">
               <Button disabled={busy} onClick={() => void send(confirming)}>
                 {confirming.action === "private" ? (onYouTube ? "Ja, privé zetten" : "Ja, privé uploaden") : confirming.action === "schedule" ? "Ja, inplannen" : "Ja, nu publiceren"}
