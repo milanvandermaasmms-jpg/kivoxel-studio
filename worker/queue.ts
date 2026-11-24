@@ -846,8 +846,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           const others = await db.from("yt_videos").select("id, status, yt_video_moments(yt_moments(peak_ms, start_ms, end_ms))").eq("recording_id", video.data.recording_id).neq("id", video.data.id).neq("status", "archived").returns<{ id: string; status: string; yt_video_moments: { yt_moments: { peak_ms: number | null; start_ms: number; end_ms: number } | null }[] }[]>();
           const excluded = Array.isArray(job.payload?.exclude_peaks) ? (job.payload!.exclude_peaks as unknown[]).filter((x): x is number => typeof x === "number") : [];
           const used = [main.peakMs, ...excluded, ...(others.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments?.peak_ms ?? (m.yt_moments ? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2) : null)).filter((x): x is number => x !== null))];
-          // Only a moment the producer gate would not reject (gameplay at the peak and in the outcome).
-          const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000) && producerGate({ event: e, timeline: timeline!, sourceOnPc: true }).status !== "AFGEKEURD" && contentValue(timeline!, e.t_peak).level !== "afgewezen").sort((a, b) => b.payoff - a.payoff)[0];
+          // Only a moment the producer gate would not reject (gameplay at the peak and in the outcome). 24-11-2026 (praktijktest):
+          // a moment that a measurement confirms goes before one only Gemini scores high (the fall before the bridge).
+          const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000) && producerGate({ event: e, timeline: timeline!, sourceOnPc: true }).status !== "AFGEKEURD" && contentValue(timeline!, e.t_peak).level !== "afgewezen").sort((a, b) => (contentValue(timeline!, b.t_peak).level === "bevestigd" ? 1 : 0) - (contentValue(timeline!, a.t_peak).level === "bevestigd" ? 1 : 0) || b.payoff - a.payoff)[0];
           if (alt) {
             newMoment = { from: main.peakMs, to: alt.t_peak, why: alt.description };
             near = alt;
