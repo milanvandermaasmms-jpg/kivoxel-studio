@@ -45,6 +45,25 @@ export function TikTokConnection({ workerOnline }: { workerOnline: boolean }) {
     }
   };
 
+  const saveApp = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const clientKey = String(f.get("clientKey") ?? "").trim();
+    const clientSecret = String(f.get("clientSecret") ?? "").trim();
+    if (!clientKey || !clientSecret) return setError("Vul allebei de velden in.");
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`${WORKER_URL}/tiktok/app`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientKey, clientSecret }) });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? "Opslaan lukte niet");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Section title="TikTok" intro="Elke nieuwe Short die naar YouTube gaat, komt ook als concept in je TikTok-inbox. Publiceren doe je zelf in de TikTok-app.">
       {!workerOnline ? (
@@ -52,7 +71,16 @@ export function TikTokConnection({ workerOnline }: { workerOnline: boolean }) {
       ) : !status ? (
         <p className="text-sm text-slate-500">Laden…</p>
       ) : !status.configured ? (
-        <p className="text-sm text-slate-600">Nog niet ingesteld: de TikTok-app wordt aangemaakt op developers.tiktok.com. Daarna verschijnt hier de knop om te koppelen.</p>
+        <form className="space-y-2" onSubmit={(e) => void saveApp(e)}>
+          <p className="text-sm text-slate-600">
+            Plak hier één keer de Klantsleutel en het Klantgeheim van de app op developers.tiktok.com (klik daar op het oogje of het kopieer-icoon). Ze worden versleuteld op deze pc bewaard.
+          </p>
+          <input name="clientKey" autoComplete="off" spellCheck={false} placeholder="Klantsleutel" className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          <input name="clientSecret" type="password" autoComplete="off" placeholder="Klantgeheim" className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          <button type="submit" disabled={busy} className="min-h-10 rounded-md bg-ink px-4 text-sm font-medium text-ink-fg disabled:opacity-50">
+            Opslaan
+          </button>
+        </form>
       ) : (
         <div className="space-y-3">
           <p className="text-sm">
