@@ -1794,6 +1794,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, contentValue: contentGate, cvRetry: decision.reason, audioMode: kSettings.audio_mode, voicePlan };
         }
         if (!decision.toReview) {
+          // The score must say the same as the gate: a production the gate holds back is never "publicatiegereed".
+          if (viral) {
+            viral = { ...viral, blocks: [...viral.blocks, `Content Value Gate: ${decision.reason}`.slice(0, 300)], status: "geblokkeerd", summary: `Geblokkeerd: ${decision.reason}`.slice(0, 300) };
+            const cur3 = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
+            await db.from("yt_renders").update({ qc: { ...(cur3.data?.qc ?? {}), viral } }).eq("job_id", job.id);
+          }
           await db.from("yt_videos").update({ status: "archived", review_note: `Studio (inhoud): ${decision.reason}`.slice(0, 500) }).eq("id", video.data.id).in("status", ["idea", "scripted", "rendering", "review"]);
           return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, viral: viral ? { status: viral.status, total: viral.total, summary: viral.summary } : null, contentValue: contentGate, studioRejected: decision.reason, audioMode: kSettings.audio_mode, voicePlan };
         }
