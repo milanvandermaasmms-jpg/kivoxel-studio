@@ -82,7 +82,7 @@ De standaard-SFX (whoosh, impact, record scratch, pop, riser) zijn door ons zelf
 - Andere opname gebruiken: vervang `kind.wav` door 8-15 seconden heldere spraak, zonder muziek, en herstart de werker.
 - In `presets.json` bij `voice.clone`: `use` (aan/uit), `shorts_only` (lange video's houden Google, want de kloon is traag zonder NVIDIA-kaart: ongeveer 35 s per zin) en `boost` (hoger = uitbundiger).
 - Lukt de kloon niet, dan neemt Google het over, en daarna de lokale stem (Kokoro puck).
-- **YouTube-regel:** een nagemaakte stem van een echt persoon moet je melden. Bij een video met de stemkloon blokkeert de Poortwachter het publiceren tot **AI-melding = Ja** staat.
+- **YouTube-regel:** een nagemaakte stem van een echt persoon moet je melden. Of je de **AI-melding** aanzet, is jouw keuze (besluit Milan, 24-11-2026): de studio blokkeert er nooit iets op en toont bij de stemkloon alleen een opmerking.
 
 ## Reacties van de kinderen (Whisper)
 De werker luistert met Whisper (lokaal, gratis) rond de sterkste momenten. Een korte, harde kreet wordt een moment in de Event Timeline, en daar praat de verteller niet overheen, zodat de echte reactie hoorbaar blijft. De woorden blijven op de pc (`FamilieMK-YouTube\speech`) en komen nooit in beeld. **Tip:** zet op de PS5 bij opnemen "microfoongeluid opnemen" aan; in de huidige opnames is alleen gamegeluid te horen.

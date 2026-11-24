@@ -86,7 +86,7 @@
 7. **Keuren en publiceren**
    - **Keurscherm (Milans besluit):** geen Poortwachter, geen blokkades en geen rood/oranje lijsten. Goedkeuren kan zodra er een montage is.
    - **Database-Poortwachter:** verwijderd met migratie 057, door Milan uitgevoerd.
-   - **AI-melding:** wordt automatisch aangezet bij een video met de gekloonde stem; YouTube eist dat.
+   - **AI-melding:** Milans eigen keuze (24-11-2026); niet vanzelf aan, blokkeert nooit; bij de gekloonde stem alleen een opmerking.
    - **"🔁 Opnieuw door de nieuwe montage":** monteert klaarstaande en te keuren video's opnieuw. Ze komen daarna terug bij Te keuren.
    - **Live en ingepland:** 24 live en 5 "ingepland" staan al online. Die nooit aanraken (besluit Milan).
 

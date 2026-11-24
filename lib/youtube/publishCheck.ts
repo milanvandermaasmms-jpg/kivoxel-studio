@@ -58,9 +58,10 @@ export function publishCheck(d: PublicationDraft, f: PublishFacts): PublishItem[
   out.push(!f.channel ? { key: "channel", label: "Kanaal", status: "blokkeert", why: "Bij deze video hoort geen kanaal." } : { key: "channel", label: "Juiste kanaal", status: f.channel.linked ? "ok" : "blokkeert", why: f.channel.linked ? `Gaat naar ${f.channel.name}; de werker controleert vóór het uploaden nog eens of de aanmelding bij dat YouTube-kanaal hoort.` : `${f.channel.name} is niet met YouTube gekoppeld (Instellingen).` });
   // 8. Doelgroep en AI-melding
   if (d.made_for_kids === null) out.push({ key: "audience", label: "Doelgroep", status: "blokkeert", why: "Kies of de video voor kinderen gemaakt is (verplicht bij YouTube)." });
-  else if (d.contains_synthetic_media === null) out.push({ key: "audience", label: "AI-melding", status: "blokkeert", why: "Kies of de video realistische AI-inhoud bevat." });
-  else if (f.clonedVoice && !d.contains_synthetic_media) out.push({ key: "audience", label: "AI-melding", status: "blokkeert", why: "Deze versie heeft de gekloonde stem: YouTube verplicht dan de AI-melding." });
-  else out.push({ key: "audience", label: "Doelgroep en AI-melding", status: "ok", why: `${d.made_for_kids ? "Voor kinderen" : "Niet voor kinderen gemaakt"}; AI-melding ${d.contains_synthetic_media ? "aan" : "uit"}.` });
+  // 24-11-2026 (Milan): "of ik de AI-melding aanzet is mijn keuze! dit mag nooit een reden zijn om iets te blokkeren".
+  // With the cloned voice and the label off, only a note; not chosen counts as off.
+  else if (f.clonedVoice && !d.contains_synthetic_media) out.push({ key: "audience", label: "AI-melding", status: "let op", why: "Deze versie heeft de gekloonde stem en de AI-melding staat uit. Dat is jouw keuze; YouTube vraagt de melding bij een echt klinkende AI-stem." });
+  else out.push({ key: "audience", label: "Doelgroep en AI-melding", status: "ok", why: `${d.made_for_kids ? "Voor kinderen" : "Niet voor kinderen gemaakt"}; AI-melding ${d.contains_synthetic_media ? "aan" : "uit"} (jouw keuze).` });
   // 9. Muzieklicenties
   const unlicensed = f.music.filter((m) => !m.licensed);
   const credits = f.music.filter((m) => m.credit.trim());

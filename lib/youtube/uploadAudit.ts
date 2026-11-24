@@ -45,7 +45,7 @@ export function auditUpload(p: AuditInput): AuditFinding[] {
   if (other) out.push({ key: "game", severity: "probleem", text: `De titel noemt ${other}, maar de video is ${game.name}.` });
   else if (title && !word(game.name).test(lower)) out.push({ key: "game-name", severity: "let op", text: `"${game.name}" staat niet in de titel; met de gamenaam vinden kijkers hem beter.` });
 
-  if (/chatterbox|stemkloon/i.test(p.voiceEngine ?? "") && !p.syntheticMedia) out.push({ key: "ai-label", severity: "probleem", text: "Gekloonde stem zonder AI-melding: YouTube verplicht die melding." });
+  if (/chatterbox|stemkloon/i.test(p.voiceEngine ?? "") && !p.syntheticMedia) out.push({ key: "ai-label", severity: "let op", text: "Gekloonde stem, AI-melding staat uit (jouw keuze)." });
   if (p.madeForKids === null) out.push({ key: "kids", severity: "let op", text: "Niet vastgelegd of de video voor kinderen gemaakt is." });
   if (!p.description.trim()) out.push({ key: "desc-empty", severity: "let op", text: "Geen beschrijving." });
   if (!(p.tags ?? []).length) out.push({ key: "tags-empty", severity: "let op", text: "Geen tags." });

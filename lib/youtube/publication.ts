@@ -69,7 +69,7 @@ export function uploadProblems(d: PublicationDraft, now = Date.now()): string[] 
   const p = draftProblems(d);
   if (!d.title.trim()) p.push("Vul een titel in.");
   if (d.made_for_kids === null) p.push("Kies zelf of de video voor kinderen gemaakt is (verplicht bij YouTube).");
-  if (d.contains_synthetic_media === null) p.push("Kies zelf of de video realistische AI-inhoud bevat.");
+  // 24-11-2026 (Milan): the AI label is his own choice and never stops an upload; not chosen = off.
   if (d.publish_at) {
     const t = Date.parse(d.publish_at);
     if (!Number.isFinite(t)) p.push("Het publicatiemoment is ongeldig.");

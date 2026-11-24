@@ -30,9 +30,9 @@ describe("YouTube limits", () => {
 
 describe("before an upload", () => {
   const now = Date.parse("2026-11-12T12:00:00Z");
-  it("asks Milan to choose audience and AI notice himself", () => {
+  it("asks Milan to choose the audience; the AI label is his choice and never required (24-11-2026)", () => {
     const p = uploadProblems({ ...EMPTY_DRAFT("en") }, now);
-    expect(p).toEqual(["Vul een titel in.", "Kies zelf of de video voor kinderen gemaakt is (verplicht bij YouTube).", "Kies zelf of de video realistische AI-inhoud bevat."]);
+    expect(p).toEqual(["Vul een titel in.", "Kies zelf of de video voor kinderen gemaakt is (verplicht bij YouTube)."]);
     expect(uploadProblems(ok, now)).toEqual([]);
   });
 

@@ -13,12 +13,15 @@ describe("publicatiecheck (10 punten)", () => {
     expect(items.find((i) => i.key === "title")!.status).toBe("zelf kijken");
   });
 
-  it("blocks what may never go out: not approved, Dutch title, no audience choice, cloned voice without AI notice, unlicensed music, missing export", () => {
+  it("blocks what may never go out: not approved, Dutch title, no audience choice, unlicensed music, missing export", () => {
     const keys = (d: Partial<PublicationDraft>, f: Partial<PublishFacts>) => blocking(publishCheck(draft(d), facts(f))).map((i) => i.key);
     expect(keys({}, { videoStatus: "review" })).toEqual(["approved"]);
     expect(keys({ title: "Minecraft Horror Nacht in de Sneeuw" }, {})).toEqual(["title"]);
     expect(keys({ made_for_kids: null }, {})).toEqual(["audience"]);
-    expect(keys({ contains_synthetic_media: false }, { clonedVoice: true })).toEqual(["audience"]);
+    // 24-11-2026 (Milan): the AI label is his choice: with the cloned voice and the label off (or not chosen) only a note.
+    expect(keys({ contains_synthetic_media: false }, { clonedVoice: true })).toEqual([]);
+    expect(keys({ contains_synthetic_media: null }, { clonedVoice: true })).toEqual([]);
+    expect(publishCheck(draft({ contains_synthetic_media: false }), facts({ clonedVoice: true })).find((i) => i.key === "audience")!.status).toBe("let op");
     expect(keys({}, { music: [{ file: "x.mp3", licensed: false, credit: "" }] })).toEqual(["music"]);
     expect(keys({}, { exportOk: false })).toEqual(["export"]);
   });

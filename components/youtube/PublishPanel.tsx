@@ -288,10 +288,8 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
     };
   }, [renderId]);
 
-  // The kid's cloned voice is a realistic synthetic voice: YouTube requires the AI disclosure, so it is switched on by itself.
-  useEffect(() => {
-    if (clonedVoice) setDraft((d) => (d.contains_synthetic_media ? d : { ...d, contains_synthetic_media: true }));
-  }, [clonedVoice]);
+  // 24-11-2026 (Milan): the AI label is his own choice. It is no longer switched on by itself and never blocks; with the
+  // cloned voice the screen only says so next to the choice.
 
   // What the Poortwachter needs: channel profile, private words, approved script and privacy flags.
   useEffect(() => {
@@ -640,8 +638,9 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
           <YesNo name={`kids-${videoId}`} value={draft.made_for_kids} onChange={(v) => set({ made_for_kids: v })} no="Nee, niet voor kinderen gemaakt" yes="Ja, gemaakt voor kinderen" />
         </div>
         <div className="space-y-1 rounded-md bg-slate-50 p-2">
-          <p className="font-medium">AI-melding (verplicht, kies zelf)</p>
-          <p className="text-slate-500">Bevat de video realistische inhoud die gewijzigd of door AI gemaakt is (bijvoorbeeld een echt lijkende stem of persoon)? Een AI-verteller over gameplay kan hieronder vallen; twijfel je, kies dan Ja.</p>
+          <p className="font-medium">AI-melding (jouw keuze)</p>
+          <p className="text-slate-500">Bevat de video realistische inhoud die gewijzigd of door AI gemaakt is (bijvoorbeeld een echt lijkende stem of persoon)? Een AI-verteller over gameplay kan hieronder vallen. Niets gekozen = uit.</p>
+          {clonedVoice && <p className="text-amber-800">Deze versie heeft de gekloonde stem.</p>}
           <YesNo name={`ai-${videoId}`} value={draft.contains_synthetic_media} onChange={(v) => set({ contains_synthetic_media: v })} no="Nee" yes="Ja, melden bij YouTube" />
         </div>
 

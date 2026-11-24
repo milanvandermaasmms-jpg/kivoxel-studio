@@ -1711,7 +1711,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const { data: pub, error } = await db.from("yt_publications").select(PUB_COLUMNS).eq("id", pubId).eq("studio_id", job.studio_id).maybeSingle<PublicationRow>();
     if (error) throw new Error(error.message);
     if (!pub) throw new Error("Deze publicatie bestaat niet (meer)");
-    if (pub.made_for_kids === null || pub.contains_synthetic_media === null) throw new Error("Doelgroep of AI-melding ontbreekt");
+    // 24-11-2026 (Milan): the AI label is his choice and never stops an upload; not chosen = off.
+    if (pub.made_for_kids === null) throw new Error("Doelgroep ontbreekt");
     // Test videos never go public or scheduled (2.2 chapter 23); the database refuses this too.
     if (pub.is_test && (pub.visibility !== "private" || pub.publish_at)) throw new Error("Een testvideo blijft altijd privé");
     const setPub = async (fields: Record<string, unknown>) => {
@@ -1860,7 +1861,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         .upload({
         key: pub.id,
         file: join(publisher.rendersDir, render.data.file_name),
-        meta: { title: pub.title, description: await withMusicCredit(pub.description, render.data.qc?.audio?.musicFiles ?? []), tags: pub.tags, category_id: pub.category_id, language: pub.language, made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at },
+        meta: { title: pub.title, description: await withMusicCredit(pub.description, render.data.qc?.audio?.musicFiles ?? []), tags: pub.tags, category_id: pub.category_id, language: pub.language, made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media ?? false, visibility: pub.visibility, publish_at: pub.publish_at },
         signal: lv.signal,
         onProgress: (sent, total) => {
           const seconds = (Date.now() - started) / 1000;
@@ -1929,7 +1930,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       return { youtube_video_id: pub.youtube_video_id, status, publish_at: pub.publish_at, extras: true, ...extra };
     }
     await lv.phase(pub.publish_at ? "Inplannen bij YouTube" : pub.visibility === "private" ? "Op privé zetten bij YouTube" : "Publiceren bij YouTube");
-    await (await uploaderOf(pub.video_id)).setStatus(pub.youtube_video_id, { made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media!, visibility: pub.visibility, publish_at: pub.publish_at });
+    await (await uploaderOf(pub.video_id)).setStatus(pub.youtube_video_id, { made_for_kids: pub.made_for_kids!, contains_synthetic_media: pub.contains_synthetic_media ?? false, visibility: pub.visibility, publish_at: pub.publish_at });
     const check = await (await uploaderOf(pub.video_id)).processing(pub.youtube_video_id);
     if (check.privacyStatus && check.privacyStatus !== pub.visibility) await lv.event("note", `Let op: YouTube meldt zichtbaarheid ${check.privacyStatus}, gevraagd was ${pub.visibility}`);
     const status = await settlePublication(pub, pub.youtube_video_id, setPub);
