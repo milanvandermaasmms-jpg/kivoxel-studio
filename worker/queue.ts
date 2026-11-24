@@ -833,6 +833,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       longCutMsOut = longCutMs;
       // KIVOXEL fase 1, sections 5 and 6: a Short gets its length from the content and a hook from the library.
       let shortEvent: GameEvent | null = null;
+      // 24-11-2026: only Milan's own request skips the gates (his feedback, or a re-montage he asked for); the studio's
+      // automatic corrections (editor_fix, viral_fix) and its own retry after the content check (cv_retry) go through them.
+      const milanOverride = !!job.payload?.feedback || (job.payload?.remontage === true && job.payload?.editor_fix === undefined && job.payload?.viral_fix === undefined && job.payload?.cv_retry === undefined);
       let shortHook: string | null = null;
       if (short && timeline?.events.length) {
         const main = moments[0];
@@ -841,7 +844,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         // other moment, never one another video of this recording already uses (and never the rejected one).
         if (job.payload?.new_moment === true && video.data.recording_id) {
           const others = await db.from("yt_videos").select("id, status, yt_video_moments(yt_moments(peak_ms, start_ms, end_ms))").eq("recording_id", video.data.recording_id).neq("id", video.data.id).neq("status", "archived").returns<{ id: string; status: string; yt_video_moments: { yt_moments: { peak_ms: number | null; start_ms: number; end_ms: number } | null }[] }[]>();
-          const used = [main.peakMs, ...(others.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments?.peak_ms ?? (m.yt_moments ? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2) : null)).filter((x): x is number => x !== null))];
+          const excluded = Array.isArray(job.payload?.exclude_peaks) ? (job.payload!.exclude_peaks as unknown[]).filter((x): x is number => typeof x === "number") : [];
+          const used = [main.peakMs, ...excluded, ...(others.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments?.peak_ms ?? (m.yt_moments ? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2) : null)).filter((x): x is number => x !== null))];
           // Only a moment the producer gate would not reject (gameplay at the peak and in the outcome).
           const alt = timeline.events.filter((e) => e.type && e.payoff >= 40 && used.every((p) => Math.abs(p - e.t_peak) > 15_000) && producerGate({ event: e, timeline: timeline!, sourceOnPc: true }).status !== "AFGEKEURD" && contentValue(timeline!, e.t_peak).level !== "afgewezen").sort((a, b) => b.payoff - a.payoff)[0];
           if (alt) {
@@ -856,7 +860,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         // 24-11-2026 (praktijktest: the plan picked a crafting menu and the recording with a real fall got no Short): a moment
         // that the producer gate or the Content Value Gate rejects first makes way for the strongest other moment of this
         // recording that passes both and no other video of it uses. Only when there is none, the video is archived.
-        if (job.payload?.remontage !== true && !job.payload?.feedback && (producer.status === "AFGEKEURD" || contentValue(timeline, shortEvent.t_peak).level === "afgewezen") && video.data.recording_id) {
+        if (!milanOverride && (producer.status === "AFGEKEURD" || contentValue(timeline, shortEvent.t_peak).level === "afgewezen") && video.data.recording_id) {
           const sibs = await db.from("yt_videos").select("id, yt_video_moments(yt_moments(peak_ms, start_ms, end_ms))").eq("recording_id", video.data.recording_id).neq("id", video.data.id).neq("status", "archived").returns<{ id: string; yt_video_moments: { yt_moments: { peak_ms: number | null; start_ms: number; end_ms: number } | null }[] }[]>();
           const taken = (sibs.data ?? []).flatMap((o) => o.yt_video_moments.map((m) => m.yt_moments ? (m.yt_moments.peak_ms ?? Math.round((m.yt_moments.start_ms + m.yt_moments.end_ms) / 2)) : null).filter((x): x is number => x !== null));
           const tl = timeline;
@@ -870,7 +874,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             producer = producerGate({ event: shortEvent, timeline, sourceOnPc: true });
           }
         }
-        if (producer.status === "AFGEKEURD" && job.payload?.remontage !== true && !job.payload?.feedback) {
+        if (producer.status === "AFGEKEURD" && !milanOverride) {
           const note = `Producer: AFGEKEURD — ${producer.summary}${producer.directions.length ? ` Richting: ${producer.directions[0]}` : ""}`.slice(0, 500);
           await db.from("yt_videos").update({ status: "archived", review_note: note }).eq("id", video.data.id).in("status", ["idea", "scripted"]);
           return { version, producer, archived: true };
@@ -878,7 +882,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         // 24-11-2026 (Milan: "geen Shorts meer ter keuring waarin niets interessants gebeurt"): the Content Value Gate.
         // Nothing measured, or mostly dead picture: no script, no montage, no review. Milan's own request still goes through.
         const cv = contentValue(timeline, shortEvent.t_peak);
-        if (cv.level === "afgewezen" && job.payload?.remontage !== true && !job.payload?.feedback) {
+        if (cv.level === "afgewezen" && !milanOverride) {
           await db.from("yt_videos").update({ status: "archived", review_note: `Studio (Content Value Gate): ${cv.reasons[0]}`.slice(0, 500) }).eq("id", video.data.id).in("status", ["idea", "scripted"]);
           return { version, producer, contentValue: cv, archived: true };
         }
@@ -1049,9 +1053,9 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const ok = await db.from("yt_scripts").update({ status: "approved" }).eq("id", mine.data.id);
       if (ok.error) throw new Error(ok.error.message);
       // A correction (editor_fix / viral_fix) stays marked in its montage, so it is never corrected again (no loop).
-      const carry: Record<string, unknown> = Object.fromEntries((["editor_fix", "viral_fix", "viral_prev"] as const).filter((k) => job.payload?.[k] !== undefined).map((k) => [k, job.payload![k]]));
+      const carry: Record<string, unknown> = Object.fromEntries((["editor_fix", "viral_fix", "viral_prev", "cv_retry"] as const).filter((k) => job.payload?.[k] !== undefined).map((k) => [k, job.payload![k]]));
       // 24-11-2026: Milan's own request (no automatic correction) always comes back to his review.
-      if (job.payload?.editor_fix === undefined && job.payload?.viral_fix === undefined) carry.milan_asked = true;
+      if (job.payload?.editor_fix === undefined && job.payload?.viral_fix === undefined && job.payload?.cv_retry === undefined) carry.milan_asked = true;
       await queueStep(job.studio_id, { video_id: video.data.id, step: "render", idempotency_key: `render:${mine.data.id}:remontage`, payload: { script_id: mine.data.id, ...carry } });
       await db.from("yt_videos").update({ status: "rendering" }).eq("id", video.data.id).in("status", ["idea", "scripted", "review", "approved"]);
       remontaged = true;
@@ -1779,6 +1783,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         }
         const decision = reviewDecision(contentGate, aiContent, milanAsked);
         await lv.event(decision.toReview ? "note" : "milestone", `Content Value Gate: ${decision.toReview ? "naar Te keuren" : "niet naar Te keuren"}. ${decision.reason}`.slice(0, 500));
+        if (!decision.toReview && !job.payload?.cv_retry && !milanAsked && mainEvent) {
+          // 24-11-2026 (praktijktest: two nearly equal moments, the weaker one was chosen): one new attempt with the next
+          // confirmed moment of this recording (never the rejected one again), through all gates; only then held back.
+          const next = Math.max(s.data.version + 1, 2);
+          await queueStep(job.studio_id, { video_id: video.data.id, step: "script", idempotency_key: `script:${video.data.id}:v${next}`, payload: { version: next, remontage: true, new_moment: true, cv_retry: 1, exclude_peaks: [mainEvent.t_peak] } });
+          await db.from("yt_videos").update({ status: "scripted" }).eq("id", video.data.id).in("status", ["rendering"]);
+          await lv.event("note", `Content Value Gate: niet goed genoeg (${decision.reason.slice(0, 200)}). Eén nieuwe poging met het volgende bevestigde moment.`.slice(0, 500));
+          return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, contentValue: contentGate, cvRetry: decision.reason, audioMode: kSettings.audio_mode, voicePlan };
+        }
         if (!decision.toReview) {
           await db.from("yt_videos").update({ status: "archived", review_note: `Studio (inhoud): ${decision.reason}`.slice(0, 500) }).eq("id", video.data.id).in("status", ["idea", "scripted", "rendering", "review"]);
           return { file: fileName, durationMs: plan.durationMs, qc: qcSummary, editor, viral: viral ? { status: viral.status, total: viral.total, summary: viral.summary } : null, contentValue: contentGate, studioRejected: decision.reason, audioMode: kSettings.audio_mode, voicePlan };
