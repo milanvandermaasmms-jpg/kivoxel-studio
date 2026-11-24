@@ -26,6 +26,15 @@ export function parseWait(error: string | null | undefined): Wait | null {
 /** A refusal from before the queue existed ("terug naar Klaar voor YouTube"): those videos join the line too. */
 export const oldRefusal = (error: string | null | undefined) => !!error && !error.startsWith(WAIT_PREFIX) && /uploadlimiet|YouTube-quotum (van vandaag|voor vandaag|van het Google-project) is op/i.test(error);
 
+/**
+ * 24-11-2026 (storing): the old refusals that still have to join the line, oldest first. An archived video stays out:
+ * it was skipped, but still counted as "joins the line next round", so the worker stopped every round and nothing of
+ * that channel went to YouTube any more (SpawnNado, 23-11-2026 until 24-11-2026).
+ */
+export function refusalsToQueue<T extends { error: string | null; updated_at: string; yt_videos: { status: string } | null }>(rows: T[]): T[] {
+  return rows.filter((x) => oldRefusal(x.error) && x.yt_videos?.status !== "archived").sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+}
+
 /** The day key of YouTube's quota (midnight Pacific time). */
 const pacificDay = (ms: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
 

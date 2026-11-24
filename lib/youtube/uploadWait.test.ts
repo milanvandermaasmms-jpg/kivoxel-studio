@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byLine, nextInLine, oldRefusal, parseWait, retryAfter, waitNote, waitReason, type WaitingPub } from "./uploadWait";
+import { byLine, nextInLine, oldRefusal, parseWait, refusalsToQueue, retryAfter, waitNote, waitReason, type WaitingPub } from "./uploadWait";
 
 const iso = (s: string) => new Date(s).toISOString();
 const now = Date.parse("2026-11-22T12:00:00Z");
@@ -45,5 +45,17 @@ describe("Wachtrij YouTube", () => {
   it("says the reason in plain Dutch", () => {
     expect(waitReason("YouTube-uploadlimiet van dit kanaal via de API is bereikt (YouTube: uploadLimitExceeded: …)")).toBe("YouTube-daglimiet van dit kanaal bereikt");
     expect(waitReason("YouTube-quotum voor vandaag is op (100 van 100 uploads)")).toBe("Dagquotum van de studio op");
+  });
+
+  it("leaves an archived old refusal out, so it never blocks the line", () => {
+    const old = "YouTube-quotum van vandaag is op: terug naar Klaar voor YouTube.";
+    const rows = [
+      { id: "a", error: old, updated_at: "2026-11-21", yt_videos: { status: "archived" } },
+      { id: "b", error: old, updated_at: "2026-11-22", yt_videos: { status: "ready" } },
+      { id: "c", error: old, updated_at: "2026-11-20", yt_videos: { status: "ready" } },
+      { id: "d", error: "iets anders", updated_at: "2026-11-19", yt_videos: { status: "ready" } },
+    ];
+    expect(refusalsToQueue(rows).map((r) => r.id)).toEqual(["c", "b"]);
+    expect(refusalsToQueue([rows[0]])).toEqual([]);
   });
 });

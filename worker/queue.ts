@@ -50,7 +50,7 @@ import { buildTimeline, deadReason, signalHints, timelineSummary, type Signals, 
 import type { Uploader } from "./youtubeUpload.ts";
 import { isQuotaError } from "./manualLink.ts";
 import { reviveMontage, type ReviveJob, type ReviveScript, type ReviveVideo } from "./revive.ts";
-import { nextInLine, oldRefusal, parseWait, retryAfter, waitNote, type WaitingPub } from "../lib/youtube/uploadWait.ts";
+import { nextInLine, parseWait, refusalsToQueue, retryAfter, waitNote, type WaitingPub } from "../lib/youtube/uploadWait.ts";
 import { applyFixes, type Fixes } from "../lib/youtube/reviewFeedback.ts";
 import { narrationValue } from "../lib/youtube/voicePlan.ts";
 import { coldOpenPeak } from "../lib/youtube/planPeak.ts";
@@ -2202,12 +2202,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     ]);
     if (waiting.error || refused.error) return log(`Wachtrij YouTube niet nagekeken: ${(waiting.error ?? refused.error)!.message}`);
     // Refusals from before the queue: into the line, oldest refusal first (they keep that moment as "since").
-    for (const r of (refused.data ?? []).filter((x) => oldRefusal(x.error) && x.yt_videos?.status !== "archived").sort((a, b) => a.updated_at.localeCompare(b.updated_at))) {
+    const toQueue = refusalsToQueue(refused.data ?? []);
+    for (const r of toQueue) {
       const at = new Date(r.updated_at).toISOString();
       const upd = await db.from("yt_publications").update({ status: "queued", error: waitNote({ since: at, retryAt: new Date(now).toISOString(), reason: (r.error ?? "").slice(0, 300) }) }).eq("id", r.id).eq("status", "draft");
       if (upd.error) log(`Publicatie ${r.id} niet in de wachtrij gezet: ${upd.error.message}`);
     }
-    if ((refused.data ?? []).some((x) => oldRefusal(x.error))) return; // the next round sees them in line
+    if (toQueue.length) return; // the next round sees them in line
     const list: (WaitingPub & { studioId: string; videoId: string })[] = [];
     for (const r of waiting.data ?? []) {
       const wait = parseWait(r.error);
