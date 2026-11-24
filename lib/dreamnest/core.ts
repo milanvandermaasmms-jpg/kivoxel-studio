@@ -10,7 +10,8 @@ export function dreamnestEnabled(env: Record<string, string | undefined> = proce
 export const DN_STEPS = ["dn_concept", "dn_storyboard", "dn_keyframes", "dn_animate", "dn_music", "dn_timeline", "dn_preview", "dn_render", "dn_qc", "dn_package", "dn_publish", "dn_ping"] as const;
 export type DnStep = (typeof DN_STEPS)[number];
 
-export const DURATIONS_MIN = [60, 90, 120, 180, 600] as const;
+/** 24-11-2026: 480 (8 hours, a whole night) needs migration 058. */
+export const DURATIONS_MIN = [60, 90, 120, 180, 480, 600] as const;
 
 /**
  * KIVOXEL goes first: the Dreamnest lane only starts a new step (or the next chunk of a render) while the KIVOXEL main

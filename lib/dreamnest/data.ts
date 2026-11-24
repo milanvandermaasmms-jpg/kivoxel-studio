@@ -27,6 +27,8 @@ export async function loadJobs(episodeId: string): Promise<DnJobRow[]> {
 export async function createEpisode(studioId: string, channelId: string, title: string, durationMin: number): Promise<string> {
   if (!title.trim() || title.length > 200) throw new Error("Geef de aflevering een titel (hoogstens 200 tekens).");
   const { data, error } = await supabase.from("dn_episodes").insert({ studio_id: studioId, channel_id: channelId, title: title.trim(), duration_min: durationMin }).select("id").single<{ id: string }>();
+  // 24-11-2026: 8 hours is allowed only after migration 058; until then the database refuses it with this check.
+  if (error && /dn_episodes_duration_min_check/.test(error.message)) throw new Error("Een aflevering van 8 uur kan pas na migratie 058 (Dreamnest 8 uur). Kies een andere lengte of voer die migratie eerst uit.");
   if (error) throw new Error(friendlyError(error.message));
   return data.id;
 }
