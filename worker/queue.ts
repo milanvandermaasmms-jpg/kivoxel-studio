@@ -78,7 +78,7 @@ import type { Tts } from "./tts.ts";
 import type { HeaderCheck } from "../lib/kivoxel/brand.ts";
 import type { EventStore } from "./eventTimeline.ts";
 import { sourceThumbMs, outToSource, thumbFromSourceArgs } from "../lib/kivoxel/thumbFrame.ts";
-import { gameplayShareOf, topPayoffs, type EventTimeline } from "../lib/kivoxel/events.ts";
+import { gameplayShareOf, topPayoffs, type EventTimeline, type Hud } from "../lib/kivoxel/events.ts";
 import type { VisualSignals } from "../lib/kivoxel/visual.ts";
 import { eventsInMontage, gateSummary, type GateItem, type VoLine } from "../lib/kivoxel/voiceScript.ts";
 import { hookFile, looksDutch, presetFile, resolveSettings, VIDEO_LANGUAGE } from "../lib/kivoxel/config.ts";
@@ -316,8 +316,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   }
 
   /** The Minecraft HUD signals (hearts, menus, death screen) only count in Minecraft. */
-  async function hudOf(recordingId: string | null, studioId: string): Promise<"minecraft" | "none"> {
-    return (await recordingGameInfo(recordingId, studioId)).game === "minecraft" ? "minecraft" : "none";
+  async function hudOf(recordingId: string | null, studioId: string): Promise<Hud> {
+    const game = (await recordingGameInfo(recordingId, studioId)).game;
+    // 24-11-2026: Fortnite has its own HUD measurement (the health bar); the other games none yet.
+    return game === "minecraft" ? "minecraft" : game === "fortnite" ? "fortnite" : "none";
   }
 
   async function videoGameInfo(videoId: string, studioId: string) {
@@ -536,7 +538,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const local = await store.get(row.fingerprint);
       if (!local || !montage?.events) throw new Error(`${why}; de gratis analyse kan hier niet (geen FFmpeg of bestand)`);
       const hud = await hudOf(row.id, job.studio_id);
-      await lv.phase(hud === "minecraft" ? "Gratis analyse: hartjes, doodscherm, klappen en harde geluiden" : "Gratis analyse: beweging, klappen en harde geluiden", 0);
+      await lv.phase(hud === "minecraft" ? "Gratis analyse: hartjes, doodscherm, klappen en harde geluiden" : hud === "fortnite" ? "Gratis analyse: levensbalk, beweging, klappen en harde geluiden" : "Gratis analyse: beweging, klappen en harde geluiden", 0);
       const t = await montage.events.timeline(row.fingerprint, local.file, durationMs, { hud, signal: lv.signal, onFrames: (n) => void lv.progress({ progress: Math.min(0.99, n / Math.max(1, (durationMs / 1000) * 4)), metrics: {} }) });
       used.engine = "free";
       used.note = why;
@@ -796,7 +798,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       if (montage?.events && video.data.recording_id) {
         const recRow = await db.from("yt_recordings").select("fingerprint").eq("id", video.data.recording_id).maybeSingle<{ fingerprint: string }>();
         const local = recRow.data ? await store.get(recRow.data.fingerprint) : null;
-        if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs, { hud: game === "minecraft" ? "minecraft" : "none" }).catch(() => null);
+        if (local?.probe?.durationMs) timeline = await montage.events.timeline(recRow.data!.fingerprint, local.file, local.probe.durationMs, { hud: game === "minecraft" ? "minecraft" : game === "fortnite" ? "fortnite" : "none" }).catch(() => null);
       }
       const recent = (await montage?.phrases?.recent().catch(() => [] as string[])) ?? [];
       // Long video (section 7.2): menus, standing still and black screens out of every piece, before the script is written.

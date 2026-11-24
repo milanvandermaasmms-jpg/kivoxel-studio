@@ -29,7 +29,10 @@ export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" |
 // 5 (23-11-2026): without recognisable hearts only the menu panel counts as menu (heartsReliable).
 // 6 (23-11-2026): a covered HUD (the recording's own HUD template, any menu colour) counts as menu (overlayReliable).
 export const EVENT_RULES = 6;
-export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game). */ hud?: "minecraft" | "none"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
+/** Which HUD the picture signals come from: Minecraft hearts, Fortnite's health bar (24-11-2026), or none. */
+export type Hud = "minecraft" | "none" | "fortnite";
+
+export type EventTimeline = { version: 1; rules?: number; /** "none": built without the Minecraft HUD signals (another game); "fortnite": with Fortnite's health bar. */ hud?: Hud; /** "fortnite" when Fortnite's bar was looked for but not found (so it is not measured again every time). */ hudTried?: "fortnite"; durationMs: number; generatedAt: string; engine: "free" | "free+ai"; events: GameEvent[]; dead: DeadSpan[]; health: { atMs: number; hearts: number }[] };
 
 /** A moment from the paid analysis (yt_moments), already mapped to a hook type. */
 export type AiMoment = { kind: string; type: EventType; startMs: number; peakMs: number; endMs: number; score: number; reason: string };
@@ -284,9 +287,21 @@ export function withoutMinecraftHud(v: VisualSignals): VisualSignals {
   return { ...v, frames: v.frames.map((f) => ({ ...f, health: 1000, ui: 0, tint: 0 })) };
 }
 
-export function buildEvents(input: { visual: VisualSignals; signals: Signals | null; ai?: AiMoment[]; reactions?: Reaction[]; now?: Date; hud?: "minecraft" | "none" }): EventTimeline {
+/**
+ * 24-11-2026: Fortnite. Its health bar (lib/kivoxel/fortniteHud.ts, 0-1000 per frame) takes the place of the hearts, so
+ * damage and low health come from the picture again; the Minecraft menu panel and red death screen stay neutralised.
+ */
+export function withFortniteHud(v: VisualSignals, health: number[]): VisualSignals {
+  return { ...v, frames: v.frames.map((f, i) => ({ ...f, health: health[i] ?? -1, ui: 0, tint: 0 })) };
+}
+
+export function buildEvents(input: { visual: VisualSignals; signals: Signals | null; ai?: AiMoment[]; reactions?: Reaction[]; now?: Date; hud?: Hud }): EventTimeline {
   const signals = input.signals;
   const v = input.hud === "none" ? withoutMinecraftHud(input.visual) : input.visual;
+  const fn = input.hud === "fortnite";
+  // Fortnite has 100 health points, Minecraft 10 hearts; both are 0-1000 in the signals.
+  const amount = (h: number) => (fn ? `${Math.round(h / 10)} levens` : `${hearts(h)} hartjes`);
+  const bar = fn ? "beeld:levensbalk" : "beeld:hartjes";
   const durationMs = v.durationMs || Math.round((v.frames.length * 1000) / v.fps);
   const within = (ms: number) => Math.max(0, Math.min(durationMs, Math.round(ms)));
   const raw: GameEvent[] = [];
@@ -307,13 +322,13 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
       t_end: d.atMs + 3000,
       intensity,
       payoff: Math.round(35 + intensity * 45),
-      description: `Schade: van ${hearts(d.from)} naar ${hearts(d.to)} hartjes`,
-      sources: ["beeld:hartjes"],
+      description: fn ? `Schade: van ${Math.round(d.from / 10)} naar ${amount(d.to)}` : `Schade: van ${hearts(d.from)} naar ${hearts(d.to)} hartjes`,
+      sources: [bar],
     });
   }
   for (const l of findLowHealth(v)) {
     const intensity = clamp(1 - l.lowest / 400);
-    add({ kind: "low_health", type: "bijna_dood", t_start: l.startMs - 2000, t_peak: l.lowestAtMs, t_end: Math.min(l.endMs, l.lowestAtMs + 8000), intensity, payoff: Math.round(40 + intensity * 35), description: `Nog maar ${hearts(l.lowest)} hartjes`, sources: ["beeld:hartjes"] });
+    add({ kind: "low_health", type: "bijna_dood", t_start: l.startMs - 2000, t_peak: l.lowestAtMs, t_end: Math.min(l.endMs, l.lowestAtMs + 8000), intensity, payoff: Math.round(40 + intensity * 35), description: `Nog maar ${amount(l.lowest)}`, sources: [bar] });
   }
   if (signals) {
     for (const p of buildTimeline(signals).peaks) {
@@ -321,7 +336,7 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
       // A loud sound alone gets no hook type in Minecraft: a pig is loud too, and a hook must match what really happens.
       // In another game (SpawnNado, no HUD signals) the loud moments are all the free analysis has: a very loud one is a
       // "jumpscare" (turn your sound up), the rest a "grap" (surprise), so the free mode still makes Shorts.
-      const noHud = input.hud === "none";
+      const noHud = input.hud === "none" || fn;
       add({ kind: "audio_peak", type: noHud ? (p.rise >= 18 ? "jumpscare" : "grap") : null, t_start: p.atMs - 3000, t_peak: p.atMs, t_end: p.atMs + 2000, intensity, payoff: Math.round(20 + intensity * 35), description: `Hard geluid (+${Math.round(p.rise)} LU)`, sources: ["geluid:piek"] });
     }
   }

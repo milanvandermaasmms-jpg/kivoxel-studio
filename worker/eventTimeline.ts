@@ -3,7 +3,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { eventTypeForMoment } from "../lib/kivoxel/config.ts";
-import { buildEvents, EVENT_RULES, type AiMoment, type EventTimeline } from "../lib/kivoxel/events.ts";
+import { buildEvents, EVENT_RULES, withFortniteHud, type AiMoment, type EventTimeline, type Hud } from "../lib/kivoxel/events.ts";
+import { fortniteReliable } from "../lib/kivoxel/fortniteHud.ts";
+import { fortniteFor } from "./fortniteSignals.ts";
 import type { Moment } from "../lib/youtube/analysis.ts";
 import type { Signals } from "../lib/youtube/footage.ts";
 import { detectSignals } from "./ffmpeg.ts";
@@ -14,16 +16,17 @@ import type { SpeechStore } from "./kidsSpeech.ts";
 export const toAiMoments = (moments: Moment[]): AiMoment[] =>
   moments.map((m) => ({ kind: m.kind, type: eventTypeForMoment(m.kind), startMs: m.startMs, peakMs: m.peakMs, endMs: m.endMs, score: m.score, reason: m.reason }));
 
-export type TimelineOptions = { signal?: AbortSignal; onFrames?: (frames: number) => void; moments?: Moment[]; refresh?: boolean; /** "none" for a game other than Minecraft (SpawnNado). */ hud?: "minecraft" | "none" };
+export type TimelineOptions = { signal?: AbortSignal; onFrames?: (frames: number) => void; moments?: Moment[]; refresh?: boolean; /** "none" for a game other than Minecraft (SpawnNado), "fortnite" for Fortnite (its health bar). */ hud?: Hud };
 
 /** `speech`: the kids' reactions (Whisper, section 7.8) are merged in when given. */
 export function createEventStore(ffmpeg: string, dataDir: string, speech?: SpeechStore | null) {
   const file = (fp: string) => join(dataDir, "events", `${fp}.json`);
-  async function cached(fingerprint: string, hud: "minecraft" | "none" = "minecraft"): Promise<EventTimeline | null> {
+  async function cached(fingerprint: string, hud: Hud = "minecraft"): Promise<EventTimeline | null> {
     try {
       const t = JSON.parse(await readFile(file(fingerprint), "utf8")) as EventTimeline;
       // Older detection rules (e.g. before menus were found by the missing hearts): build it again.
-      return t.version === 1 && t.rules === EVENT_RULES && (t.hud ?? "minecraft") === hud ? t : null;
+      const same = (t.hud ?? "minecraft") === hud || (hud === "fortnite" && t.hud === "none" && t.hudTried === "fortnite");
+      return t.version === 1 && t.rules === EVENT_RULES && same ? t : null;
     } catch {
       return null;
     }
@@ -45,9 +48,18 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
         signals = await detectSignals(ffmpeg, path, durationMs, join(dataDir, "signals"), { signal: options.signal });
         await writeFile(join(dataDir, "signals", `${fingerprint}.json`), JSON.stringify(signals));
       }
-      const visual = await visualFor(ffmpeg, dataDir, fingerprint, path, durationMs, { signal: options.signal, onFrames: options.onFrames });
+      let visual = await visualFor(ffmpeg, dataDir, fingerprint, path, durationMs, { signal: options.signal, onFrames: options.onFrames });
       const ai = options.moments ? toAiMoments(options.moments) : undefined;
-      const hud = options.hud ?? "minecraft";
+      let hud: Hud = options.hud ?? "minecraft";
+      if (hud === "fortnite") {
+        // 24-11-2026: Fortnite's health bar. Not found (another mode, HUD hidden, a measuring error): as before, no HUD.
+        const fn = await fortniteFor(ffmpeg, dataDir, fingerprint, path, { signal: options.signal }).catch((e: unknown) => {
+          if (options.signal?.aborted) throw e;
+          return null;
+        });
+        if (fn && fortniteReliable(fn)) visual = withFortniteHud(visual, fn.health);
+        else hud = "none";
+      }
       let t = buildEvents({ visual, signals, ai, hud });
       if (speech && signals) {
         // Listen only around the strongest moments and the loud peaks: that is where the kids shout.
@@ -56,7 +68,7 @@ export function createEventStore(ffmpeg: string, dataDir: string, speech?: Speec
         if (reactions.length) t = buildEvents({ visual, signals, ai, reactions, hud });
       }
       await mkdir(join(dataDir, "events"), { recursive: true });
-      if (hud === "none") t = { ...t, hud };
+      if (hud !== "minecraft") t = { ...t, hud, ...(options.hud === "fortnite" && hud === "none" ? { hudTried: "fortnite" as const } : {}) };
       await writeFile(file(fingerprint), JSON.stringify(t));
       return t;
     },
