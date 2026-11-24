@@ -49,4 +49,10 @@ describe("inhoud gemeten op de gebruikte bronbeelden", () => {
     expect(reviewExport(base, { ...music, gameplayShare: 0.68, measuredEvents: 1 }).status).toBe("Handmatige controle nodig");
     expect(reviewExport(base, { ...music, gameplayShare: 0.9, measuredEvents: 3 }).status).toBe("Klaar voor Milan");
   });
+  it("a teaser of the climax in the first second counts: a later full climax is no late-peak warning (24-11-2026)", () => {
+    const m: ExportMeasure = { durationMs: 13_000, black: [], frozen: [], silence: [], peakDb: -2, clippedSamples: 0, motion: Array.from({ length: 13 }, () => 6), captions: [] };
+    const base: Intent = { short: true, peakOutMs: 9000, voiceLines: [], hasVoice: false, gameplayShare: 1, measuredEvents: 3 };
+    expect(reviewExport(m, base).findings.some((f) => /komt pas op/.test(f.text))).toBe(true);
+    expect(reviewExport(m, { ...base, teaserAtMs: 0 }).findings.some((f) => /komt pas op/.test(f.text))).toBe(false);
+  });
 });

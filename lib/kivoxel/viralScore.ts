@@ -42,6 +42,8 @@ export type ViralInput = {
   measure: ExportMeasure;
   /** Where the high point lands in the export (ms). */
   peakOutMs: number | null;
+  /** 24-11-2026: a teaser or cold open of the climax starts here (the viewer sees the climax already). */
+  teaserAtMs?: number | null;
   /** Share of the used source frames that are gameplay (null = not measurable). */
   gameplayShare: number | null;
   editor: EditorReport | null;
@@ -74,7 +76,9 @@ function hook(i: ViralInput): Omit<Part, "key" | "label" | "weight"> {
   if (open.length === 3 && open.every((x) => x < 1.2)) (s -= 3), ev.push("0:00–0:03 nauwelijks beweging");
   const first = verdict(i.gate, "eerste_indruk");
   if (first?.verdict === "GEZAKT") (s -= 4), ev.push(first.reason);
-  if (i.short && i.peakOutMs !== null && i.peakOutMs > ATTENTION_MS * 1.5) (s -= 3), ev.push(`Hoogtepunt pas op ${clock(i.peakOutMs)} (kijker is na ~8 s weg)`);
+  const teased = typeof i.teaserAtMs === "number" && i.teaserAtMs <= 1000;
+  if (i.short && i.peakOutMs !== null && i.peakOutMs > ATTENTION_MS * 1.5 && !teased) (s -= 3), ev.push(`Hoogtepunt pas op ${clock(i.peakOutMs)} (kijker is na ~8 s weg)`);
+  if (teased) ev.push("Opent met een teaser van het hoogtepunt");
   if (i.firstLineWeak) (s -= 2), ev.push("Generieke openingszin");
   if (!ev.length) ev.push(i.peakOutMs !== null ? `Beweging vanaf 0:00, hoogtepunt op ${clock(i.peakOutMs)}` : "Beweging vanaf 0:00");
   return { score: r1(s), source: "gemeten", evidence: ev };

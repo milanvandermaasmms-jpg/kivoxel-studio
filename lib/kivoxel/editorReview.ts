@@ -27,6 +27,8 @@ export type Intent = {
   hasVoice: boolean;
   /** Share of the source frames used in this export that show gameplay (Minecraft HUD in view, no menu panel); null = not measurable (other game). */
   gameplayShare?: number | null;
+  /** 24-11-2026: the Short opens with a teaser (or cold open) of the climax at this time; the viewer sees the climax there. */
+  teaserAtMs?: number | null;
   /** How many moments the analysis measured inside the footage used (the chosen one included). */
   measuredEvents?: number | null;
 };
@@ -76,7 +78,9 @@ export function reviewExport(m: ExportMeasure, intent: Intent, now = new Date())
     const after = m.durationMs - intent.peakOutMs;
     const frozenAfter = m.frozen.concat(m.black).some((x) => x.startMs < intent.peakOutMs! + OUTCOME_MS && x.endMs > intent.peakOutMs!);
     if (after < OUTCOME_MS || frozenAfter) findings.push({ atMs: intent.peakOutMs, kind: "uitkomst", severity: "blokkeert", text: after < OUTCOME_MS ? `Na het hoogtepunt (${clock(intent.peakOutMs)}) staat de uitkomst maar ${(after / 1000).toFixed(1)} s in beeld.` : `Rond de uitkomst (${clock(intent.peakOutMs)}) staat het beeld stil of is het zwart.`, fix: "De uitkomst langer laten doorlopen (payoff)." });
-    if (intent.short && intent.peakOutMs > ATTENTION_MS) findings.push({ atMs: intent.peakOutMs, kind: "opening", severity: "verbeteren", text: `Het hoogtepunt komt pas op ${clock(intent.peakOutMs)}; de helft van onze kijkers is na ~8 s weg.`, fix: "Korter aanlopen of een teaser van het hoogtepunt in de eerste seconde." });
+    // A teaser of the climax in the first second already shows it: then a later full climax is the build-up, not a fault.
+    const teased = typeof intent.teaserAtMs === "number" && intent.teaserAtMs <= 1000;
+    if (intent.short && intent.peakOutMs > ATTENTION_MS && !teased) findings.push({ atMs: intent.peakOutMs, kind: "opening", severity: "verbeteren", text: `Het hoogtepunt komt pas op ${clock(intent.peakOutMs)}; de helft van onze kijkers is na ~8 s weg.`, fix: "Korter aanlopen of een teaser van het hoogtepunt in de eerste seconde." });
   }
   // Content, measured on the source frames this export uses (the eindredacteur cannot see what happens, only whether it is gameplay).
   if (typeof intent.gameplayShare === "number" && intent.gameplayShare < 0.6) findings.push({ atMs: 0, kind: "beeld", severity: "blokkeert", text: `Maar ${Math.round(intent.gameplayShare * 100)}% van deze export is gameplay; de rest is menu of inventaris.`, fix: "Volledige hermontage met een ander moment uit de opname." });

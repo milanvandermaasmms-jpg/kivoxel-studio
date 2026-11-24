@@ -1590,7 +1590,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
           }
           const measuredEvents = timeline ? timeline.events.filter((e) => e.payoff >= 30 && cut.segments.some((g) => e.t_peak >= g.src_start_ms && e.t_peak <= g.src_end_ms)).length : null;
           const measure = await measureExport(montage.ffmpeg ?? "ffmpeg", outFile, plan.durationMs, existsSync(srt) ? srt : null);
-          editor = reviewExport(measure, { short: isShort, peakOutMs, voiceLines: spoken.map((l) => ({ atMs: l.at_ms, text: l.text })), hasVoice: voice.length > 0, gameplayShare, measuredEvents });
+          // A teaser (Short) or cold open shows the climax first: the viewer sees it at that moment.
+          const teaserSeg = cut.segments.find((g) => g.part === "teaser" || g.part === "cold_open");
+          const teaserAtMs = teaserSeg ? teaserSeg.out_start_ms : null;
+          editor = reviewExport(measure, { short: isShort, peakOutMs, teaserAtMs, voiceLines: spoken.map((l) => ({ atMs: l.at_ms, text: l.text })), hasVoice: voice.length > 0, gameplayShare, measuredEvents });
           // 23-11-2026 (superprompt V5, fase 13): did this montage follow Milan's briefing? A missed instruction blocks.
           if (brief) {
             const checks = briefingCheck(brief, brief.keyEvent ? await keyEventOf(video.data.recording_id) : null, { format: video.data.format, hasVoice: voice.length > 0, musicMoods: mixPlan?.music ? (musicMoods ?? []) : null, ranges: cut.segments.map((g) => ({ startMs: g.src_start_ms, endMs: g.src_end_ms })), peakOutMs, durationMs: plan.durationMs, lines: spoken.map((l) => l.text) });
@@ -1608,6 +1611,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
               short: isShort,
               measure,
               peakOutMs,
+              teaserAtMs,
               gameplayShare,
               editor,
               gate: sj.data?.[0]?.result?.producer ?? null,

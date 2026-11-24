@@ -74,4 +74,10 @@ describe("viralscore 8,0", () => {
     expect(r.summary).toMatch(/Originaliteit en entertainment door de AI beoordeeld, nog niet door jou/);
     expect(applyJudgement(r, { originaliteit: 8.5 }).summary).not.toMatch(/door de AI/);
   });
+  it("a teaser in the first second keeps the hook score when the full climax comes late", () => {
+    const late = viralScore(input({ peakOutMs: 13_000 }));
+    const teased = viralScore(input({ peakOutMs: 13_000, teaserAtMs: 0 }));
+    expect(late.parts.find((p) => p.key === "hook")!.score).toBeLessThan(teased.parts.find((p) => p.key === "hook")!.score!);
+    expect(teased.parts.find((p) => p.key === "hook")!.evidence.join(" ")).toMatch(/teaser van het hoogtepunt/);
+  });
 });
