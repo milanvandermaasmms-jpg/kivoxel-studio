@@ -40,6 +40,7 @@ import type { StoredThumb } from "@/lib/youtube/thumbnails";
 import { blocking, publishCheck, type PublishFacts } from "@/lib/youtube/publishCheck";
 import { loadPublishFacts } from "@/lib/youtube/publishCheckData";
 import { loadPublication, loadUploadProgress, PUBLICATION_STATUS, requestPublish, savePublication, type DbPublication, type Extras, type PublishAction, type UploadProgress } from "@/lib/youtube/publicationData";
+import { pageVisible } from "@/lib/visible";
 
 const IN_TRANSIT = ["queued", "uploading", "processing"];
 
@@ -390,7 +391,7 @@ export function PublishPanel({ studioId, videoId, kind, language, hook, renderId
         .catch(() => undefined);
     };
     tick();
-    const timer = window.setInterval(tick, 10_000);
+    const timer = window.setInterval(() => pageVisible() && tick(), 10_000);
     return () => window.clearInterval(timer);
   }, [transit, videoId]);
 

@@ -10,6 +10,7 @@ import { setPreference } from "@/lib/youtube/learningData";
 import { defaultQueries, summarizeReference } from "@/lib/youtube/viral";
 import { loadInsights, requestReference, type InsightsData } from "@/lib/youtube/viralData";
 import { outcomes, whatWorks } from "@/lib/youtube/viralInsights";
+import { pageVisible } from "@/lib/visible";
 
 const nl = (n: number) => n.toLocaleString("nl-NL", { maximumFractionDigits: 1 });
 
@@ -39,7 +40,7 @@ export function ViralInsights({ studioId, channels, channel, prefs, onPrefs }: {
   const busy = !!data && data !== "migration" && (data.referenceJob?.status === "queued" || data.referenceJob?.status === "running");
   useEffect(() => {
     if (!busy) return;
-    const t = setInterval(() => void load(), 4000);
+    const t = setInterval(() => pageVisible() && void load(), 4000);
     return () => clearInterval(t);
   }, [busy, load]);
 

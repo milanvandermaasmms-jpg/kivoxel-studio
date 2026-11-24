@@ -2383,6 +2383,15 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   }
   let lastUploadWaitLog = 0;
 
+  /**
+   * 24-11-2026 (Supabase: 1.9 million requests a month): ask for work every 5 s while there is work, every 15 s after a
+   * quiet minute. The studio wakes the worker after every new step (POST /poke), so nothing waits longer than needed.
+   */
+  let lastWorkAt = Date.now();
+  let stopped = false;
+  const IDLE_AFTER_MS = 60_000;
+  const IDLE_INTERVAL_MS = 15_000;
+
   async function runLane(handlers: Record<string, (job: Job, lv: Live) => Promise<unknown>>, lane: "main" | "fast" | "upload") {
     if (lane === "main" ? busy : lane === "fast" ? fastBusy : uploadBusy) return;
     if (lane === "main") busy = true;
@@ -2404,6 +2413,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         }
         const job = (data as Job[] | null)?.[0];
         if (!job) return;
+        lastWorkAt = Date.now();
         log(`Stap ${job.step} gestart (${job.id}, poging ${job.attempts})`);
         const lv = live(job);
         try {
@@ -2441,7 +2451,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       // Fase 2: old Studio events are not needed to learn (migration 049; quietly nothing before it).
       void Promise.resolve(db.rpc("prune_studio_events", { p_days: 180 })).catch(() => undefined);
       void recover().then(() => Promise.all([tickMain(), tickFast(), tickUpload()]));
-      timer = setInterval(() => void Promise.all([tickMain(), tickFast(), tickUpload()]), intervalMs);
+      const loop = () => {
+        void Promise.all([tickMain(), tickFast(), tickUpload()]).finally(() => {
+          const idle = Date.now() - lastWorkAt > IDLE_AFTER_MS && !busy && !fastBusy && !uploadBusy;
+          if (!stopped) timer = setTimeout(loop, idle ? IDLE_INTERVAL_MS : intervalMs);
+        });
+      };
+      timer = setTimeout(loop, intervalMs);
       // Fase 3.1: reference videos once a week (checked at start and every 6 hours).
       void scheduleReference().catch(() => undefined);
       setInterval(() => void scheduleReference().catch(() => undefined), 6 * 60 * 60_000);
@@ -2465,9 +2481,13 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     reviveMontages,
     drainWaiting,
     stop() {
-      if (timer) clearInterval(timer);
+      stopped = true;
+      if (timer) clearTimeout(timer);
     },
-    poke: () => void Promise.all([tickMain(), tickFast(), tickUpload()]),
+    poke: () => {
+      lastWorkAt = Date.now();
+      void Promise.all([tickMain(), tickFast(), tickUpload()]);
+    },
     /** Dreamnest (only with FEATURE_DREAMNEST=true) asks this before each step: KIVOXEL goes first. Read-only. */
     mainBusy: () => busy,
     uploadsPending,

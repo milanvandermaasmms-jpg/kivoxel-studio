@@ -210,6 +210,11 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
   }
 
   /** Answers whose step stopped elsewhere (worker restarted, step cancelled while waiting) are closed honestly. */
+  let lastSweep = 0;
+  let stopped = false;
+  /** Quiet: no Ivar answer for a while. Ivar's chat wakes the worker itself (POST /poke), so it still answers at once. */
+  let lastWorkAt = Date.now();
+
   async function sweep() {
     const open = await db.from("ivar_messages").select("id, job_id, status").eq("role", "assistant").in("status", ["pending", "running"]).limit(30).returns<{ id: string; job_id: string | null; status: string }[]>();
     const ids = (open.data ?? []).map((m) => m.job_id).filter((x): x is string => !!x);
@@ -228,12 +233,17 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
     if (busy) return;
     busy = true;
     try {
-      await sweep().catch((e) => log(`Ivar: opruimen mislukt: ${e instanceof Error ? e.message : String(e)}`));
+      // 24-11-2026: the clean-up of answers that can no longer finish once a minute, not every 3 seconds.
+      if (Date.now() - lastSweep > 60_000) {
+        lastSweep = Date.now();
+        await sweep().catch((e) => log(`Ivar: opruimen mislukt: ${e instanceof Error ? e.message : String(e)}`));
+      }
       for (;;) {
         const { data, error } = await db.rpc("claim_yt_job", { p_worker: workerName, p_steps: ["assistant", "insight"] });
         if (error) return log(`Ivar: wachtrij niet bereikbaar: ${error.message}`);
         const job = (data as Job[] | null)?.[0];
         if (!job) return;
+        lastWorkAt = Date.now();
         if (job.step === "insight") {
           log(`Ivar zoekt trends en leert (${job.id})`);
           try {
@@ -262,7 +272,12 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
   return {
     start() {
       void tick();
-      timer = setInterval(() => void tick(), opts.intervalMs ?? 3000);
+      const loop = () => {
+        void tick().finally(() => {
+          if (!stopped) timer = setTimeout(loop, Date.now() - lastWorkAt > 60_000 && !busy ? 15_000 : (opts.intervalMs ?? 3000));
+        });
+      };
+      timer = setTimeout(loop, opts.intervalMs ?? 3000);
       // On his own: once a week per channel trends and lessons (checked a minute after start and every 6 hours).
       const plan = () => void scheduleInsights(db, log).then((n) => n && (log(`Ivar: ${n} kanaal/kanalen ingepland voor trends en leren`), void tick())).catch(() => undefined);
       setTimeout(plan, 60_000);
@@ -270,9 +285,13 @@ export function createIvarLane(opts: { db: SupabaseClient; workerName: string; l
     },
     scheduleInsights: () => scheduleInsights(db, log),
     stop() {
-      if (timer) clearInterval(timer);
+      stopped = true;
+      if (timer) clearTimeout(timer);
     },
     tick,
-    poke: () => void tick(),
+    poke: () => {
+      lastWorkAt = Date.now();
+      void tick();
+    },
   };
 }

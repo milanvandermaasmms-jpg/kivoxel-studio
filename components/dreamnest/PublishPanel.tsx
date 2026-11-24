@@ -9,6 +9,7 @@ import type { Channel } from "@/lib/youtube/channels";
 import { quotaText } from "@/lib/youtube/connection";
 import { WORKER_URL } from "@/lib/youtube/protocol";
 import { youtubeStatus } from "@/lib/youtube/workerClient";
+import { pageVisible } from "@/lib/visible";
 
 export type PackageResult = {
   title: string;
@@ -61,7 +62,7 @@ export function PublishPanel({ pkg, channel, studioId, episodeId, isAdmin }: { p
   const busy = pubs?.some((p) => p.status === "queued" || p.status === "uploading");
   useEffect(() => {
     if (!busy) return;
-    const t = window.setInterval(() => void refresh(), 5000);
+    const t = window.setInterval(() => pageVisible() && void refresh(), 5000);
     return () => window.clearInterval(t);
   }, [busy, refresh]);
 

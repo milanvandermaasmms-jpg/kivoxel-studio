@@ -8,6 +8,7 @@ import { regenerateScript, saveEditedScript, type DbScript } from "@/lib/youtube
 import { track } from "@/lib/youtube/learningData";
 import { cutPlan, mmss, PART_LABEL, rewriteNote, type Fix, type Part, type PartKey } from "@/lib/youtube/viral";
 import { loadViral, requestViral, type ViralCheck, type ViralJob } from "@/lib/youtube/viralData";
+import { pageVisible } from "@/lib/visible";
 
 const SOURCE: Record<ViralCheck["source"], string> = { ai: "regels + AI-luistercheck", rules: "alleen regels (luistercheck stond uit)", test: "testvideo, vaste beoordeling" };
 const tone = (n: number) => (n >= 8 ? "bg-emerald-500" : n >= 6 ? "bg-amber-500" : "bg-red-500");
@@ -42,7 +43,7 @@ export function ViralCard({ studioId, videoId, scripts, approved, act }: { studi
   const pending = !!state && state !== "migration" && (state.job?.status === "queued" || state.job?.status === "running");
   useEffect(() => {
     if (!pending) return;
-    const t = setInterval(() => void load(), 3000);
+    const t = setInterval(() => pageVisible() && void load(), 3000);
     return () => clearInterval(t);
   }, [pending, load]);
 

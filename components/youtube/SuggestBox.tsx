@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Dialog";
 import { addTag, removeTag, splitTagInput } from "@/lib/youtube/suggest";
 import { loadSuggestState, requestSuggestions, type SuggestState } from "@/lib/youtube/suggestData";
 import { track } from "@/lib/youtube/learningData";
+import { pageVisible } from "@/lib/visible";
 
 /** Tags as chips: click the cross to remove, type and press Enter (or a comma) to add. */
 export function TagChips({ tags, onChange, disabled, log }: { tags: string[]; onChange: (tags: string[]) => void; disabled?: boolean; log?: (action: string, metadata: Record<string, unknown>) => void }) {
@@ -95,7 +96,7 @@ export function SuggestBox({ studioId, videoId, channelId = null, title, descrip
   const pending = state?.state === "waiting" || state?.state === "running";
   useEffect(() => {
     if (!pending) return;
-    const t = window.setInterval(() => void load(), 2000);
+    const t = window.setInterval(() => pageVisible() && void load(), 2000);
     return () => window.clearInterval(t);
   }, [pending, load]);
 

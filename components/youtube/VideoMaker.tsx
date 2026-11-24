@@ -9,6 +9,7 @@ import { makerRecordings, makerStep, makerVideos } from "@/lib/youtube/maker";
 import { loadAnalyseProgress, type AnalyseProgress } from "@/lib/youtube/makerData";
 import { formatEta } from "@/lib/youtube/progress";
 import { FORMATS, formatDuration } from "@/lib/youtube/studio";
+import { pageVisible } from "@/lib/visible";
 
 type Ready = Extract<AnalysisState, { ready: true }>;
 type Act = (action: () => Promise<unknown>) => Promise<void>;
@@ -44,7 +45,7 @@ export function VideoMaker({ state, studioId, act, refresh, onOpen }: { state: A
   const busy = waiting || step?.kind === "analysing" || step?.kind === "rendering";
   useEffect(() => {
     if (!busy) return;
-    const timer = window.setInterval(() => void refresh(), 4000);
+    const timer = window.setInterval(() => pageVisible() && void refresh(), 4000);
     return () => window.clearInterval(timer);
   }, [busy, refresh]);
   // The analysis reports its stage and progress (FFmpeg measured, Gemini estimated); look along every 3 seconds.
@@ -55,7 +56,7 @@ export function VideoMaker({ state, studioId, act, refresh, onOpen }: { state: A
     let live = true;
     const load = () => void loadAnalyseProgress(studioId, rec).then((p) => live && setAnalyseProgress(p));
     load();
-    const timer = window.setInterval(load, 3000);
+    const timer = window.setInterval(() => pageVisible() && load(), 3000);
     return () => {
       live = false;
       window.clearInterval(timer);
