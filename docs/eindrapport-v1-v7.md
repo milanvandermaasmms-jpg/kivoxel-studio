@@ -7,7 +7,7 @@
 - ❌ niet gebouwd;
 - ⛔ wacht op Milans keuze of toestemming.
 
-**Stand van de tests op 24-11:** 986 tests (133 bestanden), typecheck schoon, build schoon. 4 Playwright-browsertests zijn geschreven, maar nog niet gedraaid (zie V7-6).
+**Stand van de tests op 24-11:** 986 tests (133 bestanden), typecheck schoon, build schoon. 4 Playwright-browsertests: 4 van 4 geslaagd.
 
 **Welke prompt is welke:**
 - **V1:** `docs/masterprompt-kivoxel-superprompt.md`
@@ -85,7 +85,7 @@ De volledige tekst van V6 staat alleen nog als samenvatting in het transcript; d
 | 19 Publicatieworkflow | ✅ | Publicatiecheck van 10 punten; uploadcontrole van 214 video's |
 | 20 Ivar als assistent | ✅ | Ivar-gezondheid, incidenten, leercyclus |
 | 21 Dashboard | ✅ | Tabs, Studio-gezondheid, Bibliotheek |
-| 22 Automatische testsuite | 🟠 | 986 unittests ✅; browsertests geschreven, nog niet gedraaid |
+| 22 Automatische testsuite | ✅ | 986 unittests plus 4 browsertests |
 | 23 Credits en kosten | ✅ | Kosten per productie en per uur opname; maandplafond € 100 |
 
 ## V6 — Aanvulling
@@ -107,15 +107,15 @@ De volledige tekst van V6 staat alleen nog als samenvatting in het transcript; d
 | 2 Beste fragmenten kiezen | 🟠 | Herkansing plus voorrang voor bevestigde momenten gebouwd; positieve test bleef steken op 6/6 (grens 7, besluit Milan) |
 | 3 Drie scores onafhankelijk, geen compensatie; AI blokkeert alleen automatisch | ✅ | Tests plus praktijk: "Content 6,7 onder de norm" ondanks Techniek 10 |
 | 4 Ivar-leercyclus: afkeuringen, goedkeuringen, audio, YouTube | ✅ | Lessen v1 uit echte data; toegepast in de praktijktest; uit te zetten |
-| 5 Overzicht technisch / inhoudelijk; gefaseerd herkeuren | 🟠 | Live 224, Klaar 39, Te keuren 7, Afgekeurd 150; AI-herkeuring fase 1 (38 Shorts) loopt; fase 2 (live) ⛔ |
+| 5 Overzicht technisch / inhoudelijk; gefaseerd herkeuren | ✅ fase 1 / ⛔ fase 2 | Live 224, Klaar 39, Te keuren 7, Afgekeurd 150. Fase 1: 38 Shorts AI-gekeurd, 17 halen de norm niet (`docs/herkeuring-fase1-2026-11-24.md`). Fase 2 (live, ± € 4,50) ⛔ |
 | 5 LUMI en Roblox meenemen | 🟠 | Roblox-herkenning gebouwd; LUMI 8 uur wacht op migratie 058 |
-| 6 Playwright-browsertests | 🟠 | 4 tests van de hoofdflows geschreven (nepgegevens, geen account); Chromium-download hangt |
+| 6 Playwright-browsertests | ✅ | `npm run test:e2e`: 4 van 4 geslaagd (inloggen, tabbladen, Ivar-lessen uitzetten, "Toch keuren"), met Edge, volledig nagebootste database en werker |
 | 6 Wekelijkse back-up zonder sleutels in Git | 🟡 | Gebouwd en getest; de eerste echte back-up komt 5 minuten na de start van de werker |
 | 6 Rendering, wachtrij en meldingen na de migratie | ✅ | Migratie niet gedaan (schijf D:); rendering, wachtrij en meldingen werken (praktijktest, uploads 24-11) |
 
 ## Openstaande fouten
 1. **Positieve kant van de poort nog niet bewezen:** een sterk moment haalde 6/6. De oorzaak ligt deels in het materiaal: de plons in het water stond niet in beeld.
-2. **De Chromium-download voor Playwright hangt** (twee pogingen).
+2. **Playwright draait met Edge**, want de Chromium-download werd op deze pc tegengehouden.
 3. **Schijf D: is onbetrouwbaar:** NTFS-fouten en controllerfouten.
 4. **Gemini-analyse van korte stukken mist soms de climax:** de val in de eerste korte knip.
 
