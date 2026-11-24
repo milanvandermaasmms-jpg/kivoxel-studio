@@ -26,7 +26,7 @@ export function createIncidentMonitor(opts: { db: SupabaseClient; dataDir: strin
     const db = opts.db;
     const now = new Date().toISOString();
     const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
-    const cols = "id, step, status, error, locked_at, attempts, max_attempts, heartbeat_at, progress, phase, started_at, finished_at, video_id";
+    const cols = "id, step, status, error, locked_at, attempts, max_attempts, heartbeat_at, progress, phase, started_at, finished_at, video_id, recording_id";
     const [running, failed, settings, costs, line] = await Promise.all([
       db.from("yt_jobs").select(cols).eq("status", "running").limit(100).returns<JobSnap[]>(),
       db.from("yt_jobs").select(cols).eq("status", "failed").gte("finished_at", since).limit(100).returns<JobSnap[]>(),
@@ -42,6 +42,14 @@ export function createIncidentMonitor(opts: { db: SupabaseClient; dataDir: strin
       const later = await db.from("yt_jobs").select("video_id, step, status, created_at, payload").in("video_id", failedVids).in("status", ["done", "running", "queued"]).limit(1000).returns<{ video_id: string; step: string; status: string; created_at: string; payload: { preview?: unknown } | null }[]>();
       const created = new Map((await db.from("yt_jobs").select("id, created_at").in("id", (failed.data ?? []).map((j) => j.id)).returns<{ id: string; created_at: string }[]>()).data?.map((x) => [x.id, x.created_at]) ?? []);
       for (const j of jobs) if (j.status === "failed" && j.video_id) j.superseded = (later.data ?? []).some((x) => x.video_id === j.video_id && x.step === j.step && !x.payload?.preview && x.created_at > (created.get(j.id) ?? ""));
+    }
+    // 24-11-2026: the same for a recording step (intake, analysis): a later attempt that is done, running or waiting
+    // replaces the failure (praktijktest: the first intake failed, the second succeeded, the "storing" stayed).
+    const failedRecs = [...new Set((failed.data ?? []).filter((j) => !j.video_id).map((j) => (j as JobSnap & { recording_id?: string | null }).recording_id).filter((x): x is string => !!x))];
+    if (failedRecs.length) {
+      const later = await db.from("yt_jobs").select("recording_id, step, status, created_at").in("recording_id", failedRecs).in("status", ["done", "running", "queued"]).limit(1000).returns<{ recording_id: string; step: string; status: string; created_at: string }[]>();
+      const created = new Map((await db.from("yt_jobs").select("id, created_at").in("id", (failed.data ?? []).map((j) => j.id)).returns<{ id: string; created_at: string }[]>()).data?.map((x) => [x.id, x.created_at]) ?? []);
+      for (const j of jobs as (JobSnap & { recording_id?: string | null })[]) if (j.status === "failed" && !j.video_id && j.recording_id) j.superseded = (later.data ?? []).some((x) => x.recording_id === j.recording_id && x.step === j.step && x.created_at > (created.get(j.id) ?? ""));
     }
     // Titles for the messages (newest script's first title, else the promise).
     const vids = [...new Set(jobs.map((j) => j.video_id).filter((x): x is string => !!x))];
