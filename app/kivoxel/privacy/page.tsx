@@ -1,6 +1,6 @@
 export const metadata = { title: "Privacy policy" };
 
-const UPDATED = "12 November 2026";
+const UPDATED = "24 November 2026";
 
 /**
  * Privacy policy for the Google OAuth consent screen. Every statement here describes what the code really does
@@ -51,6 +51,20 @@ export default function KivoxelPrivacy() {
           </li>
           <li>Old hourly snapshots are reduced to one per day after 8 days.</li>
         </ul>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-base font-semibold text-slate-900">What we access through TikTok</h2>
+        <p>With the owner&apos;s consent, Kivoxel Studio asks TikTok for these permissions:</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>user.info.basic</strong>: to show which TikTok account is connected (name and picture).
+          </li>
+          <li>
+            <strong>video.upload</strong>: to place the owner&apos;s own Shorts in the owner&apos;s TikTok inbox as a draft. The owner publishes them himself in the TikTok app.
+          </li>
+        </ul>
+        <p>The TikTok sign-in tokens are stored the same way as Google&apos;s: only on the owner&apos;s own computer, encrypted, and sent only to TikTok. We do not read any data about viewers.</p>
       </section>
 
       <section className="space-y-2">

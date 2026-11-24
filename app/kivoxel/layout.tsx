@@ -23,6 +23,9 @@ export default function KivoxelLayout({ children }: { children: React.ReactNode 
             <Link href="/kivoxel/privacy" className="text-slate-600 hover:text-slate-900">
               Privacy
             </Link>
+            <Link href="/kivoxel/terms" className="text-slate-600 hover:text-slate-900">
+              Terms
+            </Link>
           </nav>
         </div>
       </header>

@@ -53,6 +53,16 @@ export type ServerOptions = {
   voicePlan?: () => Promise<unknown>;
   /** 23-11-2026: the content register (GET /register; POST /register/run builds a new one in the background). */
   register?: { get: () => Promise<unknown>; run: () => string };
+  /** 24-11-2026: TikTok (worker/tiktok.ts): connection, the app keys, and the send line to Milan's TikTok inbox. */
+  tiktok?: {
+    status: () => Promise<unknown>;
+    setApp: (key: string, secret: string) => Promise<void>;
+    connect: () => Promise<string>;
+    callback: (q: URLSearchParams) => Promise<{ username: string | null }>;
+    disconnect: () => Promise<void>;
+    items: () => Promise<unknown>;
+    send: (videoId: string) => Promise<unknown>;
+  } | null;
   /** 24-11-2026: Ivar's lessons (GET /lessons; POST /lessons/run builds them again; POST /lessons/toggle switches one off/on). */
   lessons?: { get: () => Promise<unknown>; run: () => Promise<unknown>; toggle: (id: string, off: boolean) => Promise<unknown> } | null;
   /** 23-11-2026: Ivar's incident log (GET /incidents). */
@@ -110,7 +120,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, incidents, lessons, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, incidents, lessons, tiktok, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -160,6 +170,50 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
         }
       }
       if (req.method === "GET" && url.pathname === "/incidents" && incidents) return send(200, await incidents());
+      // TikTok's return after signing in: a top-level navigation from the studio's public page (no Origin), like YouTube's.
+      if (tiktok && req.method === "GET" && url.pathname === "/tiktok/callback") {
+        let ok = true;
+        let message = "";
+        try {
+          const r = await tiktok.callback(url.searchParams);
+          message = `TikTok is gekoppeld${r.username ? ` (@${r.username})` : ""}. Nieuwe Shorts komen vanaf nu als concept in je TikTok-inbox.`;
+        } catch (e) {
+          ok = false;
+          message = e instanceof Error ? e.message : String(e);
+        }
+        log(ok ? `TikTok: ${message}` : `TikTok koppelen mislukt: ${message}`);
+        res.writeHead(ok ? 200 : 400, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'", "referrer-policy": "no-referrer" });
+        return res.end(callbackPage(ok, message).replace(/YouTube koppelen|YouTube is gekoppeld/g, (m) => m.replace("YouTube", "TikTok")).replace("teruggaan naar YouTube Studio", "teruggaan naar de studio"));
+      }
+      if (tiktok && url.pathname.startsWith("/tiktok/")) {
+        if (!origin) return send(403, { error: "Alleen via het dashboard" });
+        const what = url.pathname.slice("/tiktok/".length);
+        if (req.method === "GET" && what === "status") return send(200, await tiktok.status());
+        if (req.method === "GET" && what === "items") return send(200, await tiktok.items());
+        if (req.method === "POST") {
+          let body: Record<string, unknown> = {};
+          try {
+            body = JSON.parse((await readBody(req, 4096)).toString("utf8") || "{}") as Record<string, unknown>;
+          } catch {
+            return send(400, { error: "Onleesbaar verzoek" });
+          }
+          try {
+            if (what === "app" && typeof body.clientKey === "string" && typeof body.clientSecret === "string") {
+              await tiktok.setApp(body.clientKey.trim(), body.clientSecret.trim());
+              return send(200, { ok: true });
+            }
+            if (what === "connect") return send(200, { url: await tiktok.connect() });
+            if (what === "disconnect") {
+              await tiktok.disconnect();
+              return send(200, { ok: true });
+            }
+            if (what === "send" && isUuid(typeof body.videoId === "string" ? body.videoId : null)) return send(200, await tiktok.send(body.videoId as string));
+          } catch (e) {
+            return send(400, { error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+        return send(404, { error: "Onbekend TikTok-verzoek" });
+      }
       if (req.method === "GET" && url.pathname === "/lessons" && lessons) return send(200, await lessons.get());
       if (req.method === "POST" && url.pathname === "/lessons/run" && lessons) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });

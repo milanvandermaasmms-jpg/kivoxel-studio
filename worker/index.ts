@@ -25,6 +25,8 @@ import { createStore } from "./store.ts";
 import { createInbox } from "./inbox.ts";
 import { createRegistrar } from "./register.ts";
 import { backupDir, createBackup } from "./backup.ts";
+import { createTikTok } from "./tiktok.ts";
+import { createTikTokQueue } from "./tiktokQueue.ts";
 import { dreamnestEnabled } from "../lib/dreamnest/core.ts";
 import { createDreamnestLane } from "./dreamnest/lane.ts";
 import { createDnHandlers } from "./dreamnest/steps.ts";
@@ -265,6 +267,32 @@ if (backup) {
 }
 incidentMonitor?.start();
 
+// 24-11-2026: TikTok. The app keys and tokens are encrypted with the same key as YouTube's, on this pc only. TikTok only
+// accepts an https return address: the studio's public page /kivoxel/tiktok hands the code to this worker.
+const tiktok = createTikTok({ key: Buffer.from(env.YT_TOKEN_KEY!, "hex"), appFile: join(dataDir, "tiktok", "app.enc"), tokenFile: join(dataDir, "tiktok", "tokens.enc"), redirectUri: env.TIKTOK_REDIRECT_URI || "https://kivoxel-studio.vercel.app/kivoxel/tiktok" });
+const tiktokQueue = supabaseUrl && serviceKey && montage ? createTikTokQueue({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), dataDir, rendersDir: montage.rendersDir, tiktok, log }) : null;
+if (tiktokQueue) {
+  setTimeout(() => void tiktokQueue.tick(), 60_000);
+  setInterval(() => void tiktokQueue.tick().catch((e) => log(`TikTok-rij: ${e instanceof Error ? e.message : String(e)}`)), 3 * 60_000);
+}
+const tiktokApi = {
+  status: () => tiktok.status(),
+  setApp: (k: string, s2: string) => tiktok.setApp(k, s2),
+  connect: () => tiktok.start(),
+  callback: async (q: URLSearchParams) => {
+    const r = await tiktok.callback(q);
+    await tiktokQueue?.enable();
+    return r;
+  },
+  disconnect: () => tiktok.disconnect(),
+  items: async () => (tiktokQueue ? (await tiktokQueue.read()).items : []),
+  send: async (videoId: string) => {
+    if (!tiktokQueue) throw new Error("De TikTok-rij draait niet op deze werker");
+    const item = await tiktokQueue.add(videoId);
+    void tiktokQueue.tick();
+    return item;
+  },
+};
 const server = createWorkerServer({
   store,
   allowedOrigins,
@@ -273,6 +301,7 @@ const server = createWorkerServer({
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
   voicePlan: () => createVoiceLedger(join(dataDir, "voice-plan.json")).summary(),
   incidents: incidentMonitor ? () => incidentMonitor.get() : undefined,
+  tiktok: tiktokApi,
   lessons: queue?.learning ? { get: () => queue.learning!.get(), run: () => queue.learning!.rebuild(), toggle: (id, off) => queue.learning!.setOff(id, off) } : null,
   // 23-11-2026: the content register (every production scored from measurements; no AI, changes nothing).
   register: supabaseUrl && serviceKey && montage ? createContentRegister({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), ffmpeg, dataDir, rendersDir: montage.rendersDir, log, visual: async (fp) => { const r = await store.get(fp); return r?.probe?.durationMs ? visualFor(ffmpeg, dataDir, fp, join(dataDir, "recordings", r.file), r.probe.durationMs) : null; } }) : undefined,

@@ -30,6 +30,7 @@ import { StudioHealth } from "@/components/youtube/StudioHealth";
 import { CostPanel } from "@/components/youtube/CostPanel";
 import { UploadAudit } from "@/components/youtube/UploadAudit";
 import { LessonsPanel } from "@/components/ivar/LessonsPanel";
+import { TikTokConnection } from "@/components/youtube/TikTokConnection";
 import { CandidateList } from "@/components/youtube/ProducerDossier";
 import type { Candidate } from "@/lib/kivoxel/producerGate";
 import type { Briefing } from "@/lib/kivoxel/briefing";
@@ -653,6 +654,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
       {tab === "settings" && (
         <>
           <ChannelCard studioId={studio.id} onError={setError} allowAdd={!!route} />
+          <TikTokConnection workerOnline={!!health} />
           <StudioPreferences prefs={learning.prefs} channels={channelsNow} onChanged={learning.refresh} />
           {flowReady && <ArchivedList state={flowReady} act={act} />}
           <PrivateTermsSettings studioId={studio.id} onError={setError} />
