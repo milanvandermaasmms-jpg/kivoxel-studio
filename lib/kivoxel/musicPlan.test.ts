@@ -25,6 +25,12 @@ describe("music follows the content (Milan, 16-11-2026)", () => {
     }
     expect(parts.reduce((s, p) => s + p.durMs, 0)).toBe(300_000);
   });
+  it("a jumpscare Short gets tense music, a fail Short funny or hype music (24-11-2026: meer afwisseling)", () => {
+    const scare = planMusicParts({ durationMs: 15_000, events: [{ atMs: 9000, payoff: 95, type: "jumpscare", kind: "x" }], library, recent: [], rnd, short: true });
+    expect(scare[0].file).toBe("busy2.mp3");
+    const fail = planMusicParts({ durationMs: 15_000, events: [{ atMs: 9000, payoff: 95, type: "fail", kind: "death" }], library, recent: [], rnd, short: true });
+    expect(fail[0].file).toBe("busy.mp3");
+  });
   it("a Short that is all action gets one busy track; a calm Short one calm track", () => {
     const busy = planMusicParts({ durationMs: 15_000, events: [{ atMs: 9000, payoff: 95, type: "fail", kind: "death" }], library, recent: [], rnd, short: true });
     // 18-11-2026: the first 1.3 s of a Short is only the game sound of the climax; the music drops in after it.

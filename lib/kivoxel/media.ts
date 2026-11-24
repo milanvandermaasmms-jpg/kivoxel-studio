@@ -75,8 +75,9 @@ export function pickTrack(library: Track[], type: EventType, energy: number, rec
   };
   const ranked = [...usable].sort((a, b) => score(a) - score(b));
   const best = score(ranked[0]);
-  // A little variation between equally good tracks.
-  const ties = ranked.filter((t) => score(t) <= best + 2);
+  // Variation between (nearly) equally good tracks: one mood step or one energy step apart still counts as a tie
+  // (Milan, 24-11-2026: "meer afwisseling"; before, +2 let the same 3-4 tracks win every time).
+  const ties = ranked.filter((t) => score(t) <= best + 3);
   return ties[Math.floor(rnd() * ties.length)] ?? ranked[0];
 }
 

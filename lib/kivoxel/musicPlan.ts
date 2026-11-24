@@ -84,7 +84,10 @@ export function planMusicParts(input: MusicPlanInput): MusicPart[] {
   const spans = actionSpans(input.events, durationMs, short);
   const lib = input.library.filter((t) => input.allowTest || !t.test);
   if (!lib.length || durationMs <= 0) return [];
-  const action = pickTrack(lib.filter((t) => t.energy >= 4), "fail", 5, input.recent, input.rnd, input.noRepeatWithin, input.allowTest) ?? pickTrack(lib, "fail", 5, input.recent, input.rnd, input.noRepeatWithin, input.allowTest);
+  // Milan, 24-11-2026 ("meer afwisseling"): the busy track follows the kind of main moment (a jumpscare gets tense or dark
+  // music, a fail funny or hype), not always "fail" at full energy; that let the same few tracks win every Short.
+  const mainType = input.events.filter(isAction).sort((a, b) => b.payoff - a.payoff)[0]?.type ?? "fail";
+  const action = pickTrack(lib.filter((t) => t.energy >= 4), mainType, 4, input.recent, input.rnd, input.noRepeatWithin, input.allowTest) ?? pickTrack(lib, mainType, 4, input.recent, input.rnd, input.noRepeatWithin, input.allowTest);
   const calm = pickTrack(lib.filter((t) => t.energy <= 3), "bouw", 1, input.recent, input.rnd, input.noRepeatWithin, input.allowTest) ?? pickTrack(lib, "bouw", 1, input.recent, input.rnd, input.noRepeatWithin, input.allowTest);
   if (!action || !calm) return [];
   // Shorts (Milan, 18-11-2026): one track for the whole Short, never a switch halfway (that sounded like a mess). Busy when
