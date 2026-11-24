@@ -28,7 +28,7 @@ export type DeadSpan = { startMs: number; endMs: number; why: "still" | "menu" |
 // 4 (22-11-2026): moments that are mostly menu/inventory lose 35 points (see menuShare).
 // 5 (23-11-2026): without recognisable hearts only the menu panel counts as menu (heartsReliable).
 // 6 (23-11-2026): a covered HUD (the recording's own HUD template, any menu colour) counts as menu (overlayReliable).
-export const EVENT_RULES = 6;
+export const EVENT_RULES = 7;
 /** Which HUD the picture signals come from: Minecraft hearts, Fortnite's health bar (24-11-2026), or none. */
 export type Hud = "minecraft" | "none" | "fortnite" | "roblox";
 
@@ -191,6 +191,19 @@ let counter = 0;
 const eventId = (kind: EventKind, peak: number) => `${kind}-${Math.round(peak / 100)}-${(counter++).toString(36)}`;
 
 /** Joins events whose peaks lie within `gapMs`: the strongest one leads, the others add sources and payoff. */
+/**
+ * A peak inside a menu, black or still screen that began at most 6 s earlier, right after gameplay (a death or result
+ * screen): the peak moves to 0.3 s before the screen, the end keeps at least 2 s of the screen as the outcome. Pure, tested.
+ */
+export function peakBeforeScreen(e: GameEvent, dead: DeadSpan[]): GameEvent {
+  const screen = dead.find((d) => d.why !== "quiet" && e.t_peak >= d.startMs && e.t_peak < d.endMs);
+  if (!screen || e.t_peak - screen.startMs > 6000) return e;
+  const before = screen.startMs - 300;
+  const playBefore = !dead.some((d) => d !== screen && d.why !== "quiet" && d.endMs > screen.startMs - 2000 && d.startMs < screen.startMs);
+  if (before <= 0 || !playBefore) return e;
+  return { ...e, t_peak: before, t_start: Math.min(e.t_start, before - 3000), t_end: Math.max(e.t_end, Math.min(screen.endMs, screen.startMs + 2000)) };
+}
+
 export function mergeEvents(events: GameEvent[], gapMs = 3000): GameEvent[] {
   const sorted = [...events].sort((a, b) => a.t_peak - b.t_peak);
   const out: GameEvent[] = [];
@@ -356,6 +369,10 @@ export function buildEvents(input: { visual: VisualSignals; signals: Signals | n
     // A peak inside a menu or a still picture is no moment (the death screen itself is still: keep deaths).
     .filter((e) => e.kind === "death" || !inDead(e.t_peak))
     .map((e) => (e.sources.length >= 3 ? { ...e, payoff: Math.min(100, e.payoff + 5) } : e))
+    // 24-11-2026 (Milan: "er zijn geen Shorts uit de upload gekomen"): a peak ON the death screen made the Short open on
+    // "Game Over!" and the producer rejected it as a menu. The peak moves to the last gameplay just before the screen
+    // (the hit itself); the screen stays in the moment as its outcome.
+    .map((e) => peakBeforeScreen(e, dead))
     // Mostly menu or inventory around the peak: little for a viewer to see (deaths keep their screen).
     .map((e) => {
       if (e.kind === "death") return e;

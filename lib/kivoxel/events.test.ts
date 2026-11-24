@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestFrame, buildEvents, gameplayShareOf, isGameplay, overlayReliable, findDamage, findDead, findDeaths, findLowHealth, mergeEvents, topPayoffs, type GameEvent } from "./events";
+import { bestFrame, buildEvents, gameplayShareOf, isGameplay, overlayReliable, findDamage, findDead, findDeaths, findLowHealth, mergeEvents, peakBeforeScreen, topPayoffs, type GameEvent } from "./events";
 import { createVisualParser, FRAME_BYTES, frameMetrics, heartHealth, HEART_H, OVERLAY_H, overlayScores, VISUAL_W, type FrameMetrics, type VisualSignals } from "./visual";
 import { outToSource, sourceThumbMs, thumbFromSourceArgs } from "./thumbFrame";
 import type { Segment } from "../youtube/analysis";
@@ -210,5 +210,20 @@ describe("HUD template (23-11-2026, menus in any colour)", () => {
     for (let i = 0; i < 40; i++) parser.feed(frame);
     expect(parser.count()).toBe(40);
     expect(parser.finish().frames).toHaveLength(40);
+  });
+});
+
+describe("peakBeforeScreen (24-11-2026: een Short begint niet op het doodsscherm)", () => {
+  const ev = (o: Partial<GameEvent>): GameEvent => ({ id: "e", kind: "death", type: "fail", t_start: 296_000, t_peak: 299_000, t_end: 302_000, intensity: 1, payoff: 90, description: "shot by a skeleton", sources: ["hud:hearts"], ...o }) as GameEvent;
+  it("moves a peak on the Game Over screen to the hit just before it, keeping the screen as the outcome", () => {
+    const e = peakBeforeScreen(ev({}), [{ startMs: 297_500, endMs: 310_000, why: "menu" }]);
+    expect(e.t_peak).toBe(297_200);
+    expect(e.t_start).toBeLessThanOrEqual(294_200);
+    expect(e.t_end).toBeGreaterThanOrEqual(299_500);
+  });
+  it("leaves a peak in gameplay, a long menu and a menu right after another menu alone", () => {
+    expect(peakBeforeScreen(ev({}), []).t_peak).toBe(299_000);
+    expect(peakBeforeScreen(ev({}), [{ startMs: 290_000, endMs: 310_000, why: "menu" }]).t_peak).toBe(299_000);
+    expect(peakBeforeScreen(ev({}), [{ startMs: 294_000, endMs: 297_000, why: "black" }, { startMs: 297_500, endMs: 310_000, why: "menu" }]).t_peak).toBe(299_000);
   });
 });
