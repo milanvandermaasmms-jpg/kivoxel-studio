@@ -1329,7 +1329,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (kSettings.features.sfx_layer && modeSpec.sfx !== false) {
           const lib = await media.sfx().catch(() => ({ dir: "", items: [] as Sfx[] }));
           const recentSfx = await media.sfxLog.recent().catch(() => [] as string[]);
-          sfx = planSfx({ segments: cut.segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death" })), library: lib.items, recent: recentSfx, rnd, withVoice: modeSpec.voice, noRepeatWithin: kSettings.variation.sfx_no_repeat_within, durationMs: cutMs }).map((c) => ({ ...c, file: join(lib.dir, c.file) }));
+          sfx = planSfx({ segments: cut.segments, peaks: inMontage.map((e) => ({ atMs: e.peak_out, payoff: e.payoff, death: e.kind === "death", type: e.type, loudGame: e.sources.includes("geluid:piek") })), library: lib.items, recent: recentSfx, rnd, withVoice: modeSpec.voice, noRepeatWithin: kSettings.variation.sfx_no_repeat_within, durationMs: cutMs }).map((c) => ({ ...c, file: join(lib.dir, c.file) }));
           // A small accent on every interrupt (pop on a punch, whoosh on a whip), a bit softer than the main SFX.
           if (kSettings.features.interrupts.includes("sfx_accent")) {
             for (const a of interruptSfx(interrupts)) {

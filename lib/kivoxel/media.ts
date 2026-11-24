@@ -35,7 +35,8 @@ export type Track = {
 };
 export const SFX_KINDS = ["whoosh", "impact", "scratch", "pop", "riser"] as const;
 export type SfxKind = (typeof SFX_KINDS)[number];
-export type Sfx = { file: string; kind: SfxKind; db?: number };
+/** `hit_ms`: where the hit of a riser lands in its file (measured), so the riser can end exactly on a moment. */
+export type Sfx = { file: string; kind: SfxKind; db?: number; hit_ms?: number };
 
 /** Which moods suit which event (first = best). */
 export const MOOD_FOR: Record<EventType, Mood[]> = {
@@ -106,19 +107,42 @@ export const cutTimes = (segments: Segment[]) =>
     .slice(1)
     .map((s) => s.out_start_ms);
 
-/**
- * The SFX layer: whoosh on every cut, impact on big peaks, record scratch on a death. Variants rotate (never the same
- * file twice in a row, avoiding the last `noRepeatWithin`). `db` per kind; louder when there is no voice.
- */
 /** From this length a video counts as long for the sound effects (Shorts are at most 45 s). */
 export const LONG_SFX_FROM_MS = 60_000;
+/** 24-11-2026: two effects never closer than this (a pair of one moment, impact + scratch, excepted). */
+export const SFX_MIN_GAP_MS = 700;
+/** 24-11-2026: at most this many effects in any 10 seconds of a Short. */
+export const SFX_MAX_PER_10S = 4;
 
-export function planSfx(input: { segments: Segment[]; peaks: { atMs: number; payoff: number; death: boolean }[]; library: Sfx[]; recent: string[]; rnd: () => number; withVoice: boolean; noRepeatWithin?: number; durationMs: number }): { file: string; atMs: number; db: number; kind: SfxKind }[] {
+export type SfxPeak = {
+  atMs: number;
+  payoff: number;
+  death: boolean;
+  /** The kind of moment (lib/kivoxel/config.ts EVENT_TYPES): the effect follows it. */
+  type?: string | null;
+  /** The game itself is already loud there (a loud peak in the sound): the effect steps back. */
+  loudGame?: boolean;
+};
+type Cue = { file: string; atMs: number; db: number; kind: SfxKind };
+
+/**
+ * The SFX layer (rebuilt 24-11-2026, superprompt: "slimmere SFX-motor"). Effects follow what happens instead of one
+ * fixed recipe:
+ * - a death: impact plus record scratch; a fail or close call: impact; a jumpscare: a harder impact (no riser: a scare
+ *   must come unannounced); a joke: a light pop; a find or a finished build: a riser whose hit lands on the moment
+ *   (`hit_ms`), else a pop;
+ * - where the game itself is already loud the effect is 3 dB softer, so it supports instead of piling up;
+ * - never cluttered: no two effects within SFX_MIN_GAP_MS (the more important one stays: impact, scratch, riser, pop,
+ *   whoosh) and at most SFX_MAX_PER_10S per 10 seconds; a whoosh on a cut gives way to a moment;
+ * - long videos (18-11-2026): only a softer impact on the big moments, at least 20 s apart.
+ * Variants rotate (never the same file twice in a row, avoiding the last `noRepeatWithin`). Louder without a voice.
+ */
+export function planSfx(input: { segments: Segment[]; peaks: SfxPeak[]; library: Sfx[]; recent: string[]; rnd: () => number; withVoice: boolean; noRepeatWithin?: number; durationMs: number }): Cue[] {
   const used = [...input.recent];
   const n = input.noRepeatWithin ?? 3;
   const base = input.withVoice ? -8 : -3;
-  const pickOf = (kind: SfxKind) => {
-    const all = input.library.filter((s) => s.kind === kind);
+  const pickOf = (kind: SfxKind, filter: (s: Sfx) => boolean = () => true) => {
+    const all = input.library.filter((s) => s.kind === kind && filter(s));
     if (!all.length) return null;
     const fresh = all.filter((s) => !used.slice(-n).includes(s.file));
     const pool = fresh.length ? fresh : all;
@@ -126,30 +150,53 @@ export function planSfx(input: { segments: Segment[]; peaks: { atMs: number; pay
     used.push(s.file);
     return s;
   };
-  const out: { file: string; atMs: number; db: number; kind: SfxKind }[] = [];
-  const add = (kind: SfxKind, atMs: number, extraDb = 0) => {
-    const s = pickOf(kind);
-    if (s && atMs >= 0 && atMs < input.durationMs - 150) out.push({ file: s.file, atMs: Math.round(atMs), db: base + (s.db ?? 0) + extraDb, kind });
+  type Planned = Cue & { prio: number; group: number };
+  const planned: Planned[] = [];
+  const PRIO: Record<SfxKind, number> = { impact: 0, scratch: 1, riser: 2, pop: 3, whoosh: 4 };
+  const add = (kind: SfxKind, atMs: number, extraDb = 0, group = -1, s: Sfx | null = pickOf(kind)) => {
+    if (s && atMs >= 0 && atMs < input.durationMs - 150) planned.push({ file: s.file, atMs: Math.round(atMs), db: base + (s.db ?? 0) + extraDb, kind, prio: PRIO[kind], group });
   };
-  // The whoosh starts a little before the cut, so its loudest part lands on the cut.
   // 18-11-2026: a Short that opens on its climax (teaser) gets a hard impact right on that climax in the first second.
   const first = input.segments[0];
-  if (first?.part === "teaser") add("impact", Math.min(400, (first.src_end_ms - first.src_start_ms) / 3) - 30, 3);
-  // Long videos (18-11-2026, Milan: effects must add, never clutter): no whoosh on every cut, only a softer impact on the
-  // big moments, at least 20 s apart, so the calm background music and the game stay in front.
+  if (first?.part === "teaser") add("impact", Math.min(400, (first.src_end_ms - first.src_start_ms) / 3) - 30, 3, -2);
+
   if (input.durationMs > LONG_SFX_FROM_MS) {
     let last = -Infinity;
     for (const p of [...input.peaks].filter((x) => x.payoff >= 80).sort((a, b) => a.atMs - b.atMs)) {
       if (p.atMs - last < 20_000) continue;
-      add("impact", p.atMs - 30, -4);
+      add("impact", p.atMs - 30, -4 + (p.loudGame ? -3 : 0));
       last = p.atMs;
     }
-    return out.sort((a, b) => a.atMs - b.atMs);
+    return planned.sort((a, b) => a.atMs - b.atMs).map(({ prio: _p, group: _g, ...c }) => c);
   }
+
+  // The whoosh starts a little before the cut, so its loudest part lands on the cut.
   for (const c of cutTimes(input.segments)) add("whoosh", c - 180);
-  for (const p of input.peaks.filter((x) => x.payoff >= 50)) {
-    add("impact", p.atMs - 30, 2);
-    if (p.death) add("scratch", p.atMs + 350);
+  input.peaks
+    .filter((x) => x.payoff >= 50)
+    .forEach((p, g) => {
+      const soft = p.loudGame ? -3 : 0;
+      const type = p.death ? "death" : (p.type ?? null);
+      if (type === "death") {
+        add("impact", p.atMs - 30, 2 + soft, g);
+        add("scratch", p.atMs + 350, 0, g);
+      } else if (type === "jumpscare") add("impact", p.atMs - 30, 4 + soft, g);
+      else if (type === "grap") add("pop", p.atMs - 20, 0, g);
+      else if (type === "geluk" || type === "bouw") {
+        const riser = pickOf("riser", (s) => typeof s.hit_ms === "number" && p.atMs - s.hit_ms! >= 0);
+        if (riser) add("riser", p.atMs - riser.hit_ms!, soft, g, riser);
+        else add("pop", p.atMs - 20, 0, g);
+      } else add("impact", p.atMs - 30, 2 + soft, g);
+    });
+
+  // Never cluttered: the most important effects first, each only when nothing else sits too close or the 10 s are full.
+  const kept: Planned[] = [];
+  for (const c of [...planned].sort((a, b) => a.prio - b.prio || a.atMs - b.atMs)) {
+    const close = kept.some((k) => Math.abs(k.atMs - c.atMs) < SFX_MIN_GAP_MS && !(k.group >= 0 && k.group === c.group));
+    // Every 10-second window that would hold this effect must still have room (windows start at an effect or at this one).
+    const starts = [c.atMs, ...kept.map((k) => k.atMs).filter((t) => t <= c.atMs && c.atMs - t < 10_000)];
+    const busy = starts.some((w) => kept.filter((k) => k.atMs >= w && k.atMs < w + 10_000).length + 1 > SFX_MAX_PER_10S);
+    if (!close && !busy) kept.push(c);
   }
-  return out.sort((a, b) => a.atMs - b.atMs);
+  return kept.sort((a, b) => a.atMs - b.atMs).map(({ prio: _p, group: _g, ...c }) => c);
 }

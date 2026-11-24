@@ -115,6 +115,27 @@ describe("music and SFX library", () => {
     expect(cues.map((c) => c.kind)).toEqual(["impact"]);
     expect(cues[0].db).toBe(-7);
   });
+  it("follows the kind of moment: pop on a joke, a riser whose hit lands on a find, a harder impact on a jumpscare (24-11-2026)", () => {
+    const segs: Segment[] = [{ part: "build", src_start_ms: 0, src_end_ms: 30_000, out_start_ms: 0, speed: 1, effects: [], note: "" }];
+    const library: Sfx[] = [{ file: "i1", kind: "impact" }, { file: "p1", kind: "pop" }, { file: "r1", kind: "riser", hit_ms: 1500 }];
+    const cues = planSfx({ segments: segs, peaks: [{ atMs: 4000, payoff: 70, death: false, type: "grap" }, { atMs: 12_000, payoff: 80, death: false, type: "geluk" }, { atMs: 22_000, payoff: 90, death: false, type: "jumpscare" }], library, recent: [], rnd: seeded("k"), withVoice: false, durationMs: 30_000 });
+    expect(cues.map((c) => [c.kind, c.atMs])).toEqual([["pop", 3980], ["riser", 10_500], ["impact", 21_970]]);
+    expect(cues[2].db).toBe(1); // -3 without voice, +4 for a jumpscare
+  });
+  it("steps back where the game is already loud, and never clutters (24-11-2026)", () => {
+    const segs: Segment[] = [
+      { part: "build", src_start_ms: 0, src_end_ms: 5000, out_start_ms: 0, speed: 1, effects: [], note: "" },
+      { part: "payoff", src_start_ms: 9000, src_end_ms: 15_000, out_start_ms: 5000, speed: 1, effects: [], note: "" },
+    ];
+    const library: Sfx[] = [{ file: "w1", kind: "whoosh" }, { file: "i1", kind: "impact" }, { file: "s1", kind: "scratch" }];
+    // A moment right on the cut: its impact stays, the whoosh 150 ms away gives way.
+    const cues = planSfx({ segments: segs, peaks: [{ atMs: 5000, payoff: 90, death: false, loudGame: true }], library, recent: [], rnd: seeded("q"), withVoice: false, durationMs: 11_000 });
+    expect(cues.map((c) => c.kind)).toEqual(["impact"]);
+    expect(cues[0].db).toBe(-4); // -3 base, +2 impact, -3 loud game
+    // Many moments close together: at most four effects in any 10 seconds.
+    const many = planSfx({ segments: [segs[0]], peaks: [1000, 2000, 3000, 4000, 5000, 6000].map((atMs) => ({ atMs, payoff: 80, death: false })), library, recent: [], rnd: seeded("m"), withVoice: false, durationMs: 9000 });
+    expect(many.length).toBe(4);
+  });
   it("a Short that opens on its climax gets an impact on that climax in the first second (18-11-2026)", () => {
     const segs: Segment[] = [
       { part: "teaser", src_start_ms: 99_600, src_end_ms: 100_900, out_start_ms: 0, speed: 1, effects: [], note: "" },
