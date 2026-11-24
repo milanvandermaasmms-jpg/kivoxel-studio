@@ -28,6 +28,7 @@ import { VoiceSplit } from "@/components/youtube/EditorPanel";
 import { ContentRegister } from "@/components/youtube/ContentRegister";
 import { StudioHealth } from "@/components/youtube/StudioHealth";
 import { CostPanel } from "@/components/youtube/CostPanel";
+import { UploadAudit } from "@/components/youtube/UploadAudit";
 import { CandidateList } from "@/components/youtube/ProducerDossier";
 import type { Candidate } from "@/lib/kivoxel/producerGate";
 import type { Briefing } from "@/lib/kivoxel/briefing";
@@ -534,6 +535,7 @@ export function StudioApp({ route }: { route?: string } = {}) {
               <ContentRegister workerOnline={!!health} channelName={ivarChannel?.name ?? null} onOpen={(id) => (setReviewStart(id), setReviewing(true))} />
               <MusicLibrary state={flowReady} workerOnline={!!health} />
               <VoiceSplit channels={channelsNow.map((c) => ({ id: c.id, name: c.name }))} workerOnline={!!health} />
+              <UploadAudit studioId={studio.id} />
               <CostPanel studioId={studio.id} />
             </>
           )}
