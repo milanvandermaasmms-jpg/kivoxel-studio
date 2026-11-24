@@ -266,6 +266,7 @@ const server = createWorkerServer({
   dreamnestDir: dreamnest ? join(dataDir, "dreamnest") : undefined,
   voicePlan: () => createVoiceLedger(join(dataDir, "voice-plan.json")).summary(),
   incidents: incidentMonitor ? () => incidentMonitor.get() : undefined,
+  lessons: queue?.learning ? { get: () => queue.learning!.get(), run: () => queue.learning!.rebuild(), toggle: (id, off) => queue.learning!.setOff(id, off) } : null,
   // 23-11-2026: the content register (every production scored from measurements; no AI, changes nothing).
   register: supabaseUrl && serviceKey && montage ? createContentRegister({ db: createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }), ffmpeg, dataDir, rendersDir: montage.rendersDir, log, visual: async (fp) => { const r = await store.get(fp); return r?.probe?.durationMs ? visualFor(ffmpeg, dataDir, fp, join(dataDir, "recordings", r.file), r.probe.durationMs) : null; } }) : undefined,
   // 23-11-2026: the music library and the Uppbeat import (Milan downloads, the studio imports once).

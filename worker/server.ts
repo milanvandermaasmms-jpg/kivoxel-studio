@@ -53,6 +53,8 @@ export type ServerOptions = {
   voicePlan?: () => Promise<unknown>;
   /** 23-11-2026: the content register (GET /register; POST /register/run builds a new one in the background). */
   register?: { get: () => Promise<unknown>; run: () => string };
+  /** 24-11-2026: Ivar's lessons (GET /lessons; POST /lessons/run builds them again; POST /lessons/toggle switches one off/on). */
+  lessons?: { get: () => Promise<unknown>; run: () => Promise<unknown>; toggle: (id: string, off: boolean) => Promise<unknown> } | null;
   /** 23-11-2026: Ivar's incident log (GET /incidents). */
   incidents?: () => Promise<unknown>;
 };
@@ -108,7 +110,7 @@ async function readJson(req: IncomingMessage, limit = 16 * 1024): Promise<unknow
   }
 }
 
-export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, incidents, log = () => {} }: ServerOptions) {
+export function createWorkerServer({ store, allowedOrigins, health, rendersDir, dreamnestDir, onReceived, youtube, poke, music, voicePlan, register, incidents, lessons, log = () => {} }: ServerOptions) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin;
     const send = (status: number, body: unknown) => {
@@ -158,6 +160,22 @@ export function createWorkerServer({ store, allowedOrigins, health, rendersDir, 
         }
       }
       if (req.method === "GET" && url.pathname === "/incidents" && incidents) return send(200, await incidents());
+      if (req.method === "GET" && url.pathname === "/lessons" && lessons) return send(200, await lessons.get());
+      if (req.method === "POST" && url.pathname === "/lessons/run" && lessons) {
+        if (!origin) return send(403, { error: "Alleen via het dashboard" });
+        return send(200, await lessons.run());
+      }
+      if (req.method === "POST" && url.pathname === "/lessons/toggle" && lessons) {
+        if (!origin) return send(403, { error: "Alleen via het dashboard" });
+        let body: { id?: unknown; off?: unknown };
+        try {
+          body = JSON.parse((await readBody(req, 4096)).toString("utf8")) as { id?: unknown; off?: unknown };
+        } catch {
+          return send(400, { error: "Onleesbaar verzoek" });
+        }
+        if (typeof body.id !== "string" || !/^[a-z]+:[A-Za-z0-9:_-]{1,120}$/.test(body.id) || typeof body.off !== "boolean") return send(400, { error: "Onbekende les" });
+        return send(200, await lessons.toggle(body.id, body.off));
+      }
       if (req.method === "GET" && url.pathname === "/register" && register) return send(200, await register.get());
       if (req.method === "POST" && url.pathname === "/register/run" && register) {
         if (!origin) return send(403, { error: "Alleen via het dashboard" });

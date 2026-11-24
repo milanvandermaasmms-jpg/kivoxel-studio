@@ -103,6 +103,8 @@ import { freezeFilter, interruptFilter, interruptSfx, longestQuiet, planFreezes,
 import { chapters, cutDeadInPlan, deadInMontage, firstFrameMoves } from "../lib/kivoxel/longPlan.ts";
 import { checkLine, lineCheckQc, repairLines, type LineCheck } from "../lib/kivoxel/lineCheck.ts";
 import { contentValue, reviewDecision, type AiContent, type ContentValue } from "../lib/kivoxel/contentValue.ts";
+import { audioDefaultFrom, kindBoostFrom, payoffExtraFrom } from "../lib/ivar/learningCycle.ts";
+import { createIvarLearning } from "./ivarLearning.ts";
 import { speakWithGate } from "./voiceGate.ts";
 
 /**
@@ -214,6 +216,8 @@ const NO_KEY = "Analysedienst nog te verbinden: zet GEMINI_API_KEY in worker/.en
 
 export function createQueue(url: string, serviceKey: string, workerName: string, store: Store, log: (msg: string) => void, ai: Ai | null = null, montage: Montage | null = null, client?: SupabaseClient, publisher: Publisher | null = null, research: Research | null = null) {
   const db: SupabaseClient = client ?? createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  // 24-11-2026 (opdracht 4): Ivar's learning cycle; its lessons live next to the renders on this pc.
+  const ivarLearning = montage ? createIvarLearning({ db, dataDir: join(montage.rendersDir, ".."), log }) : null;
   let timer: NodeJS.Timeout | null = null;
   let busy = false;
 
@@ -680,9 +684,22 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const boosts = isTest ? [] : await learnedBoosts(job.studio_id, recordingId);
     const learned = boostsSummary(boosts);
     if (learned) log(`Keuze van Shorts weegt mee wat kijkers uitkeken: ${learned}`);
+    // 24-11-2026: Ivar's lessons from Milan's own decisions (fewer Shorts of a kind he keeps rejecting, more of what works).
+    const recChannel = isTest ? null : (await db.from("yt_recordings").select("channel_id").eq("id", recordingId).maybeSingle<{ channel_id: string | null }>()).data?.channel_id ?? null;
+    const lessons = !isTest && ivarLearning ? await ivarLearning.active(recChannel).catch(() => []) : [];
+    const usedLessons = new Set<string>();
+    const lessonBoost = (kind: string) => {
+      const b = kindBoostFrom(lessons, kind);
+      b.ids.forEach((id) => usedLessons.add(id));
+      return b.boost;
+    };
     // Briefing: the found key event and Milan's time marks go first; then only the videos he asked for.
     const brief = isTest ? null : await briefingOf(recordingId);
-    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`, (m) => boostOf(boosts, m.kind) + briefingBoost(brief, keyEvent, m));
+    let plans = planVideos(moments, durationMs, (m) => m.id ?? `${m.kind}:${m.startMs}`, (m) => boostOf(boosts, m.kind) + briefingBoost(brief, keyEvent, m) + lessonBoost(m.kind));
+    if (usedLessons.size) {
+      notes.push(`Ivar past ${usedLessons.size} les(sen) toe bij de keuze van Shorts: ${lessons.filter((l) => usedLessons.has(l.id)).map((l) => l.title).join("; ")}`.slice(0, 400));
+      void ivarLearning?.applied([...usedLessons]).catch(() => undefined);
+    }
     const chosenPlans = filterPlans(plans, brief);
     plans = chosenPlans.plans;
     if (chosenPlans.note) notes.push(chosenPlans.note);
@@ -1108,12 +1125,23 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     const main = flags.data?.[0]?.yt_moments ?? null;
     // 23-11-2026: a targeted correction after Milan's feedback changes only what he pointed at in this timeline
     // (crop of one piece, more time after the peak, music); the moments and the script stay.
-    const fixes = (job.payload?.fixes ?? null) as Fixes | null;
+    const askedFixes = (job.payload?.fixes ?? null) as Fixes | null;
+    // 24-11-2026 (opdracht 4): Ivar's safe lessons for this channel (never on a preview, a test or Milan's own choice).
+    const renderLessons = ivarLearning && !video.data.is_test && typeof job.payload?.preview !== "string" ? await ivarLearning.active(video.data.channel_id ?? null).catch(() => []) : [];
+    const lessonPayoff = askedFixes?.payoffExtraMs === undefined ? payoffExtraFrom(renderLessons) : null;
+    const lessonAudio = typeof job.payload?.music_pick !== "string" && typeof job.payload?.sfx_level !== "string" ? audioDefaultFrom(renderLessons) : null;
+    const fixes: Fixes | null = lessonPayoff && lessonPayoff.action.type === "payoff_extra" ? { ...(askedFixes ?? {}), payoffExtraMs: lessonPayoff.action.ms } : askedFixes;
+    const appliedLessons = [lessonPayoff, lessonAudio].filter((l): l is NonNullable<typeof l> => !!l);
+    if (appliedLessons.length) {
+      await lv.event("note", `Ivar past toe: ${appliedLessons.map((l) => l.title).join("; ")}`.slice(0, 500));
+      void ivarLearning?.applied(appliedLessons.map((l) => l.id)).catch(() => undefined);
+    }
     // 23-11-2026 (superprompt V6, fase 31): an audio preview (B, C or Milan's own combination) is the same montage with
     // other audio, saved as its own file: no new version, no status change, no place in the voice split, no checks.
     const preview = typeof job.payload?.preview === "string" && /^(A|B|C|eigen)$/.test(job.payload.preview) ? job.payload.preview : null;
-    const musicChoice = typeof job.payload?.music_pick === "string" ? job.payload.music_pick : undefined;
-    const sfxLevel = (["subtiel", "gebalanceerd", "dynamisch"] as const).find((x) => x === job.payload?.sfx_level) as SfxChoice | undefined;
+    const lessonPick = lessonAudio?.action.type === "audio_default" ? lessonAudio.action : null;
+    const musicChoice = typeof job.payload?.music_pick === "string" ? job.payload.music_pick : lessonPick?.music_pick;
+    const sfxLevel = (["subtiel", "gebalanceerd", "dynamisch"] as const).find((x) => x === (job.payload?.sfx_level ?? lessonPick?.sfx_level)) as SfxChoice | undefined;
     // 23-11-2026: after "kies een ander moment" the plan has a new moment while the video is still linked to the old one;
     // the cold open then takes the plan's own peak (it opened with 1.5 s of the rejected moment).
     const linkedPeak = main ? (main.peak_ms ?? Math.round((main.start_ms + main.end_ms) / 2)) : null;
@@ -1654,7 +1682,7 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
             await lv.event("error", `Viralscore niet berekend: ${e instanceof Error ? e.message : String(e)}`);
           }
           const cur = await db.from("yt_renders").select("qc").eq("job_id", job.id).maybeSingle<{ qc: Record<string, unknown> | null }>();
-          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor, ...(briefCheck ? { briefing: briefCheck } : {}), ...(viral ? { viral } : {}) } }).eq("job_id", job.id);
+          await db.from("yt_renders").update({ qc: { ...(cur.data?.qc ?? {}), editor, ...(briefCheck ? { briefing: briefCheck } : {}), ...(viral ? { viral } : {}), ...(appliedLessons.length ? { lessons: appliedLessons.map((l) => ({ id: l.id, title: l.title })) } : {}), ...(contentGate ? { contentValue: contentGate } : {}) } }).eq("job_id", job.id);
           await lv.event("note", `Eindredacteur: ${editor.status}. ${editor.main}`.slice(0, 500));
         } catch (e) {
           if (e instanceof CancelledError) throw e;
@@ -2527,7 +2555,11 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       void drainWaiting().catch(() => undefined);
       setInterval(() => void drainWaiting().catch(() => undefined), 2 * 60_000);
       setInterval(() => void reviveMontages().catch(() => undefined), 5 * 60_000);
+      // 24-11-2026: Ivar's lessons are built again every 6 hours (checked every 30 minutes, at start too).
+      void ivarLearning?.tick();
+      setInterval(() => void ivarLearning?.tick(), 30 * 60_000);
     },
+    learning: ivarLearning,
     recover,
     tick,
     tickFast,

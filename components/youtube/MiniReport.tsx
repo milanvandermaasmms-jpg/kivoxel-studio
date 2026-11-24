@@ -5,7 +5,7 @@ import type { QcItem } from "@/lib/youtube/qc";
 /** The checks of section 9, in this order; anything else in the QC list is shown by the general list already. */
 const ORDER = ["vo_sync", "voice_lines", "hook_words", "hook_type", "hook_fresh", "hook_safe", "thumbnail_header", "length_bucket", "length_varies", "dead_air", "first_frame", "interrupts", "loudness_target", "audio_mode", "chapters"];
 
-type Qc = { items?: QcItem[]; audio?: { label?: string; music?: string | null; voiceEngine?: string | null }; fx?: { zoom?: string; captions?: string }; chapters?: string[] } | null | undefined;
+type Qc = { lessons?: { id: string; title: string }[]; contentValue?: { level: string; summary: string } | null; items?: QcItem[]; audio?: { label?: string; music?: string | null; voiceEngine?: string | null }; fx?: { zoom?: string; captions?: string }; chapters?: string[] } | null | undefined;
 
 export function MiniReport({ qc, topLine, model, short }: { qc: Qc; topLine: string | null; model?: string | null; short: boolean }) {
   // Only for montages made with the fase-1 chain (older ones have loudness lines too, but none of the new checks).
@@ -57,6 +57,8 @@ export function MiniReport({ qc, topLine, model, short }: { qc: Qc; topLine: str
           </li>
         ))}
       </ul>
+      {qc?.contentValue ? <p className="text-slate-700">Content Value Gate: {qc.contentValue.summary}</p> : null}
+      {qc?.lessons?.length ? <p className="text-slate-700">Ivar paste toe: {qc.lessons.map((l) => l.title).join("; ")}</p> : null}
       {qc?.chapters?.length ? <p className="whitespace-pre-line text-slate-600">Hoofdstukken voor de beschrijving:{"\n"}{qc.chapters.join("\n")}</p> : null}
     </section>
   );
