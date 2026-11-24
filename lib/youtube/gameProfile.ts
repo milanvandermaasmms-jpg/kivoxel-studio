@@ -12,9 +12,9 @@ export type Game = {
   id: GameId;
   /** "Minecraft": the search keyword at the front of a title. */
   name: string;
-  /** "Minecraft (PS5, Bedrock)": how the prompts name the game. */
+  /** "Minecraft (PS5 Bedrock and PC Java)": how the prompts name the game. */
   subject: string;
-  /** What the analysis gets: "raw Minecraft (PS5, Bedrock) survival gameplay". */
+  /** What the analysis gets: "raw Minecraft survival gameplay (PS5 Bedrock or PC Java Edition)". */
   gameplay: string;
   /** What the analysis should look out for. */
   focus: string;
@@ -42,12 +42,12 @@ export const GAMES: Record<GameId, Game> = {
   minecraft: {
     id: "minecraft",
     name: "Minecraft",
-    subject: "Minecraft (PS5, Bedrock)",
-    gameplay: "raw Minecraft (PS5, Bedrock) survival gameplay",
+    subject: "Minecraft (PS5 Bedrock and PC Java)",
+    gameplay: "raw Minecraft survival gameplay (PS5 Bedrock or PC Java Edition)",
     focus: "Look especially for low health, mobs, falls or lava, rare blocks or items, and finished builds.",
     toneNote: null,
     match: /minecraft/i,
-    tags: ["minecraft", "minecraft survival", "minecraft bedrock", "minecraft ps5"],
+    tags: ["minecraft", "minecraft survival", "minecraft java", "minecraft bedrock", "minecraft ps5"],
     shortTags: ["minecraft shorts", "shorts"],
     longTags: ["minecraft lets play", "minecraft survival series"],
     hashtag: "#minecraft",
@@ -204,8 +204,8 @@ export const PROFILES: Record<ChannelProfileKey, ChannelProfile> = {
     blur: true,
     block: (_g, kind) =>
       kind === "short"
-        ? "KIVOXEL plays Minecraft survival on PS5 – new Shorts every day: close calls, fails, finds and big moments.\n🔔 Subscribe so you never miss the next one!"
-        : "KIVOXEL plays Minecraft survival on PS5, told as a story: every close call, fail and find from the whole session.\n🔔 Subscribe for the next part!",
+        ? "KIVOXEL plays Minecraft survival on PS5 and PC (Java) – new Shorts every day: close calls, fails, finds and big moments.\n🔔 Subscribe so you never miss the next one!"
+        : "KIVOXEL plays Minecraft survival on PS5 and PC (Java), told as a story: every close call, fail and find from the whole session.\n🔔 Subscribe for the next part!",
   },
   spawnnado: {
     key: "spawnnado",

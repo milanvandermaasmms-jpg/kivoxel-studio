@@ -28,12 +28,12 @@ describe("channel profiles", () => {
   });
 
   it("KIVOXEL standard texts are unchanged", () => {
-    expect(BASE_TAGS).toEqual(["minecraft", "minecraft survival", "minecraft bedrock", "minecraft ps5", "gaming", "kivoxel"]);
+    expect(BASE_TAGS).toEqual(["minecraft", "minecraft survival", "minecraft java", "minecraft bedrock", "minecraft ps5", "gaming", "kivoxel"]);
     expect(standardDescription({ kind: "short", title: "T" })).toBe(
-      "T\n\nKIVOXEL plays Minecraft survival on PS5 – new Shorts every day: close calls, fails, finds and big moments.\n🔔 Subscribe so you never miss the next one!\n\n#minecraft #gaming #shorts",
+      "T\n\nKIVOXEL plays Minecraft survival on PS5 and PC (Java) – new Shorts every day: close calls, fails, finds and big moments.\n🔔 Subscribe so you never miss the next one!\n\n#minecraft #gaming #shorts",
     );
     expect(standardDescription({ kind: "long", title: "T" }).endsWith("#minecraft #gaming #minecraftsurvival")).toBe(true);
-    expect(analysisPrompt(60_000)).toContain("You analyse raw Minecraft (PS5, Bedrock) survival gameplay for a faceless YouTube channel.");
+    expect(analysisPrompt(60_000)).toContain("You analyse raw Minecraft survival gameplay (PS5 Bedrock or PC Java Edition) for a faceless YouTube channel.");
     expect(narratorVoice()).toEqual(NARRATOR_VOICE);
   });
 
