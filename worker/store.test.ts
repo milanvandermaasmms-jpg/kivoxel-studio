@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,5 +137,20 @@ describe("fingerprint from disk (fix 14-11-2026: openAsBlob read wrong bytes abo
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("index (24-11-2026, praktijktest)", () => {
+  it("two recordings imported at the same time both stay in the index", async () => {
+    // TESTDATA: random bytes, never real gameplay.
+    const a = join(dir, "TESTDATA a.mp4");
+    const b = join(dir, "TESTDATA b.mp4");
+    await writeFile(a, randomBytes(2 * 1024 * 1024));
+    await writeFile(b, randomBytes(2 * 1024 * 1024));
+    const [ra, rb] = await Promise.all([store.importFile(a, "TESTDATA a"), store.importFile(b, "TESTDATA b")]);
+    const list = await store.list();
+    expect(list.map((r) => r.fingerprint).sort()).toEqual([ra.recording.fingerprint, rb.recording.fingerprint].sort());
+    await Promise.all([store.intake(ra.recording.fingerprint), store.intake(rb.recording.fingerprint)]);
+    expect((await store.list()).every((r) => r.probe?.durationMs === 1000)).toBe(true);
   });
 });

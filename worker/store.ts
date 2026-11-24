@@ -92,6 +92,17 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
     await writeFile(tmp, JSON.stringify(list, null, 2));
     await rename(tmp, indexFile);
   }
+  /**
+   * 24-11-2026 (praktijktest): every change of the shared index goes through one queue and reads the index again right
+   * before writing. Two recordings that arrived at the same time (inbox) each read the index, added their own entry and
+   * wrote it back, so the last write lost the first recording ("Het bestand staat niet op deze pc").
+   */
+  let indexChain: Promise<unknown> = Promise.resolve();
+  function updateIndex(change: (list: LocalRecording[]) => LocalRecording[]): Promise<void> {
+    const next = indexChain.catch(() => undefined).then(async () => writeIndex(change(await readIndex())));
+    indexChain = next;
+    return next;
+  }
   async function readPending(fp: string): Promise<Pending> {
     try {
       return JSON.parse(await readFile(pendingFile(fp), "utf8")) as Pending;
@@ -208,7 +219,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
         probe: null,
         intakeError: null,
       };
-      await writeIndex([...index, recording]);
+      await updateIndex((list) => [...list.filter((r) => r.fingerprint !== fp), recording]);
       await rm(pendingFile(fp), { force: true });
       return { recording, duplicateOf: null };
     });
@@ -236,7 +247,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
       const file = `${fp}.${ext}`;
       await moveFile(source, join(recordingsDir, file));
       const recording: LocalRecording = { fingerprint: fp, sha256, label: cleanLabel, originalName: name, size, isTest: false, file, receivedAt: new Date().toISOString(), probe: null, intakeError: null };
-      await writeIndex([...index, recording]);
+      await updateIndex((list) => [...list.filter((r) => r.fingerprint !== fp), recording]);
       return { recording, duplicateOf: null };
     });
   }
@@ -244,8 +255,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
   /** Intake step: read length, picture size and codecs with ffprobe. */
   async function intake(fp: string): Promise<LocalRecording> {
     return locked(fp, async () => {
-      const index = await readIndex();
-      const recording = index.find((r) => r.fingerprint === fp);
+      const recording = (await readIndex()).find((r) => r.fingerprint === fp);
       if (!recording) throw new StoreError(404, "Deze opname staat niet op deze pc");
       try {
         recording.probe = await probeFile(join(recordingsDir, recording.file));
@@ -253,7 +263,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
       } catch (e) {
         recording.intakeError = e instanceof Error ? e.message.slice(0, 300) : "Onbekende fout";
       }
-      await writeIndex(index);
+      await updateIndex((list) => list.map((r) => (r.fingerprint === fp ? recording : r)));
       return recording;
     });
   }
