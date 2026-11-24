@@ -195,7 +195,7 @@ export function createStore(dataDir: string, probeFile: (file: string) => Promis
       }
 
       const file = `${fp}.${videoExtension(pending.name)}`;
-      await rename(part, join(recordingsDir, file));
+      await moveFile(part, join(recordingsDir, file));
       const recording: LocalRecording = {
         fingerprint: fp,
         sha256,
