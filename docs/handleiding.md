@@ -34,7 +34,7 @@
 ## Kosten
 - AI-suggesties en het herschrijven van een script kosten een fractie van een cent.
 - De luistercheck kost ongeveer 1 tot 2 cent per video.
-- Alles valt binnen je plafond van € 5 per maand, dat je bij Instellingen ziet. Testvideo's zijn gratis.
+- Alles valt binnen je plafond van € 100 per maand, dat je bij Instellingen ziet. Testvideo's zijn gratis.
 - Referentievideo's ophalen kost alleen YouTube-quotum, geen geld.
 
 ## Gaat er iets mis?

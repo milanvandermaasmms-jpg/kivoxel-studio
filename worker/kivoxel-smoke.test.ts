@@ -29,6 +29,7 @@ function fakeDb(rows: Record<string, unknown>, claims: unknown[][] = []) {
       lt: () => chain,
       is: () => chain,
       not: () => chain,
+      abortSignal: () => chain,
       // Wachtrij YouTube (22-11-2026): "videos of this channel already in line"; nothing waits in the smoke test.
       like: () => ((call.op = "select"), (chain.waitCheck = true), chain),
       order: () => chain,

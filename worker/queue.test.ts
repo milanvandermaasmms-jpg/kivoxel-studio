@@ -47,6 +47,7 @@ function fakeDb(answers: { running?: unknown[]; claim?: unknown[][]; rows?: Reco
       },
       neq: () => chain,
       not: () => chain,
+      abortSignal: () => chain,
       limit: () => chain,
       returns: () => chain,
       then(resolve: (r: unknown) => void) {

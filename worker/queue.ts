@@ -220,7 +220,14 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
   const liveMissing = (error: { code?: string; message: string }) => error.code === "42703" || error.code === "PGRST204" || error.code === "PGRST205" || error.code === "42P01" || /column|could not find/i.test(error.message);
 
   /** Progress, heartbeat (every 10 s), log and the cancel request of one running step. */
+  /**
+   * 24-11-2026: the steps this worker process is really running right now. The PC slept during a long montage; on waking
+   * the stuck-step sweep saw "2 hours without a heartbeat" and failed a montage that was still working (and finished).
+   */
+  const activeJobs = new Set<string>();
+
   function live(job: Job): Live {
+    activeJobs.add(job.id);
     if (!liveReady) return NO_LIVE;
     const control = new AbortController();
     let last = 0;
@@ -234,7 +241,8 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
       const update = { ...pending, heartbeat_at: new Date().toISOString() };
       pending = {};
       try {
-        const { data, error } = await db.from("yt_jobs").update(update).eq("id", job.id).eq("locked_by", workerName).select("cancel_requested").maybeSingle<{ cancel_requested: boolean }>();
+        // A hanging request must never stop all later heartbeats (writing would stay true): give up after 15 s.
+        const { data, error } = await db.from("yt_jobs").update(update).eq("id", job.id).eq("locked_by", workerName).select("cancel_requested").abortSignal(AbortSignal.timeout(15_000)).maybeSingle<{ cancel_requested: boolean }>();
         if (error) {
           if (liveMissing(error)) liveReady = false;
           else log(`Voortgang van stap ${job.id} niet bijgewerkt: ${error.message}`);
@@ -258,7 +266,10 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
         if (error && liveMissing(error)) liveReady = false;
         else if (error) log(`Logregel van stap ${job.id} niet opgeslagen: ${error.message}`);
       },
-      stop: () => clearInterval(beat),
+      stop: () => {
+        clearInterval(beat);
+        activeJobs.delete(job.id);
+      },
     };
   }
 
@@ -2157,6 +2168,12 @@ export function createQueue(url: string, serviceKey: string, workerName: string,
     for (const j of data ?? []) {
       const last = j.heartbeat_at ?? j.locked_at;
       if (!last || last > limit) continue;
+      // Still running in this very process (e.g. the PC slept and just woke up): not stuck, refresh its heartbeat.
+      if (activeJobs.has(j.id)) {
+        await db.from("yt_jobs").update({ heartbeat_at: new Date(now).toISOString() }).eq("id", j.id).eq("status", "running");
+        log(`Stap ${j.step} (${j.id}) had lang geen teken van leven maar loopt nog in deze werker: niet afgekeurd`);
+        continue;
+      }
       const upd = await db.from("yt_jobs").update({ status: "failed", error: "Vastgelopen: 2 uur geen voortgang", locked_by: null, locked_at: null, finished_at: new Date(now).toISOString() }).eq("id", j.id).eq("status", "running");
       if (upd.error) log(`Stap ${j.id} niet op mislukt gezet: ${upd.error.message}`);
       else {

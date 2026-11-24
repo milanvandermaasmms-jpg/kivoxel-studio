@@ -41,7 +41,7 @@
 - **Toon:** explosief en hyper (gamer-hype), wel kindvriendelijk.
 - **Kinderen:** gezicht, stem en gamertag mogen in beeld. Nooit hun echte naam, school of woonplaats.
 - **Kosten:**
-  - Gemini Flash-Lite: maximaal € 5 per maand.
+  - Gemini Flash-Lite: maximaal € 100 per maand (besluit Milan, 24-11-2026).
   - Google TTS: alleen het gratis deel.
   - Geen Claude API en geen ElevenLabs zonder budget van Milan.
   - Dreamnest-AI-budget: € 31,25 van € 35 gebruikt.

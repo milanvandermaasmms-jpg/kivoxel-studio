@@ -42,4 +42,33 @@ export function costOverview(lines: CostLine[], jobs: JobRef[], names: { recordi
   return { rows: [...rows.values()].sort((a, b) => b.measured + b.estimated - (a.measured + a.estimated)), total };
 }
 
+/**
+ * 24-11-2026 (Milan: "wat kost een upload van een uur?"): per recording everything it cost (its analysis plus the
+ * scripts, montages and checks of all its videos), per hour of footage, from the real cost lines.
+ */
+export function perRecordingHour(lines: CostLine[], jobs: JobRef[], videos: Record<string, { recordingId: string | null }>, recordings: Record<string, { label: string; durationMs: number | null }>) {
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  const per = new Map<string, { analyse: number; scripts: number; checks: number; overig: number }>();
+  for (const l of lines) {
+    const j = l.job_id ? byId.get(l.job_id) : undefined;
+    const vid = l.video_id ?? j?.video_id ?? null;
+    const rec = vid ? (videos[vid]?.recordingId ?? null) : (j?.recording_id ?? null);
+    if (!rec) continue;
+    const p = per.get(rec) ?? { analyse: 0, scripts: 0, checks: 0, overig: 0 };
+    const step = j?.step ?? "";
+    if (step === "analyse") p.analyse += l.amount_cents;
+    else if (step === "script") p.scripts += l.amount_cents;
+    else if (step === "viral") p.checks += l.amount_cents;
+    else p.overig += l.amount_cents;
+    per.set(rec, p);
+  }
+  const rows = [...per.entries()]
+    .map(([id, p]) => ({ id, label: recordings[id]?.label ?? "Opname", hours: (recordings[id]?.durationMs ?? 0) / 3_600_000, ...p, total: p.analyse + p.scripts + p.checks + p.overig }))
+    .filter((r) => r.hours >= 0.25);
+  const hours = rows.reduce((a, r) => a + r.hours, 0);
+  const sum = (k: "analyse" | "scripts" | "checks" | "overig" | "total") => rows.reduce((a, r) => a + r[k], 0);
+  const perHour = (k: "analyse" | "scripts" | "checks" | "overig" | "total") => (hours ? Math.round(sum(k) / hours) : 0);
+  return { recordings: rows.length, hours: Math.round(hours * 10) / 10, perHour: { total: perHour("total"), analyse: perHour("analyse"), scripts: perHour("scripts"), checks: perHour("checks"), overig: perHour("overig") }, rows: rows.sort((a, b) => b.total / b.hours - a.total / a.hours) };
+}
+
 export const eur = (cents: number) => `€ ${(cents / 100).toFixed(2).replace(".", ",")}`;

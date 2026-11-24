@@ -31,6 +31,7 @@ function fakeDb(existingParts: unknown[] = []) {
       update: (v: unknown) => record("update", v),
       eq: (c: string, v: unknown) => (call.filters.push(["eq", c, v]), chain),
       neq: (c: string, v: unknown) => (call.filters.push(["neq", c, v]), chain),
+      abortSignal: () => chain,
       like: (c: string, v: unknown) => (call.filters.push(["like", c, v]), chain),
       in: (c: string, v: unknown) => (call.filters.push(["in", c, v]), chain),
       order: () => chain,

@@ -12,7 +12,7 @@ Opdracht: `docs/masterprompt-kivoxel-superprompt.md` (13-11-2026). Dit document 
 6. **Thumbnail:** één beeld uit de montage, zelf gekozen. Geen varianten met tekst. Eigen thumbnails vragen nog kanaalverificatie (403).
 7. **Ontbreekt t.o.v. de superprompt:** watch-map `inbox`, scènedetectie/AFK/laadschermen, transcriptie, zooms op highlights, muziek en SFX, automatische Shorts uit een lange video, 3 thumbnailvarianten, 3 titelopties en chapters, stijlprofiel, kostendashboard per dienst, "Opnieuw genereren" per onderdeel, export voor handmatig uploaden.
 8. **Menselijke stappen nu:** script goedkeuren, video goedkeuren, publiceren. De superprompt wil alleen het reviewscherm.
-9. **Kosten nu:** Gemini Flash-Lite (betaald, plafond € 5 per maand), Google TTS (gratis deel), YouTube API (gratis).
+9. **Kosten nu:** Gemini Flash-Lite (betaald, plafond € 100 per maand (24-11-2026)), Google TTS (gratis deel), YouTube API (gratis).
 10. **Privacy:** ~~Maes nooit met gezicht, stem, naam of gamertag~~ (vervallen 16-11-2026: gezicht, stem en gamertag mogen, nooit echte naam/school/woonplaats); vaste PS5-hoeken worden vervaagd; RLS per gezin; tokens versleuteld op de pc.
 
 ## 2. Botsingen (eerst beslissen)
